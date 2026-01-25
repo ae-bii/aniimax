@@ -1,6 +1,6 @@
 name, cost, sell_value, production_time, yield, energy, facility_level
 wheat, 0, 1, 90, 10, 809, 1
-potato, 2, 17, 450, 3, 5390, 1
+potatoes, 2, 17, 450, 3, 5390, 1
 sugarcane, 8, 32, 1350, 5, 6800, 2
 rice_plant, 5, 10, 810, 10, 3690, 2
 
