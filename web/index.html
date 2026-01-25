@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aniimax - Aniimo Production Optimizer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>aniimax</h1>
+        <button class="toggle-button" onclick="toggleTheme()" id="themeToggle">light</button>
+    </header>
+    <p class="subtitle">aniimo homeland production optimizer</p>
+
+    <div class="container">
+
+        <main>
+            <section class="config-section">
+                <h2>Configuration</h2>
+                
+                <div class="config-group">
+                    <div class="input-row">
+                        <div class="input-field">
+                            <label for="target">Target Amount</label>
+                            <input type="number" id="target" value="1000" min="1">
+                        </div>
+                        <div class="input-field">
+                            <label for="currency">Currency</label>
+                            <select id="currency">
+                                <option value="coins" selected>Coins</option>
+                                <option value="coupons">Coupons</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="input-row">
+                        <div class="input-field">
+                            <label for="energy-cost">Energy Cost/min</label>
+                            <input type="number" id="energy-cost" value="0" min="0" step="0.1">
+                        </div>
+                        <div class="input-field checkbox-field">
+                            <label>
+                                <input type="checkbox" id="energy-self-sufficient">
+                                Energy Self-Sufficient
+                            </label>
+                            <p class="hint small">Produce items to consume for energy instead of buying</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3>Facilities</h3>
+                <p class="hint">Set the count and level for each facility you have.</p>
+                
+                <div class="facilities-grid">
+                    <div class="facility-card">
+                        <h4>Farmland</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="farmland-count">Count</label>
+                                <input type="number" id="farmland-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="farmland-level">Level</label>
+                                <input type="number" id="farmland-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Woodland</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="woodland-count">Count</label>
+                                <input type="number" id="woodland-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="woodland-level">Level</label>
+                                <input type="number" id="woodland-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Mineral Pile</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="mineral-pile-count">Count</label>
+                                <input type="number" id="mineral-pile-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="mineral-pile-level">Level</label>
+                                <input type="number" id="mineral-pile-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Carousel Mill</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="carousel-mill-count">Count</label>
+                                <input type="number" id="carousel-mill-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="carousel-mill-level">Level</label>
+                                <input type="number" id="carousel-mill-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Jukebox Dryer</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="jukebox-dryer-count">Count</label>
+                                <input type="number" id="jukebox-dryer-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="jukebox-dryer-level">Level</label>
+                                <input type="number" id="jukebox-dryer-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Crafting Table</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="crafting-table-count">Count</label>
+                                <input type="number" id="crafting-table-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="crafting-table-level">Level</label>
+                                <input type="number" id="crafting-table-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Dance Pad Polisher</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="dance-pad-polisher-count">Count</label>
+                                <input type="number" id="dance-pad-polisher-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="dance-pad-polisher-level">Level</label>
+                                <input type="number" id="dance-pad-polisher-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="facility-card">
+                        <h4>Aniipod Maker</h4>
+                        <div class="facility-inputs">
+                            <div class="input-field">
+                                <label for="aniipod-maker-count">Count</label>
+                                <input type="number" id="aniipod-maker-count" value="1" min="0" max="20">
+                            </div>
+                            <div class="input-field">
+                                <label for="aniipod-maker-level">Level</label>
+                                <input type="number" id="aniipod-maker-level" value="1" min="1" max="10">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="optimize-btn" class="optimize-btn">
+                    <span class="btn-text">Calculate Optimal Path</span>
+                    <span class="btn-loading" style="display: none;">Calculating...</span>
+                </button>
+            </section>
+
+            <section class="results-section" id="results-section" style="display: none;">
+                <h2>Results</h2>
+                
+                <div id="error-message" class="error-message" style="display: none;"></div>
+                
+                <div id="results-content">
+                    <div class="result-summary">
+                        <h3>Optimal Production Path</h3>
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <span class="summary-label">Total Profit</span>
+                                <span class="summary-value" id="total-profit">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Total Time</span>
+                                <span class="summary-value" id="total-time">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Total Energy</span>
+                                <span class="summary-value" id="total-energy">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Items Produced</span>
+                                <span class="summary-value" id="items-produced">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="production-steps">
+                        <h3>Production Steps</h3>
+                        <div id="steps-list" class="steps-list"></div>
+                    </div>
+
+                    <div class="all-options">
+                        <h3>All Options Ranked</h3>
+                        <p class="hint">Sorted by <span id="sort-criteria">time efficiency</span></p>
+                        <div class="table-wrapper">
+                            <table id="options-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Facility</th>
+                                        <th>Profit/sec</th>
+                                        <th>Profit/energy</th>
+                                        <th>Time/unit</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="options-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>aniimax v<span id="version">-</span> | <a href="https://github.com/ae-bii/aniimax" target="_blank">github</a></p>
+        </footer>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            const body = document.body;
+            const button = document.getElementById('themeToggle');
+            body.classList.toggle('light');
+            if (body.classList.contains('light')) {
+                button.textContent = 'dark';
+            } else {
+                button.textContent = 'light';
+            }
+        }
+    </script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
