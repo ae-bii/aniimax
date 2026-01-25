@@ -1,0 +1,581 @@
+//! Production optimization algorithms for the Aniimo optimizer.
+//!
+//! This module contains the core optimization logic that calculates
+//! production efficiencies and finds the best production paths to
+//! achieve currency goals.
+
+use std::collections::HashMap;
+
+use crate::models::{
+    EnergyItemEfficiency, FacilityCounts, ProductionEfficiency, ProductionItem, ProductionPath,
+    ProductionStep,
+};
+
+/// Calculates efficiency metrics for all production items.
+///
+/// This function evaluates each production item based on:
+/// - Profit per second (time efficiency)
+/// - Profit per energy unit (energy efficiency)
+/// - Total production time including raw material gathering
+/// - Parallel production capability based on facility counts
+///
+/// # Arguments
+///
+/// * `items` - All available production items
+/// * `target_currency` - The currency to optimize for ("coins" or "coupons")
+/// * `facility_counts` - Configuration for each facility (count and level)
+///
+/// # Returns
+///
+/// A vector of [`ProductionEfficiency`] structs for all valid production options.
+///
+/// # Filtering
+///
+/// Items are filtered out if:
+/// - Their facility level exceeds the specific facility's level
+/// - They don't produce the target currency
+/// - Their required raw materials aren't available at the raw material facility's level
+///
+/// # Example
+///
+/// ```no_run
+/// use aniimax::optimizer::calculate_efficiencies;
+/// use aniimax::models::FacilityCounts;
+/// use aniimax::data::load_all_data;
+/// use std::path::Path;
+///
+/// let items = load_all_data(Path::new("data")).unwrap();
+/// let counts = FacilityCounts {
+///     farmland: (4, 3),        // 4 farmlands at level 3
+///     woodland: (1, 2),        // 1 woodland at level 2
+///     mineral_pile: (1, 1),    // 1 mineral pile at level 1
+///     carousel_mill: (2, 2),   // 2 carousel mills at level 2
+///     jukebox_dryer: (1, 1),
+///     crafting_table: (1, 1),
+///     dance_pad_polisher: (1, 1),
+///     aniipod_maker: (1, 1),
+/// };
+///
+/// let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+/// ```
+pub fn calculate_efficiencies(
+    items: &[ProductionItem],
+    target_currency: &str,
+    facility_counts: &FacilityCounts,
+) -> Vec<ProductionEfficiency> {
+    let item_map: HashMap<String, &ProductionItem> =
+        items.iter().map(|i| (i.name.clone(), i)).collect();
+
+    let mut efficiencies = Vec::new();
+
+    for item in items {
+        // Filter by facility level (check if this facility can produce this item)
+        if !facility_counts.can_produce(&item.facility, item.facility_level) {
+            continue;
+        }
+
+        // Filter by target currency
+        if item.sell_currency != target_currency {
+            continue;
+        }
+
+        let (total_time, total_energy, raw_cost, requires_raw, raw_facility) =
+            if let Some(ref raw_mat) = item.raw_materials {
+                // This is a processed item - need to account for raw material production
+                if let Some(raw_item) = item_map.get(raw_mat) {
+                    // Check if raw material is available at its facility's level
+                    if !facility_counts.can_produce(&raw_item.facility, raw_item.facility_level) {
+                        continue;
+                    }
+
+                    let required = item.required_amount.unwrap_or(1) as f64;
+                    let raw_yield = raw_item.yield_amount as f64;
+                    let batches_needed = (required / raw_yield).ceil();
+
+                    // Calculate time considering parallel production
+                    let raw_facility_count = facility_counts.get_count(&raw_item.facility) as f64;
+                    let processing_facility_count = facility_counts.get_count(&item.facility) as f64;
+
+                    // Raw material time (parallelized)
+                    let raw_time_per_batch = raw_item.production_time;
+                    let raw_batches_parallel = (batches_needed / raw_facility_count).ceil();
+                    let raw_time = raw_time_per_batch * raw_batches_parallel;
+
+                    // Processing time (parallelized)
+                    let processing_time = item.production_time / processing_facility_count;
+
+                    let raw_energy = raw_item.energy.map(|e| e * batches_needed);
+                    let raw_cost_val = raw_item.cost.unwrap_or(0.0) * batches_needed;
+
+                    // Total time is sequential: gather raw materials, then process
+                    let total_time = raw_time + processing_time;
+                    let total_energy = match (raw_energy, item.energy) {
+                        (Some(re), Some(pe)) => Some(re + pe),
+                        (Some(re), None) => Some(re),
+                        (None, Some(pe)) => Some(pe),
+                        (None, None) => None,
+                    };
+
+                    (
+                        total_time,
+                        total_energy,
+                        raw_cost_val,
+                        Some(raw_mat.clone()),
+                        Some(raw_item.facility.clone()),
+                    )
+                } else {
+                    // Raw material not found, skip
+                    continue;
+                }
+            } else {
+                // This is a raw material - direct production
+                let facility_count = facility_counts.get_count(&item.facility) as f64;
+                let time_per_batch = item.production_time;
+                // With parallel facilities, effective time per yield is reduced
+                let effective_time_per_yield =
+                    time_per_batch / (item.yield_amount as f64 * facility_count);
+                // Energy per batch (not per unit) to match units_needed which counts batches
+                let energy_per_batch = item.energy;
+                let cost_per_batch = item.cost.unwrap_or(0.0);
+
+                (effective_time_per_yield, energy_per_batch, cost_per_batch, None, None)
+            };
+
+        let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
+        let profit_per_second = if total_time > 0.0 {
+            net_profit / total_time
+        } else {
+            0.0
+        };
+        let profit_per_energy = total_energy.map(|e| if e > 0.0 { net_profit / e } else { 0.0 });
+
+        // Calculate effective profit per second considering all parallel facilities
+        let facility_count = facility_counts.get_count(&item.facility) as f64;
+        let effective_profit_per_second = if item.raw_materials.is_some() {
+            // For processed items, parallelization is more complex
+            profit_per_second
+        } else {
+            // For raw materials, multiply by facility count
+            profit_per_second * facility_count
+        };
+
+        efficiencies.push(ProductionEfficiency {
+            item: item.clone(),
+            profit_per_second,
+            profit_per_energy,
+            total_time_per_unit: total_time,
+            total_energy_per_unit: total_energy,
+            requires_raw,
+            raw_cost,
+            raw_facility,
+            effective_profit_per_second,
+        });
+    }
+
+    efficiencies
+}
+
+/// Finds the optimal production path to achieve a target currency amount.
+///
+/// This function selects the most efficient production option based on
+/// the optimization mode (time or energy) and calculates the complete
+/// production path including raw material gathering.
+///
+/// # Arguments
+///
+/// * `efficiencies` - Pre-calculated efficiency metrics for all items
+/// * `target_amount` - Target amount of currency to produce
+/// * `optimize_energy` - If true, optimize for energy efficiency; otherwise optimize for time
+/// * `energy_cost_per_min` - Cost of energy per minute (used when optimizing for time)
+/// * `facility_counts` - Configuration for each facility (count and level)
+///
+/// # Returns
+///
+/// An `Option<ProductionPath>` containing the optimal path, or `None` if no valid path exists.
+///
+/// # Optimization Modes
+///
+/// - **Time optimization** (default): Maximizes profit per second, considering energy costs
+/// - **Energy optimization**: Maximizes profit per energy unit consumed
+///
+/// # Example
+///
+/// ```no_run
+/// use aniimax::optimizer::{calculate_efficiencies, find_best_production_path};
+/// use aniimax::models::FacilityCounts;
+/// use aniimax::data::load_all_data;
+/// use std::path::Path;
+///
+/// let items = load_all_data(Path::new("data")).unwrap();
+/// let counts = FacilityCounts {
+///     farmland: (4, 3),        // 4 farmlands at level 3
+///     woodland: (1, 2),        // 1 woodland at level 2
+///     mineral_pile: (1, 1),    // 1 mineral pile at level 1
+///     carousel_mill: (2, 2),   // 2 carousel mills at level 2
+///     jukebox_dryer: (1, 1),
+///     crafting_table: (1, 1),
+///     dance_pad_polisher: (1, 1),
+///     aniipod_maker: (1, 1),
+/// };
+///
+/// let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+/// let path = find_best_production_path(&efficiencies, 5000.0, false, 0.0, &counts);
+/// ```
+pub fn find_best_production_path(
+    efficiencies: &[ProductionEfficiency],
+    target_amount: f64,
+    optimize_energy: bool,
+    energy_cost_per_min: f64,
+    facility_counts: &FacilityCounts,
+) -> Option<ProductionPath> {
+    if efficiencies.is_empty() {
+        return None;
+    }
+
+    // Sort by efficiency metric
+    let mut sorted = efficiencies.to_vec();
+    if optimize_energy {
+        sorted.sort_by(|a, b| {
+            let a_eff = a.profit_per_energy.unwrap_or(0.0);
+            let b_eff = b.profit_per_energy.unwrap_or(0.0);
+            b_eff
+                .partial_cmp(&a_eff)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    } else {
+        // When optimizing for time, use effective profit per second (considers parallelization)
+        sorted.sort_by(|a, b| {
+            let a_energy_cost = a.total_energy_per_unit.unwrap_or(0.0) * energy_cost_per_min / 60.0;
+            let b_energy_cost = b.total_energy_per_unit.unwrap_or(0.0) * energy_cost_per_min / 60.0;
+            let a_net =
+                a.effective_profit_per_second - (a_energy_cost / a.total_time_per_unit.max(1.0));
+            let b_net =
+                b.effective_profit_per_second - (b_energy_cost / b.total_time_per_unit.max(1.0));
+            b_net
+                .partial_cmp(&a_net)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    // Get the best option
+    let best = &sorted[0];
+
+    // Calculate how many units we need to produce
+    let profit_per_unit = best.item.sell_value * best.item.yield_amount as f64 - best.raw_cost;
+    let units_needed = (target_amount / profit_per_unit).ceil() as u32;
+
+    let mut steps = Vec::new();
+
+    // Get facility count for the main production
+    let main_facility_count = facility_counts.get_count(&best.item.facility);
+
+    // Add raw material step if needed
+    if let Some(ref raw_name) = best.requires_raw {
+        let raw_amount_needed = best.item.required_amount.unwrap_or(1) * units_needed;
+        let raw_facility = best.raw_facility.as_deref().unwrap_or("Unknown");
+        let raw_facility_count = facility_counts.get_count(raw_facility);
+        steps.push(ProductionStep {
+            item_name: raw_name.clone(),
+            facility: format!("{} (x{})", raw_facility, raw_facility_count),
+            quantity: raw_amount_needed,
+            time: 0.0, // Time is included in total
+            energy: None,
+            profit_contribution: 0.0,
+        });
+    }
+
+    // Add production step
+    steps.push(ProductionStep {
+        item_name: best.item.name.clone(),
+        facility: format!("{} (x{})", best.item.facility, main_facility_count),
+        quantity: units_needed,
+        time: best.total_time_per_unit * units_needed as f64,
+        energy: best
+            .total_energy_per_unit
+            .map(|e| e * units_needed as f64),
+        profit_contribution: profit_per_unit * units_needed as f64,
+    });
+
+    // Calculate actual time with parallelization
+    // Note: units_needed represents number of production batches
+    let total_time = if best.requires_raw.is_some() {
+        // For processed items, time is already calculated with parallelization
+        best.total_time_per_unit * units_needed as f64 / main_facility_count as f64
+    } else {
+        // For raw materials, units_needed is already the number of batches
+        best.item.production_time * (units_needed as f64 / main_facility_count as f64).ceil()
+    };
+
+    let total_energy = best
+        .total_energy_per_unit
+        .map(|e| e * units_needed as f64);
+
+    Some(ProductionPath {
+        steps,
+        total_time,
+        total_energy,
+        total_profit: profit_per_unit * units_needed as f64,
+        currency: best.item.sell_currency.clone(),
+        items_produced: units_needed * best.item.yield_amount,
+        is_energy_self_sufficient: false,
+        energy_items_produced: None,
+        energy_item_name: None,
+    })
+}
+
+/// Calculates efficiency metrics for items that can be consumed for energy.
+///
+/// Only items with a non-None energy field can be consumed for energy.
+/// This is used for energy self-sufficient mode.
+pub fn calculate_energy_efficiencies(
+    items: &[ProductionItem],
+    facility_counts: &FacilityCounts,
+) -> Vec<EnergyItemEfficiency> {
+    let mut efficiencies = Vec::new();
+
+    for item in items {
+        // Only raw materials (no raw_materials field) can be efficiently produced for energy
+        // Processed items require raw materials which have opportunity cost
+        if item.raw_materials.is_some() {
+            continue;
+        }
+
+        // Must have energy value to be consumable
+        let energy_per_batch = match item.energy {
+            Some(e) if e > 0.0 => e,
+            _ => continue,
+        };
+
+        // Filter by facility level
+        if !facility_counts.can_produce(&item.facility, item.facility_level) {
+            continue;
+        }
+
+        let facility_count = facility_counts.get_count(&item.facility) as f64;
+        let time_per_batch = item.production_time / facility_count;
+        let energy_per_second = energy_per_batch / time_per_batch;
+        let cost_per_batch = item.cost.unwrap_or(0.0);
+
+        efficiencies.push(EnergyItemEfficiency {
+            item: item.clone(),
+            energy_per_second,
+            time_per_batch,
+            energy_per_batch,
+            cost_per_batch,
+        });
+    }
+
+    // Sort by energy per second (best first)
+    efficiencies.sort_by(|a, b| {
+        b.energy_per_second
+            .partial_cmp(&a.energy_per_second)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    efficiencies
+}
+
+/// Finds the optimal production path with energy self-sufficiency.
+///
+/// This function calculates a production plan where:
+/// - Some facilities produce items for profit (to sell)
+/// - Some facilities produce items for energy (to consume)
+/// - Total energy from consumed items >= energy consumed during production
+///
+/// # Arguments
+///
+/// * `profit_efficiencies` - Efficiency metrics for profit items
+/// * `energy_efficiencies` - Efficiency metrics for energy items
+/// * `target_amount` - Target profit to achieve
+/// * `energy_cost_per_min` - Energy consumed per minute of production
+/// * `facility_counts` - Configuration for each facility
+///
+/// # Returns
+///
+/// An `Option<ProductionPath>` with the optimal self-sufficient plan.
+pub fn find_self_sufficient_path(
+    profit_efficiencies: &[ProductionEfficiency],
+    energy_efficiencies: &[EnergyItemEfficiency],
+    target_amount: f64,
+    energy_cost_per_min: f64,
+    facility_counts: &FacilityCounts,
+) -> Option<ProductionPath> {
+    if profit_efficiencies.is_empty() {
+        return None;
+    }
+
+    // If no energy cost, just use the simple path
+    if energy_cost_per_min <= 0.0 {
+        return find_best_production_path(
+            profit_efficiencies,
+            target_amount,
+            false,
+            0.0,
+            facility_counts,
+        );
+    }
+
+    // If no energy items available, can't be self-sufficient
+    if energy_efficiencies.is_empty() {
+        return None;
+    }
+
+    // Sort profit items by profit per second
+    let mut sorted_profit = profit_efficiencies.to_vec();
+    sorted_profit.sort_by(|a, b| {
+        b.effective_profit_per_second
+            .partial_cmp(&a.effective_profit_per_second)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let best_profit = &sorted_profit[0];
+    let best_energy = &energy_efficiencies[0]; // Already sorted
+
+    // Calculate profit per batch for the profit item
+    let profit_per_batch = best_profit.item.sell_value * best_profit.item.yield_amount as f64
+        - best_profit.raw_cost;
+
+    // Get facility counts
+    let profit_facility_count = facility_counts.get_count(&best_profit.item.facility) as f64;
+    let energy_facility_count = facility_counts.get_count(&best_energy.item.facility) as f64;
+
+    // Energy rate (per second)
+    let energy_rate = energy_cost_per_min / 60.0;
+
+    // Energy production rate from the best energy item (with all facilities)
+    let energy_production_rate = best_energy.energy_per_second * energy_facility_count;
+
+    // Check if we can even be self-sufficient
+    // We need: energy_production_rate > energy_rate (otherwise we can never catch up)
+    if energy_production_rate <= energy_rate {
+        // Can't be self-sufficient with current setup
+        return None;
+    }
+
+    // Calculate the optimal split
+    // Let T_profit = time producing profit items
+    // Let T_energy = time producing energy items
+    // Let T_total = T_profit + T_energy
+    //
+    // Constraints:
+    // 1. Profit >= target: profit_rate * T_profit >= target
+    // 2. Energy balance: energy_produced >= energy_consumed
+    //    best_energy.energy_per_second * energy_facility_count * T_energy >= energy_rate * T_total
+    //
+    // From constraint 2:
+    // E * T_energy >= R * (T_profit + T_energy)
+    // E * T_energy >= R * T_profit + R * T_energy
+    // T_energy * (E - R) >= R * T_profit
+    // T_energy >= T_profit * R / (E - R)
+
+    // Calculate time needed for profit production
+    let batches_for_profit = (target_amount / profit_per_batch).ceil();
+
+    // Time to produce profit items (with parallelization)
+    let time_for_profit = if best_profit.requires_raw.is_some() {
+        best_profit.total_time_per_unit * batches_for_profit / profit_facility_count
+    } else {
+        best_profit.item.production_time * (batches_for_profit / profit_facility_count).ceil()
+    };
+
+    // Calculate energy batches needed using the formula:
+    // Energy needed = (T_profit + T_energy) * R
+    // Energy produced = B * E  (where B = batches, E = energy per batch)
+    // T_energy = production_time * ceil(B / facility_count)
+    //
+    // For self-sufficiency: B * E >= (T_profit + T_energy) * R
+    // 
+    // Let's solve iteratively since ceiling makes it non-linear
+    let production_time_per_batch = best_energy.item.production_time;
+    
+    // Start with minimum batches and increase until we have enough energy
+    let mut energy_batches = 1u32;
+    loop {
+        let rounds = (energy_batches as f64 / energy_facility_count).ceil();
+        let actual_energy_time = production_time_per_batch * rounds;
+        let total_time = time_for_profit + actual_energy_time;
+        let energy_needed = total_time * energy_rate;
+        let energy_produced = energy_batches as f64 * best_energy.energy_per_batch;
+        
+        if energy_produced >= energy_needed {
+            break;
+        }
+        
+        energy_batches += 1;
+        
+        // Safety check to prevent infinite loop
+        if energy_batches > 10000 {
+            return None;
+        }
+    }
+
+    // Calculate actual times with the determined batch counts
+    let energy_rounds = (energy_batches as f64 / energy_facility_count).ceil();
+    let actual_energy_production_time = production_time_per_batch * energy_rounds;
+    let total_time = time_for_profit + actual_energy_production_time;
+    let total_energy_needed = total_time * energy_rate;
+
+    // Build the production steps
+    let mut steps = Vec::new();
+
+    // Add energy production step
+    steps.push(ProductionStep {
+        item_name: format!("{} (for energy)", best_energy.item.name),
+        facility: format!(
+            "{} (x{})",
+            best_energy.item.facility,
+            facility_counts.get_count(&best_energy.item.facility)
+        ),
+        quantity: energy_batches,
+        time: actual_energy_production_time,
+        energy: Some(energy_batches as f64 * best_energy.energy_per_batch),
+        profit_contribution: -(energy_batches as f64 * best_energy.cost_per_batch), // Cost of seeds
+    });
+
+    // Add raw material step for profit item if needed
+    if let Some(ref raw_name) = best_profit.requires_raw {
+        let raw_amount_needed =
+            best_profit.item.required_amount.unwrap_or(1) * batches_for_profit as u32;
+        let raw_facility = best_profit.raw_facility.as_deref().unwrap_or("Unknown");
+        let raw_facility_count = facility_counts.get_count(raw_facility);
+        steps.push(ProductionStep {
+            item_name: raw_name.clone(),
+            facility: format!("{} (x{})", raw_facility, raw_facility_count),
+            quantity: raw_amount_needed,
+            time: 0.0,
+            energy: None,
+            profit_contribution: 0.0,
+        });
+    }
+
+    // Add profit production step
+    steps.push(ProductionStep {
+        item_name: format!("{} (for profit)", best_profit.item.name),
+        facility: format!(
+            "{} (x{})",
+            best_profit.item.facility,
+            facility_counts.get_count(&best_profit.item.facility)
+        ),
+        quantity: batches_for_profit as u32,
+        time: time_for_profit,
+        energy: None,
+        profit_contribution: profit_per_batch * batches_for_profit,
+    });
+
+    // Calculate actual profit (minus seed costs for energy items)
+    let energy_seed_cost = energy_batches as f64 * best_energy.cost_per_batch;
+    let gross_profit = profit_per_batch * batches_for_profit;
+    let net_profit = gross_profit - energy_seed_cost;
+
+    Some(ProductionPath {
+        steps,
+        total_time,
+        total_energy: Some(total_energy_needed),
+        total_profit: net_profit,
+        currency: best_profit.item.sell_currency.clone(),
+        items_produced: batches_for_profit as u32 * best_profit.item.yield_amount,
+        is_energy_self_sufficient: true,
+        energy_items_produced: Some(energy_batches * best_energy.item.yield_amount),
+        energy_item_name: Some(best_energy.item.name.clone()),
+    })
+}
