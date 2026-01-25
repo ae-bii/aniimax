@@ -1,0 +1,2 @@
+name, raw_materials, required_amount, sell_value, production_time, facility_level
+sf_basic_exp_gem, sugarcane, 10, 340, 600, 1

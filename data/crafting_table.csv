@@ -1,0 +1,2 @@
+name, raw_materials, required_amount, sell_value, production_time, facility_level
+wood_sculpture, willow, 5, 345, 108, 1

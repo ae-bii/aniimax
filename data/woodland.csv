@@ -1,0 +1,3 @@
+name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level
+chestnut, 16, coins, 90, 2700, 4, 10560, 1
+willow, 1, coupons, 53, 1350, 3, NULL, 1
