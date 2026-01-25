@@ -70,6 +70,7 @@ fn test_production_item_creation() {
         yield_amount: 10,
         energy: Some(809.0),
         facility_level: 1,
+        module_requirement: None,
     };
 
     assert_eq!(item.name, "wheat");
@@ -93,6 +94,7 @@ fn test_processed_item_creation() {
         yield_amount: 1,
         energy: Some(3000.0),
         facility_level: 1,
+        module_requirement: None,
     };
 
     assert_eq!(item.name, "wheatmeal");

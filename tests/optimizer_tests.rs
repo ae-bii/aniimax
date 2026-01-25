@@ -1,7 +1,7 @@
 //! Tests for production optimization algorithms.
 
 use aniimax::data::load_all_data;
-use aniimax::models::FacilityCounts;
+use aniimax::models::{FacilityCounts, ModuleLevels};
 use aniimax::optimizer::{calculate_efficiencies, find_best_production_path};
 use std::path::Path;
 
@@ -18,6 +18,10 @@ fn default_facility_counts() -> FacilityCounts {
     }
 }
 
+fn default_module_levels() -> ModuleLevels {
+    ModuleLevels::default()
+}
+
 #[test]
 fn test_calculate_efficiencies_coins() {
     let data_dir = Path::new("data");
@@ -27,8 +31,9 @@ fn test_calculate_efficiencies_coins() {
 
     let items = load_all_data(data_dir).expect("Failed to load data");
     let counts = default_facility_counts();
+    let modules = default_module_levels();
 
-    let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+    let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 
     assert!(!efficiencies.is_empty(), "Should find some coin-producing items");
 
@@ -48,8 +53,9 @@ fn test_calculate_efficiencies_coupons() {
 
     let items = load_all_data(data_dir).expect("Failed to load data");
     let counts = default_facility_counts();
+    let modules = default_module_levels();
 
-    let efficiencies = calculate_efficiencies(&items, "coupons", &counts);
+    let efficiencies = calculate_efficiencies(&items, "coupons", &counts, &modules);
 
     for eff in &efficiencies {
         assert_eq!(eff.item.sell_currency, "coupons");
@@ -64,6 +70,7 @@ fn test_calculate_efficiencies_filters_by_level() {
     }
 
     let items = load_all_data(data_dir).expect("Failed to load data");
+    let modules = default_module_levels();
 
     // Level 1 only
     let counts_level_1 = FacilityCounts {
@@ -89,8 +96,8 @@ fn test_calculate_efficiencies_filters_by_level() {
         aniipod_maker: (1, 3),
     };
 
-    let eff_level_1 = calculate_efficiencies(&items, "coins", &counts_level_1);
-    let eff_level_3 = calculate_efficiencies(&items, "coins", &counts_level_3);
+    let eff_level_1 = calculate_efficiencies(&items, "coins", &counts_level_1, &modules);
+    let eff_level_3 = calculate_efficiencies(&items, "coins", &counts_level_3, &modules);
 
     // Higher level should have at least as many options
     assert!(
@@ -116,8 +123,9 @@ fn test_find_best_production_path() {
 
     let items = load_all_data(data_dir).expect("Failed to load data");
     let counts = default_facility_counts();
+    let modules = default_module_levels();
 
-    let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+    let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
     let path = find_best_production_path(&efficiencies, 1000.0, false, 0.0, &counts);
 
     assert!(path.is_some(), "Should find a production path");
@@ -138,8 +146,9 @@ fn test_find_best_production_path_energy_optimization() {
 
     let items = load_all_data(data_dir).expect("Failed to load data");
     let counts = default_facility_counts();
+    let modules = default_module_levels();
 
-    let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+    let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 
     // Time optimization
     let path_time = find_best_production_path(&efficiencies, 1000.0, false, 0.0, &counts);
@@ -173,6 +182,7 @@ fn test_parallel_production_increases_efficiency() {
     }
 
     let items = load_all_data(data_dir).expect("Failed to load data");
+    let modules = default_module_levels();
 
     // Single facility
     let counts_single = FacilityCounts {
@@ -198,8 +208,8 @@ fn test_parallel_production_increases_efficiency() {
         aniipod_maker: (2, 3),
     };
 
-    let eff_single = calculate_efficiencies(&items, "coins", &counts_single);
-    let eff_multi = calculate_efficiencies(&items, "coins", &counts_multi);
+    let eff_single = calculate_efficiencies(&items, "coins", &counts_single, &modules);
+    let eff_multi = calculate_efficiencies(&items, "coins", &counts_multi, &modules);
 
     let path_single =
         find_best_production_path(&eff_single, 5000.0, false, 0.0, &counts_single);
