@@ -16,6 +16,7 @@ A command-line tool, Rust library, and **web application** for optimizing produc
 - **Parallel Production**: Account for multiple facilities running simultaneously
 - **Multi-Currency Support**: Optimize for either coins or coupons
 - **Per-Facility Level Filtering**: Set different levels for each facility type
+- **Item Upgrade Modules**: Support for module-unlocked items (ecological, kitchen, mineral, crafting)
 - **Web Interface**: Use directly in your browser with WebAssembly
 
 ## Installation
@@ -55,6 +56,17 @@ cargo run --release -- --target 5000 --currency coins \
     --farmland 4 --farmland-level 3 \
     --woodland 2 --woodland-level 2 \
     --carousel-mill 2 --carousel-mill-level 2
+```
+
+### With Item Upgrade Modules
+
+Enable upgraded items by specifying your module levels:
+
+```bash
+cargo run --release -- --target 5000 --currency coins \
+    --farmland-level 3 \
+    --ecological-module 1 \
+    --crafting-module 1
 ```
 
 ### Energy Optimization
@@ -98,6 +110,15 @@ Options:
       --mineral-pile-level <N>       Mineral Pile facility level [default: 1]
       --carousel-mill-level <N>      Carousel Mill facility level [default: 1]
       --jukebox-dryer-level <N>      Jukebox Dryer facility level [default: 1]
+      --crafting-table-level <N>     Crafting Table facility level [default: 1]
+      --dance-pad-polisher-level <N> Dance Pad Polisher facility level [default: 1]
+      --aniipod-maker-level <N>      Aniipod Maker facility level [default: 1]
+
+  Item upgrade modules:
+      --ecological-module <N>        Ecological Module level (unlocks high-speed crops) [default: 0]
+      --kitchen-module <N>           Kitchen Module level (unlocks super wheatmeal) [default: 0]
+      --mineral-detector <N>         Mineral Detector level (unlocks high-speed rock) [default: 0]
+      --crafting-module <N>          Crafting Module level (unlocks advanced crafts) [default: 0]
       --crafting-table-level <N>     Crafting Table facility level [default: 1]
       --dance-pad-polisher-level <N> Dance Pad Polisher facility level [default: 1]
       --aniipod-maker-level <N>      Aniipod Maker facility level [default: 1]
@@ -161,7 +182,7 @@ This crate can also be used as a library:
 use aniimax::{
     data::load_all_data,
     optimizer::{calculate_efficiencies, find_best_production_path},
-    models::FacilityCounts,
+    models::{FacilityCounts, ModuleLevels},
     display::display_results,
 };
 use std::path::Path;
@@ -182,8 +203,16 @@ fn main() {
         aniipod_maker: (1, 1),
     };
 
-    // Calculate efficiencies (per-facility levels are used automatically)
-    let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+    // Define item upgrade module levels (0 = not unlocked)
+    let modules = ModuleLevels {
+        ecological_module: 1,    // Unlocks high-speed wheat
+        kitchen_module: 0,
+        mineral_detector: 0,
+        crafting_module: 1,      // Unlocks advanced wood sculpture
+    };
+
+    // Calculate efficiencies (per-facility levels and modules are used automatically)
+    let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 
     // Find optimal path
     if let Some(path) = find_best_production_path(&efficiencies, 5000.0, false, 0.0, &counts) {
