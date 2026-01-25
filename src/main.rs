@@ -10,7 +10,7 @@ use std::path::Path;
 use aniimax::{
     data::load_all_data,
     display::{display_energy_recommendations, display_results},
-    models::FacilityCounts,
+    models::{FacilityCounts, ModuleLevels},
     optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_self_sufficient_path},
 };
 
@@ -106,6 +106,23 @@ struct Args {
     /// Aniipod Maker facility level
     #[arg(long, default_value = "1")]
     aniipod_maker_level: u32,
+
+    // ========== Item Upgrade Modules ==========
+    /// Ecological Module level (1=high-speed wheat, 2=high-speed willow)
+    #[arg(long, default_value = "0")]
+    ecological_module: u32,
+
+    /// Kitchen Module level (2=super wheatmeal)
+    #[arg(long, default_value = "0")]
+    kitchen_module: u32,
+
+    /// Mineral Detector level (1=high-speed rock)
+    #[arg(long, default_value = "0")]
+    mineral_detector: u32,
+
+    /// Crafting Module level (1=advanced wood sculpture)
+    #[arg(long, default_value = "0")]
+    crafting_module: u32,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -130,6 +147,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         aniipod_maker: (args.aniipod_maker, args.aniipod_maker_level),
     };
 
+    // Build module levels from args
+    let module_levels = ModuleLevels {
+        ecological_module: args.ecological_module,
+        kitchen_module: args.kitchen_module,
+        mineral_detector: args.mineral_detector,
+        crafting_module: args.crafting_module,
+    };
+
     println!("Aniimax - Aniimo Production Optimizer");
     println!("================================================================");
     println!();
@@ -152,6 +177,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Dance Pad Polisher: {} x Lv.{}", args.dance_pad_polisher, args.dance_pad_polisher_level);
     println!("  Aniipod Maker:      {} x Lv.{}", args.aniipod_maker, args.aniipod_maker_level);
 
+    println!();
+    println!("Item Modules:");
+    println!("  Ecological Module:  Lv.{}", args.ecological_module);
+    println!("  Kitchen Module:     Lv.{}", args.kitchen_module);
+    println!("  Mineral Detector:   Lv.{}", args.mineral_detector);
+    println!("  Crafting Module:    Lv.{}", args.crafting_module);
+
     // Load all data
     let items = load_all_data(data_dir)?;
     println!();
@@ -159,7 +191,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Calculate efficiencies
     let efficiencies =
-        calculate_efficiencies(&items, &args.currency, &facility_counts);
+        calculate_efficiencies(&items, &args.currency, &facility_counts, &module_levels);
 
     if efficiencies.is_empty() {
         println!();
@@ -172,7 +204,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Find best production path based on mode
     let path_result = if args.energy_self_sufficient && args.energy_cost > 0.0 {
-        let energy_efficiencies = calculate_energy_efficiencies(&items, &facility_counts);
+        let energy_efficiencies = calculate_energy_efficiencies(&items, &facility_counts, &module_levels);
         find_self_sufficient_path(
             &efficiencies,
             &energy_efficiencies,

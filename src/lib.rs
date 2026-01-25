@@ -10,6 +10,7 @@
 //! - Energy consumption
 //! - Number of available facilities for parallel production
 //! - Facility levels
+//! - Item upgrade module levels
 //!
 //! ## Modules
 //!
@@ -24,7 +25,7 @@
 //! use aniimax::{
 //!     data::load_all_data,
 //!     optimizer::{calculate_efficiencies, find_best_production_path},
-//!     models::FacilityCounts,
+//!     models::{FacilityCounts, ModuleLevels},
 //!     display::display_results,
 //! };
 //! use std::path::Path;
@@ -44,8 +45,11 @@
 //!     aniipod_maker: (1, 1),
 //! };
 //!
+//! // Define module levels (0 = not unlocked)
+//! let modules = ModuleLevels::default();
+//!
 //! // Calculate efficiencies for coins
-//! let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+//! let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 //!
 //! // Find the best path to make 5000 coins
 //! if let Some(path) = find_best_production_path(&efficiencies, 5000.0, false, 0.0, &counts) {

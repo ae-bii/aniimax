@@ -27,6 +27,7 @@ use serde::Deserialize;
 ///     yield_amount: 10,
 ///     energy: Some(809.0),
 ///     facility_level: 1,
+///     module_requirement: None,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -53,6 +54,8 @@ pub struct ProductionItem {
     pub energy: Option<f64>,
     /// Minimum facility level required to produce this item
     pub facility_level: u32,
+    /// Module requirement: (module_name, required_level) - None if no module needed
+    pub module_requirement: Option<(String, u32)>,
 }
 
 /// Efficiency metrics for an item when consumed for energy.
@@ -247,6 +250,74 @@ impl FacilityCounts {
     }
 }
 
+/// Tracks the levels of item upgrade modules.
+///
+/// Modules unlock upgraded versions of items with better yields or sell values.
+///
+/// # Example
+///
+/// ```
+/// use aniimax::models::ModuleLevels;
+///
+/// let modules = ModuleLevels {
+///     ecological_module: 2,  // Unlocks high-speed wheat and willow
+///     kitchen_module: 2,     // Unlocks super wheat flour
+///     mineral_detector: 1,   // Unlocks high-speed rock
+///     crafting_module: 1,    // Unlocks advanced wood carving
+/// };
+///
+/// assert!(modules.can_use("ecological_module", 1));
+/// ```
+#[derive(Debug, Clone)]
+pub struct ModuleLevels {
+    /// Level of Ecological Module (unlocks high-speed wheat at 1, high-speed willow at 2)
+    pub ecological_module: u32,
+    /// Level of Kitchen Module (unlocks super wheat flour at 2)
+    pub kitchen_module: u32,
+    /// Level of Mineral Detector (unlocks high-speed rock at 1)
+    pub mineral_detector: u32,
+    /// Level of Crafting Module (unlocks advanced wood carving at 1)
+    pub crafting_module: u32,
+}
+
+impl Default for ModuleLevels {
+    fn default() -> Self {
+        ModuleLevels {
+            ecological_module: 0,
+            kitchen_module: 0,
+            mineral_detector: 0,
+            crafting_module: 0,
+        }
+    }
+}
+
+impl ModuleLevels {
+    /// Checks if a module meets the required level.
+    ///
+    /// # Arguments
+    ///
+    /// * `module_name` - The name of the module
+    /// * `required_level` - The level required
+    ///
+    /// # Returns
+    ///
+    /// `true` if the module level is >= required level
+    pub fn can_use(&self, module_name: &str, required_level: u32) -> bool {
+        self.get_level(module_name) >= required_level
+    }
+
+    /// Returns the level for a given module name.
+    pub fn get_level(&self, module_name: &str) -> u32 {
+        match module_name {
+            "ecological_module" => self.ecological_module,
+            "kitchen_module" => self.kitchen_module,
+            "mineral_detector" => self.mineral_detector,
+            "crafting_module" => self.crafting_module,
+            _ => 0,
+        }
+    }
+}
+
 // ============================================================================
 // CSV Row Structures
 // ============================================================================
@@ -269,6 +340,9 @@ pub struct FarmlandRow {
     pub energy: Option<f64>,
     /// Required facility level
     pub facility_level: u32,
+    /// Module requirement (format: "module_name:level" or empty)
+    #[serde(default)]
+    pub module_requirement: Option<String>,
 }
 
 /// CSV row structure for Woodland items.
@@ -291,6 +365,9 @@ pub struct WoodlandRow {
     pub energy: Option<String>,
     /// Required facility level
     pub facility_level: u32,
+    /// Module requirement (format: "module_name:level" or empty)
+    #[serde(default)]
+    pub module_requirement: Option<String>,
 }
 
 /// CSV row structure for Mineral Pile items.
@@ -309,6 +386,9 @@ pub struct MineralRow {
     pub yield_amount: u32,
     /// Required facility level
     pub facility_level: u32,
+    /// Module requirement (format: "module_name:level" or empty)
+    #[serde(default)]
+    pub module_requirement: Option<String>,
 }
 
 /// CSV row structure for processing facilities with energy tracking.
@@ -328,6 +408,9 @@ pub struct ProcessingRowWithEnergy {
     pub energy: f64,
     /// Required facility level
     pub facility_level: u32,
+    /// Module requirement (format: "module_name:level" or empty)
+    #[serde(default)]
+    pub module_requirement: Option<String>,
 }
 
 /// CSV row structure for processing facilities without energy tracking.
@@ -345,4 +428,7 @@ pub struct ProcessingRowNoEnergy {
     pub production_time: f64,
     /// Required facility level
     pub facility_level: u32,
+    /// Module requirement (format: "module_name:level" or empty)
+    #[serde(default)]
+    pub module_requirement: Option<String>,
 }

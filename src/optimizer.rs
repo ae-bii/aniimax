@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::models::{
-    EnergyItemEfficiency, FacilityCounts, ProductionEfficiency, ProductionItem, ProductionPath,
+    EnergyItemEfficiency, FacilityCounts, ModuleLevels, ProductionEfficiency, ProductionItem, ProductionPath,
     ProductionStep,
 };
 
@@ -24,6 +24,7 @@ use crate::models::{
 /// * `items` - All available production items
 /// * `target_currency` - The currency to optimize for ("coins" or "coupons")
 /// * `facility_counts` - Configuration for each facility (count and level)
+/// * `module_levels` - Configuration for each item upgrade module level
 ///
 /// # Returns
 ///
@@ -33,6 +34,7 @@ use crate::models::{
 ///
 /// Items are filtered out if:
 /// - Their facility level exceeds the specific facility's level
+/// - They require a module level that isn't met
 /// - They don't produce the target currency
 /// - Their required raw materials aren't available at the raw material facility's level
 ///
@@ -40,7 +42,7 @@ use crate::models::{
 ///
 /// ```no_run
 /// use aniimax::optimizer::calculate_efficiencies;
-/// use aniimax::models::FacilityCounts;
+/// use aniimax::models::{FacilityCounts, ModuleLevels};
 /// use aniimax::data::load_all_data;
 /// use std::path::Path;
 ///
@@ -55,13 +57,15 @@ use crate::models::{
 ///     dance_pad_polisher: (1, 1),
 ///     aniipod_maker: (1, 1),
 /// };
+/// let modules = ModuleLevels::default();
 ///
-/// let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+/// let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 /// ```
 pub fn calculate_efficiencies(
     items: &[ProductionItem],
     target_currency: &str,
     facility_counts: &FacilityCounts,
+    module_levels: &ModuleLevels,
 ) -> Vec<ProductionEfficiency> {
     let item_map: HashMap<String, &ProductionItem> =
         items.iter().map(|i| (i.name.clone(), i)).collect();
@@ -72,6 +76,13 @@ pub fn calculate_efficiencies(
         // Filter by facility level (check if this facility can produce this item)
         if !facility_counts.can_produce(&item.facility, item.facility_level) {
             continue;
+        }
+
+        // Filter by module requirement
+        if let Some((ref module_name, required_level)) = item.module_requirement {
+            if !module_levels.can_use(module_name, required_level) {
+                continue;
+            }
         }
 
         // Filter by target currency
@@ -86,6 +97,13 @@ pub fn calculate_efficiencies(
                     // Check if raw material is available at its facility's level
                     if !facility_counts.can_produce(&raw_item.facility, raw_item.facility_level) {
                         continue;
+                    }
+
+                    // Check if raw material meets module requirements
+                    if let Some((ref module_name, required_level)) = raw_item.module_requirement {
+                        if !module_levels.can_use(module_name, required_level) {
+                            continue;
+                        }
                     }
 
                     let required = item.required_amount.unwrap_or(1) as f64;
@@ -202,7 +220,7 @@ pub fn calculate_efficiencies(
 ///
 /// ```no_run
 /// use aniimax::optimizer::{calculate_efficiencies, find_best_production_path};
-/// use aniimax::models::FacilityCounts;
+/// use aniimax::models::{FacilityCounts, ModuleLevels};
 /// use aniimax::data::load_all_data;
 /// use std::path::Path;
 ///
@@ -217,8 +235,9 @@ pub fn calculate_efficiencies(
 ///     dance_pad_polisher: (1, 1),
 ///     aniipod_maker: (1, 1),
 /// };
+/// let modules = ModuleLevels::default();
 ///
-/// let efficiencies = calculate_efficiencies(&items, "coins", &counts);
+/// let efficiencies = calculate_efficiencies(&items, "coins", &counts, &modules);
 /// let path = find_best_production_path(&efficiencies, 5000.0, false, 0.0, &counts);
 /// ```
 pub fn find_best_production_path(
@@ -330,6 +349,7 @@ pub fn find_best_production_path(
 pub fn calculate_energy_efficiencies(
     items: &[ProductionItem],
     facility_counts: &FacilityCounts,
+    module_levels: &ModuleLevels,
 ) -> Vec<EnergyItemEfficiency> {
     let mut efficiencies = Vec::new();
 
@@ -349,6 +369,13 @@ pub fn calculate_energy_efficiencies(
         // Filter by facility level
         if !facility_counts.can_produce(&item.facility, item.facility_level) {
             continue;
+        }
+
+        // Filter by module requirement
+        if let Some((ref module_name, required_level)) = item.module_requirement {
+            if !module_levels.can_use(module_name, required_level) {
+                continue;
+            }
         }
 
         let facility_count = facility_counts.get_count(&item.facility) as f64;

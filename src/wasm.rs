@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use crate::models::{FacilityCounts, ProductionEfficiency, ProductionItem};
+use crate::models::{FacilityCounts, ModuleLevels, ProductionEfficiency, ProductionItem};
 use crate::optimizer::{
     calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path,
     find_self_sufficient_path,
@@ -16,6 +16,19 @@ use crate::optimizer::{
 pub struct JsFacilityConfig {
     pub count: u32,
     pub level: u32,
+}
+
+/// JavaScript-friendly module levels configuration.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct JsModuleLevels {
+    #[serde(default)]
+    pub ecological_module: u32,
+    #[serde(default)]
+    pub kitchen_module: u32,
+    #[serde(default)]
+    pub mineral_detector: u32,
+    #[serde(default)]
+    pub crafting_module: u32,
 }
 
 /// JavaScript-friendly input for optimization.
@@ -33,6 +46,8 @@ pub struct JsOptimizeInput {
     pub crafting_table: JsFacilityConfig,
     pub dance_pad_polisher: JsFacilityConfig,
     pub aniipod_maker: JsFacilityConfig,
+    #[serde(default)]
+    pub modules: JsModuleLevels,
 }
 
 /// JavaScript-friendly production step output.
@@ -116,6 +131,23 @@ fn format_time(seconds: f64) -> String {
 fn get_embedded_items() -> Vec<ProductionItem> {
     use csv::ReaderBuilder;
 
+    // Helper to parse module requirement string
+    fn parse_module_requirement(req: &Option<String>) -> Option<(String, u32)> {
+        req.as_ref().and_then(|s| {
+            let s = s.trim();
+            if s.is_empty() {
+                return None;
+            }
+            let parts: Vec<&str> = s.split(':').collect();
+            if parts.len() == 2 {
+                if let Ok(level) = parts[1].parse::<u32>() {
+                    return Some((parts[0].to_string(), level));
+                }
+            }
+            None
+        })
+    }
+
     let mut items = Vec::new();
 
     // Farmland items
@@ -137,6 +169,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: row.yield_amount,
                 energy: row.energy,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -163,6 +196,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: row.yield_amount,
                 energy,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -186,6 +220,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: row.yield_amount,
                 energy: None,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -209,6 +244,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: 1,
                 energy: Some(row.energy),
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -232,6 +268,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: 1,
                 energy: Some(row.energy),
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -241,7 +278,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
     let mut rdr = ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(crafting_data.as_bytes());
-    for result in rdr.deserialize::<crate::models::ProcessingRowWithEnergy>() {
+    for result in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>() {
         if let Ok(row) = result {
             items.push(ProductionItem {
                 name: row.name,
@@ -253,8 +290,9 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 sell_value: row.sell_value,
                 production_time: row.production_time,
                 yield_amount: 1,
-                energy: Some(row.energy),
+                energy: None,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -278,6 +316,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: 1,
                 energy: None,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -301,6 +340,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 yield_amount: 1,
                 energy: None,
                 facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
             });
         }
     }
@@ -346,8 +386,15 @@ pub fn optimize(input_json: &str) -> String {
         aniipod_maker: (input.aniipod_maker.count, input.aniipod_maker.level),
     };
 
+    let module_levels = ModuleLevels {
+        ecological_module: input.modules.ecological_module,
+        kitchen_module: input.modules.kitchen_module,
+        mineral_detector: input.modules.mineral_detector,
+        crafting_module: input.modules.crafting_module,
+    };
+
     let items = get_embedded_items();
-    let efficiencies = calculate_efficiencies(&items, &input.currency, &facility_counts);
+    let efficiencies = calculate_efficiencies(&items, &input.currency, &facility_counts, &module_levels);
 
     if efficiencies.is_empty() {
         return serde_json::to_string(&JsOptimizeResult {
@@ -376,7 +423,7 @@ pub fn optimize(input_json: &str) -> String {
     // Choose optimization mode
     let path_result = if input.energy_self_sufficient && input.energy_cost_per_min > 0.0 {
         // Energy self-sufficient mode
-        let energy_efficiencies = calculate_energy_efficiencies(&items, &facility_counts);
+        let energy_efficiencies = calculate_energy_efficiencies(&items, &facility_counts, &module_levels);
         find_self_sufficient_path(
             &efficiencies,
             &energy_efficiencies,

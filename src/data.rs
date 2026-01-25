@@ -14,6 +14,25 @@ use crate::models::{
     ProductionItem, WoodlandRow,
 };
 
+/// Parses a module requirement string (e.g., "ecological_module:1") into a tuple.
+///
+/// Returns `None` if the string is empty or invalid.
+fn parse_module_requirement(req: &Option<String>) -> Option<(String, u32)> {
+    req.as_ref().and_then(|s| {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() == 2 {
+            if let Ok(level) = parts[1].parse::<u32>() {
+                return Some((parts[0].to_string(), level));
+            }
+        }
+        None
+    })
+}
+
 /// Loads farmland crop data from a CSV file.
 ///
 /// # Arguments
@@ -27,7 +46,7 @@ use crate::models::{
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, cost, sell_value, production_time, yield, energy, facility_level`
+/// Expected columns: `name, cost, sell_value, production_time, yield, energy, facility_level, module_requirement`
 pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut rdr = ReaderBuilder::new()
@@ -49,6 +68,7 @@ pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             yield_amount: row.yield_amount,
             energy: row.energy,
             facility_level: row.facility_level,
+            module_requirement: parse_module_requirement(&row.module_requirement),
         });
     }
     Ok(items)
@@ -67,7 +87,7 @@ pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level`
+/// Expected columns: `name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level, module_requirement`
 ///
 /// # Notes
 ///
@@ -96,6 +116,7 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             yield_amount: row.yield_amount,
             energy,
             facility_level: row.facility_level,
+            module_requirement: parse_module_requirement(&row.module_requirement),
         });
     }
     Ok(items)
@@ -114,7 +135,7 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, sell_currency, sell_value, production_time, yield, facility_level`
+/// Expected columns: `name, sell_currency, sell_value, production_time, yield, facility_level, module_requirement`
 pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut rdr = ReaderBuilder::new()
@@ -136,6 +157,7 @@ pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: row.facility_level,
+            module_requirement: parse_module_requirement(&row.module_requirement),
         });
     }
     Ok(items)
@@ -155,7 +177,7 @@ pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, energy, facility_level`
+/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement`
 pub fn load_processing_with_energy(
     path: &Path,
     facility_name: &str,
@@ -180,6 +202,7 @@ pub fn load_processing_with_energy(
             yield_amount: 1,
             energy: Some(row.energy),
             facility_level: row.facility_level,
+            module_requirement: parse_module_requirement(&row.module_requirement),
         });
     }
     Ok(items)
@@ -199,7 +222,7 @@ pub fn load_processing_with_energy(
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, facility_level`
+/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, facility_level, module_requirement`
 pub fn load_processing_no_energy(
     path: &Path,
     facility_name: &str,
@@ -224,6 +247,7 @@ pub fn load_processing_no_energy(
             yield_amount: 1,
             energy: None,
             facility_level: row.facility_level,
+            module_requirement: parse_module_requirement(&row.module_requirement),
         });
     }
     Ok(items)
