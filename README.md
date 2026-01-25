@@ -174,6 +174,79 @@ wheat                      6.6667       0.1236           2s
 ...
 ```
 
+## How the Optimization Works
+
+Aniimax uses a greedy algorithm to find efficient production paths. Here's how it works:
+
+### 1. Efficiency Calculation
+
+For each producible item, the optimizer calculates key metrics:
+
+**Profit per second:**
+
+$$\text{Profit/sec} = \frac{(\text{sell\_value} \times \text{yield}) - \text{raw\_material\_cost}}{\text{total\_production\_time}}$$
+
+**Profit per energy** (for energy optimization mode):
+
+$$\text{Profit/energy} = \frac{\text{profit}}{\text{energy\_consumed}}$$
+
+**Effective profit per second** (accounts for parallel production):
+
+$$\text{Effective Profit/sec} = \frac{\text{profit}}{\text{production\_time} / \text{facility\_count}}$$
+
+For processed items (like wheatmeal from wheat), the total production time includes the time needed to grow the raw materials:
+
+$$t_{\text{total}} = t_{\text{processing}} + \frac{t_{\text{raw}} \times \text{required\_amount}}{\text{raw\_yield}}$$
+
+### 2. Item Filtering
+
+Items are filtered based on your configuration:
+
+- **Facility levels**: Only items unlocked at your facility level are considered
+- **Module levels**: Upgraded items (like high-speed wheat) require the corresponding module at the right level
+- **Raw material availability**: Processed items are only available if their raw materials can be produced
+
+### 3. Path Selection
+
+**Time Optimization Mode** (default):
+
+- Items are ranked by effective profit per second
+- The algorithm selects the most time-efficient item and calculates how many batches are needed to reach your target
+- Multiple facilities of the same type allow parallel production, reducing effective time
+
+**Energy Optimization Mode**:
+
+- Items are ranked by profit per energy unit
+- Useful when energy is your bottleneck rather than time
+
+**Energy Self-Sufficient Mode**:
+
+- First identifies the most energy-efficient consumable item (like wheat)
+- Calculates how much of that item to produce and consume for energy
+- Then produces profit items using the generated energy
+
+### 4. Parallel Production
+
+When you have multiple facilities (e.g., 4 Farmlands), production time is divided:
+
+$$t_{\text{effective}} = \frac{t_{\text{actual}}}{n_{\text{facilities}}}$$
+
+This significantly impacts which items are most efficient.
+
+### Example
+
+With 4 Farmlands at level 3, producing rice:
+
+- Rice yields 10 units in 810 seconds, selling for 10 coins each
+
+$$\text{Profit} = 10 \times 10 = 100 \text{ coins}$$
+
+$$t_{\text{effective}} = \frac{810}{4} = 202.5 \text{ seconds}$$
+
+$$\text{Profit/sec} = \frac{100}{202.5} \approx 0.49 \text{ coins/sec}$$
+
+Note: All 4 batches complete together, so you actually earn $4 \times 100 = 400$ coins in 202.5 seconds.
+
 ## Library Usage
 
 This crate can also be used as a library:
@@ -234,11 +307,13 @@ cargo doc --open
 ### Building the Web App
 
 1. Install wasm-pack:
+
    ```bash
    cargo install wasm-pack
    ```
 
 2. Build the WASM module:
+
    ```bash
    ./build-wasm.sh
    # or manually:
