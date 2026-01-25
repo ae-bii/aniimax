@@ -1,2 +1,3 @@
-name, sell_currency, sell_value, production_time, yield, facility_level
-rock, coupons, 8, 120, 4, 1
+name, sell_currency, sell_value, production_time, yield, facility_level, module_requirement
+rock, coupons, 8, 120, 4, 1,
+high_speed_rock, coupons, 8, 120, 6, 1, mineral_detector:1

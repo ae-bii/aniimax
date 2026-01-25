@@ -1,3 +1,4 @@
-name, raw_materials, required_amount, sell_value, production_time, energy, facility_level
-wheatmeal, wheat, 120, 150, 60, 8360, 1
-rice, rice_plant, 6, 75, 120, 1056, 1
+name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement
+wheatmeal, wheat, 120, 150, 60, 8360, 1,
+super_wheatmeal, wheat, 120, 210, 60, 8360, 1, kitchen_module:2
+rice_processed, rice, 6, 75, 120, 1056, 1,

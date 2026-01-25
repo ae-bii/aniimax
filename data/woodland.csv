@@ -1,3 +1,4 @@
-name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level
-chestnut, 16, coins, 90, 2700, 4, 10560, 1
-willow, 1, coupons, 53, 1350, 3, NULL, 1
+name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level, module_requirement
+chestnut, 16, coins, 90, 2700, 4, 10560, 1,
+willow, 1, coupons, 53, 1350, 3, NULL, 1,
+high_speed_willow, 1, coupons, 53, 1350, 5, NULL, 1, ecological_module:2

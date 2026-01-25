@@ -1,2 +1,2 @@
-name, raw_materials, required_amount, sell_value, production_time, energy, facility_level
-potato_chips, potato, 2, 44, 108, 910, 1
+name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement
+potato_chips, potatoes, 2, 44, 108, 910, 1,
