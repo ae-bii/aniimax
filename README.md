@@ -2,6 +2,8 @@
 
 A command-line tool, Rust library, and **web application** for optimizing production paths in Aniimo Homeland. Calculate the fastest or most energy-efficient way to produce your target amount of Homeland currency.
 
+> **Note:** This project is a work in progress. Not all in-game items are included yet, and production times are assumed to match the values displayed in-game.
+
 ## Try It Online
 
 **[Launch Aniimax Web App](https://ae-bii.github.io/aniimax/)** - No installation required!
