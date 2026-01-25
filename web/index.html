@@ -12,6 +12,7 @@
         <button class="toggle-button" onclick="toggleTheme()" id="themeToggle">light</button>
     </header>
     <p class="subtitle">aniimo homeland production optimizer</p>
+    <p class="disclaimer">Note: This project is a work in progress. Not all in-game items are included yet, and production times are assumed to match the values displayed in-game.</p>
 
     <div class="container">
 
@@ -162,6 +163,47 @@
                                 <label for="aniipod-maker-level">Level</label>
                                 <input type="number" id="aniipod-maker-level" value="1" min="1" max="10">
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3>Item Upgrade Modules</h3>
+                <p class="hint">Set the level for each upgrade module you have unlocked (0 = not unlocked).</p>
+                
+                <div class="modules-grid">
+                    <div class="module-card">
+                        <h4>Ecological Module</h4>
+                        <p class="module-hint">Unlocks high-speed wheat (Lv.1), willow (Lv.2)</p>
+                        <div class="input-field">
+                            <label for="ecological-module-level">Level</label>
+                            <input type="number" id="ecological-module-level" value="0" min="0" max="10">
+                        </div>
+                    </div>
+
+                    <div class="module-card">
+                        <h4>Kitchen Module</h4>
+                        <p class="module-hint">Unlocks super wheatmeal (Lv.2)</p>
+                        <div class="input-field">
+                            <label for="kitchen-module-level">Level</label>
+                            <input type="number" id="kitchen-module-level" value="0" min="0" max="10">
+                        </div>
+                    </div>
+
+                    <div class="module-card">
+                        <h4>Mineral Detector</h4>
+                        <p class="module-hint">Unlocks high-speed rock (Lv.1)</p>
+                        <div class="input-field">
+                            <label for="mineral-detector-level">Level</label>
+                            <input type="number" id="mineral-detector-level" value="0" min="0" max="10">
+                        </div>
+                    </div>
+
+                    <div class="module-card">
+                        <h4>Crafting Module</h4>
+                        <p class="module-hint">Unlocks advanced wood sculpture (Lv.1)</p>
+                        <div class="input-field">
+                            <label for="crafting-module-level">Level</label>
+                            <input type="number" id="crafting-module-level" value="0" min="0" max="10">
                         </div>
                     </div>
                 </div>

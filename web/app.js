@@ -59,6 +59,12 @@ function getInputValues() {
         aniipod_maker: {
             count: parseInt(document.getElementById('aniipod-maker-count').value) || 1,
             level: parseInt(document.getElementById('aniipod-maker-level').value) || 1
+        },
+        modules: {
+            ecological_module: parseInt(document.getElementById('ecological-module-level').value) || 0,
+            kitchen_module: parseInt(document.getElementById('kitchen-module-level').value) || 0,
+            mineral_detector: parseInt(document.getElementById('mineral-detector-level').value) || 0,
+            crafting_module: parseInt(document.getElementById('crafting-module-level').value) || 0
         }
     };
 }
