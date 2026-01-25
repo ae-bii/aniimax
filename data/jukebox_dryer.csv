@@ -1,2 +1,5 @@
 name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement
 potato_chips, potatoes, 2, 44, 108, 910, 1,
+dried_strawberry, strawberry, 3, 437, 156, 1560, 2,
+dried_bean_curd, tofu, 1, 1117, 156, 2030, 2,
+premium_dried_strawberry, strawberry, 3, 546, 156, 23540, 2, kitchen_module:3

@@ -2,3 +2,8 @@ name, cost, sell_currency, sell_value, production_time, yield, energy, facility_
 chestnut, 16, coins, 90, 2700, 4, 10560, 1,
 willow, 1, coupons, 53, 1350, 3, NULL, 1,
 high_speed_willow, 1, coupons, 53, 1350, 5, NULL, 1, ecological_module:2
+palm, 36, coins, 180, 4950, 4, NULL, 2,
+bamboo, 40, coupons, 160, 5400, 5, NULL, 2,
+high_speed_bamboo, 40, coupons, 160, 5400, 9, NULL, 2, ecological_module:3
+rubber, 42, coupons, 213, 5850, 4, NULL, 2,
+high_speed_rubber, 42, coupons, 213, 5850, 7, NULL, 2, ecological_module:4

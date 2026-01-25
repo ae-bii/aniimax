@@ -1,3 +1,5 @@
 name, sell_currency, sell_value, production_time, yield, facility_level, module_requirement
 rock, coupons, 8, 120, 4, 1,
 high_speed_rock, coupons, 8, 120, 6, 1, mineral_detector:1
+copper, coupons, 14, 240, 5, 2,
+high_speed_copper, coupons, 14, 240, 7, 2, mineral_detector:2

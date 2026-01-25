@@ -2,3 +2,4 @@ name, raw_materials, required_amount, sell_value, production_time, energy, facil
 wheatmeal, wheat, 120, 150, 60, 8360, 1,
 super_wheatmeal, wheat, 120, 210, 60, 8360, 1, kitchen_module:2
 rice_processed, rice, 6, 75, 120, 1056, 1,
+tofu, soybean, 5, 156, 798, 1635, 2, 

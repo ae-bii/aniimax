@@ -1,2 +1,3 @@
 name, raw_materials, required_amount, sell_value, production_time, facility_level, module_requirement
 sf_aniipod, rock, 4, 172, 600, 1,
+sf_aniipod_pro, copper, 4, 252, 600, 2,

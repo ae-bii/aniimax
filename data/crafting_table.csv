@@ -1,3 +1,4 @@
 name, raw_materials, required_amount, sell_value, production_time, facility_level, module_requirement
 wood_sculpture, willow, 5, 345, 108, 1,
 advanced_wood_sculpture, willow, 5, 431, 108, 1, crafting_module:1
+bamboo_ware, bamboo, 8, 1792, 84, 2, 
