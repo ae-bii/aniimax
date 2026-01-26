@@ -14,6 +14,7 @@ A command-line tool, Rust library, and **web application** for optimizing produc
 - **Energy Optimization**: Maximize profit per energy unit when energy is limited
 - **Energy Self-Sufficient Mode**: Produce items to consume for energy instead of buying
 - **Parallel Production**: Account for multiple facilities running simultaneously
+- **Cross-Facility Parallel Mode**: Run different facility types at the same time (e.g., farmland + woodland)
 - **Multi-Currency Support**: Optimize for either coins or coupons
 - **Per-Facility Level Filtering**: Set different levels for each facility type
 - **Item Upgrade Modules**: Support for module-unlocked items (ecological, kitchen, mineral, crafting)
@@ -93,6 +94,8 @@ Options:
   -c, --currency <CURRENCY>          Currency type (coins or coupons) [default: coins]
   -e, --energy-cost <ENERGY_COST>    Energy cost per minute [default: 0.0]
       --optimize-energy              Optimize for energy efficiency instead of time
+      --energy-self-sufficient       Produce items to consume for energy
+      --parallel                     Run different facility types simultaneously
 
   Facility counts:
       --farmland <N>                 Number of Farmland plots [default: 1]
@@ -119,9 +122,6 @@ Options:
       --kitchen-module <N>           Kitchen Module level (unlocks super wheatmeal) [default: 0]
       --mineral-detector <N>         Mineral Detector level (unlocks high-speed rock) [default: 0]
       --crafting-module <N>          Crafting Module level (unlocks advanced crafts) [default: 0]
-      --crafting-table-level <N>     Crafting Table facility level [default: 1]
-      --dance-pad-polisher-level <N> Dance Pad Polisher facility level [default: 1]
-      --aniipod-maker-level <N>      Aniipod Maker facility level [default: 1]
 
   -h, --help                         Print help
   -V, --version                      Print version
@@ -232,6 +232,31 @@ When you have multiple facilities (e.g., 4 Farmlands), production time is divide
 $$t_{\text{effective}} = \frac{t_{\text{actual}}}{n_{\text{facilities}}}$$
 
 This significantly impacts which items are most efficient.
+
+### 5. Cross-Facility Parallel Mode
+
+When enabled, the optimizer will run different facility types simultaneously. For example, Farmland and Woodland can produce items at the same time since they don't share resources.
+
+In this mode:
+
+- The optimizer finds the best item for each raw material facility (Farmland, Woodland, Mineral Pile)
+- All facilities run their production in parallel
+- Total time = time of the longest step (not the sum)
+- Combined profit = sum of profits from all facilities
+
+$$t_{\text{total}} = \max(t_{\text{farmland}}, t_{\text{woodland}}, t_{\text{mineral}})$$
+
+$$\text{Profit}_{\text{total}} = \text{Profit}_{\text{farmland}} + \text{Profit}_{\text{woodland}} + \text{Profit}_{\text{mineral}}$$
+
+**Example**: Producing 10,000 coins
+
+Without parallel mode:
+- Only wheat production: 25h 0m total time
+
+With parallel mode:
+- Wheat (Farmland) + Chestnut (Woodland) running simultaneously
+- Total time: 23h 18m (the longer of the two)
+- Faster completion with same total profit!
 
 ### Example
 
