@@ -251,9 +251,11 @@ $$\text{Profit}_{\text{total}} = \text{Profit}_{\text{farmland}} + \text{Profit}
 **Example**: Producing 10,000 coins
 
 Without parallel mode:
+
 - Only wheat production: 25h 0m total time
 
 With parallel mode:
+
 - Wheat (Farmland) + Chestnut (Woodland) running simultaneously
 - Total time: 23h 18m (the longer of the two)
 - Faster completion with same total profit!
@@ -392,6 +394,53 @@ web/
   pkg/            - Built WASM module (generated)
 tests/
   *.rs            - Integration tests
+```
+
+## Contributing
+
+Contributions are welcome! Here's how you can help:
+
+### Reporting Issues
+
+- Check existing issues before creating a new one
+- Include steps to reproduce the problem
+- Mention your environment (OS, Rust version, browser if applicable)
+
+### Adding Game Data
+
+The easiest way to contribute is by adding missing items or correcting existing data:
+
+1. Edit the appropriate CSV file in `data/`
+2. Follow the existing format for that facility type
+3. Test locally with `cargo run -- --target 1000`
+4. Submit a pull request
+
+### Code Contributions
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes
+4. Run tests: `cargo test`
+5. Build WASM to verify: `wasm-pack build --target web --out-dir web/pkg`
+6. Commit with a descriptive message
+7. Push and open a pull request
+
+### Development Setup
+
+```bash
+# Clone your fork
+git clone https://github.com/ae-bii/aniimax.git
+cd aniimax
+
+# Build and test
+cargo build
+cargo test
+
+# Build WASM for web testing
+wasm-pack build --target web --out-dir web/pkg
+
+# Start local server for web app
+cd web && python3 -m http.server 8080
 ```
 
 ## License
