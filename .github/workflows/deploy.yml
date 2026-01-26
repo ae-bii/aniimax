@@ -2,13 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, master]
-    paths:
-      - 'src/**'
-      - 'web/**'
-      - 'data/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+    tags:
+      - 'v*'  # Trigger on version tags like v0.3.0, v1.0.0, etc.
   workflow_dispatch:
 
 permissions:
