@@ -27,6 +27,7 @@ function getInputValues() {
         target_amount: parseFloat(document.getElementById('target').value) || 1000,
         currency: document.getElementById('currency').value,
         energy_self_sufficient: document.getElementById('energy-self-sufficient').checked,
+        parallel: document.getElementById('parallel-production').checked,
         energy_cost_per_min: parseFloat(document.getElementById('energy-cost').value) || 0,
         farmland: {
             count: parseInt(document.getElementById('farmland-count').value) || 1,
@@ -128,9 +129,12 @@ function displayResults(result) {
     
     // Update mode indicator
     const energySelfSufficient = document.getElementById('energy-self-sufficient').checked;
+    const parallelMode = document.getElementById('parallel-production').checked;
     let modeText = 'time efficiency';
     if (result.is_energy_self_sufficient) {
         modeText = 'energy self-sufficient';
+    } else if (parallelMode && result.steps && result.steps.length > 1) {
+        modeText = 'cross-facility parallel';
     }
     document.getElementById('sort-criteria').textContent = modeText;
     
@@ -148,15 +152,33 @@ function displayResults(result) {
         `;
         stepsList.appendChild(infoEl);
     }
+
+    // Add parallel production info if applicable
+    if (parallelMode && result.steps && result.steps.length > 1) {
+        const infoEl = document.createElement('div');
+        infoEl.className = 'parallel-info';
+        infoEl.innerHTML = `
+            <strong>Cross-Facility Parallel Mode</strong><br>
+            Running ${result.steps.length} facilities simultaneously. Total time = longest step.
+        `;
+        stepsList.appendChild(infoEl);
+    }
+    
+    const isParallelResult = parallelMode && result.steps && result.steps.length > 1;
     
     result.steps.forEach((step, index) => {
         const stepEl = document.createElement('div');
         stepEl.className = 'step-item';
         const isEnergyStep = step.item_name.includes('(for energy)');
         const isProfitStep = step.item_name.includes('(for profit)');
-        const stepClass = isEnergyStep ? 'energy-step' : (isProfitStep ? 'profit-step' : '');
+        let stepClass = isEnergyStep ? 'energy-step' : (isProfitStep ? 'profit-step' : '');
+        if (isParallelResult) stepClass = 'parallel-step';
+        
+        // For parallel mode, show "||" symbol; otherwise show step number
+        const stepIndicator = isParallelResult ? '||' : (index + 1);
+        
         stepEl.innerHTML = `
-            <div class="step-number ${stepClass}">${index + 1}</div>
+            <div class="step-number ${stepClass}">${stepIndicator}</div>
             <div class="step-details">
                 <div class="step-name">${step.quantity} batches of ${step.item_name}</div>
                 <div class="step-facility">at ${step.facility}</div>
@@ -236,6 +258,17 @@ document.addEventListener('DOMContentLoaded', () => {
     initWasm();
     
     document.getElementById('optimize-btn').addEventListener('click', runOptimization);
+    
+    // Disable parallel checkbox when energy self-sufficient is checked
+    const energySelfSufficientCheckbox = document.getElementById('energy-self-sufficient');
+    const parallelCheckbox = document.getElementById('parallel-production');
+    
+    energySelfSufficientCheckbox.addEventListener('change', () => {
+        parallelCheckbox.disabled = energySelfSufficientCheckbox.checked;
+        if (energySelfSufficientCheckbox.checked) {
+            parallelCheckbox.checked = false;
+        }
+    });
     
     // Allow Enter key to trigger optimization
     document.querySelectorAll('input').forEach(input => {

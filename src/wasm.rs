@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use crate::models::{FacilityCounts, ModuleLevels, ProductionEfficiency, ProductionItem};
 use crate::optimizer::{
     calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path,
-    find_self_sufficient_path,
+    find_parallel_production_path, find_self_sufficient_path,
 };
 
 /// JavaScript-friendly facility configuration.
@@ -38,6 +38,8 @@ pub struct JsOptimizeInput {
     pub currency: String,
     pub energy_self_sufficient: bool,
     pub energy_cost_per_min: f64,
+    #[serde(default)]
+    pub parallel: bool,
     pub farmland: JsFacilityConfig,
     pub woodland: JsFacilityConfig,
     pub mineral_pile: JsFacilityConfig,
@@ -431,6 +433,20 @@ pub fn optimize(input_json: &str) -> String {
             input.energy_cost_per_min,
             &facility_counts,
         )
+    } else if input.parallel {
+        // Cross-facility parallel production mode
+        // Try parallel first, fall back to single-facility if not beneficial
+        find_parallel_production_path(
+            &efficiencies,
+            input.target_amount,
+            &facility_counts,
+        ).or_else(|| find_best_production_path(
+            &efficiencies,
+            input.target_amount,
+            false,
+            0.0,
+            &facility_counts,
+        ))
     } else {
         // Simple time optimization (ignore energy)
         find_best_production_path(
