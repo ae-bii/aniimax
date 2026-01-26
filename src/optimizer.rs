@@ -342,6 +342,197 @@ pub fn find_best_production_path(
     })
 }
 
+/// Finds the optimal production path using cross-facility parallelization.
+///
+/// This function considers that different facility types (farmland, woodland, etc.)
+/// can operate simultaneously, maximizing overall profit per time.
+///
+/// # Arguments
+///
+/// * `efficiencies` - Pre-calculated efficiency metrics for all items
+/// * `target_amount` - Target amount of currency to produce
+/// * `facility_counts` - Configuration for each facility (count and level)
+///
+/// # Returns
+///
+/// An `Option<ProductionPath>` containing the optimal parallel path, or `None` if no valid path exists.
+pub fn find_parallel_production_path(
+    efficiencies: &[ProductionEfficiency],
+    target_amount: f64,
+    facility_counts: &FacilityCounts,
+) -> Option<ProductionPath> {
+    if efficiencies.is_empty() {
+        return None;
+    }
+
+    // For raw material facilities, find the best item for each
+    let raw_facilities = ["Farmland", "Woodland", "Mineral Pile"];
+    
+    let mut best_per_facility: HashMap<String, &ProductionEfficiency> = HashMap::new();
+
+    for eff in efficiencies {
+        // Only consider raw materials for parallel production (no dependencies)
+        if eff.requires_raw.is_some() {
+            continue;
+        }
+
+        let facility = &eff.item.facility;
+        
+        // Check if this facility has any slots
+        if facility_counts.get_count(facility) == 0 {
+            continue;
+        }
+
+        let is_better = match best_per_facility.get(facility) {
+            Some(existing) => eff.effective_profit_per_second > existing.effective_profit_per_second,
+            None => true,
+        };
+
+        if is_better {
+            best_per_facility.insert(facility.clone(), eff);
+        }
+    }
+
+    if best_per_facility.is_empty() {
+        return None;
+    }
+
+    // Collect selected items for each raw facility
+    let mut selected_items: Vec<&ProductionEfficiency> = Vec::new();
+
+    for facility in &raw_facilities {
+        if let Some(eff) = best_per_facility.get(*facility) {
+            selected_items.push(eff);
+        }
+    }
+
+    // Need at least 2 facilities for parallel to make sense
+    if selected_items.len() <= 1 {
+        return None;
+    }
+
+    // Binary search for the minimum time T such that the total profit from
+    // all facilities running for time T meets or exceeds the target
+    
+    // Helper to calculate profit given a time limit
+    let calc_profit_and_batches = |time: f64| -> (f64, Vec<(&ProductionEfficiency, u32)>) {
+        let mut total = 0.0;
+        let mut batches_list = Vec::new();
+        
+        for eff in &selected_items {
+            let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
+            let time_per_effective_batch = eff.item.production_time / facility_count;
+            let batches = (time / time_per_effective_batch).floor() as u32;
+            
+            if batches > 0 {
+                let profit_per_batch = eff.item.sell_value * eff.item.yield_amount as f64 - eff.raw_cost;
+                total += profit_per_batch * batches as f64;
+                batches_list.push((*eff, batches));
+            }
+        }
+        
+        (total, batches_list)
+    };
+    
+    // Find lower bound (continuous profit model)
+    let mut combined_profit_per_second = 0.0;
+    for eff in &selected_items {
+        combined_profit_per_second += eff.effective_profit_per_second;
+    }
+    let theoretical_min_time = target_amount / combined_profit_per_second;
+    
+    // Find the actual time needed - iterate through batch completion times
+    // Start with the best item's batch times and check each one
+    let best_item = selected_items
+        .iter()
+        .max_by(|a, b| {
+            a.effective_profit_per_second
+                .partial_cmp(&b.effective_profit_per_second)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+    
+    let best_facility_count = facility_counts.get_count(&best_item.item.facility) as f64;
+    let best_time_per_effective_batch = best_item.item.production_time / best_facility_count;
+    
+    // Start from the minimum batches that could theoretically work
+    let min_batches = (theoretical_min_time / best_time_per_effective_batch).ceil() as u32;
+    
+    // Find the minimum number of batches for the best item such that total profit >= target
+    let mut required_batches = min_batches;
+    let final_batches_result: Vec<(&ProductionEfficiency, u32)>;
+    
+    loop {
+        let time = required_batches as f64 * best_time_per_effective_batch;
+        let (profit, batches) = calc_profit_and_batches(time);
+        
+        if profit >= target_amount {
+            final_batches_result = batches;
+            break;
+        }
+        
+        required_batches += 1;
+        
+        // Safety check to avoid infinite loop
+        if required_batches > 1_000_000 {
+            return None;
+        }
+    }
+
+    // Build production steps from final_batches_result
+    let mut steps = Vec::new();
+    let mut total_profit = 0.0;
+    let mut total_energy: Option<f64> = None;
+    let mut total_items = 0u32;
+
+    for (eff, batches) in &final_batches_result {
+        if *batches == 0 {
+            continue;
+        }
+        
+        let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
+        let profit_per_batch = eff.item.sell_value * eff.item.yield_amount as f64 - eff.raw_cost;
+        let step_profit = profit_per_batch * *batches as f64;
+        total_profit += step_profit;
+
+        if let Some(energy) = eff.total_energy_per_unit {
+            let step_energy = energy * *batches as f64;
+            total_energy = Some(total_energy.unwrap_or(0.0) + step_energy);
+        }
+
+        total_items += *batches * eff.item.yield_amount;
+        let step_time = eff.item.production_time * (*batches as f64 / facility_count).ceil();
+
+        steps.push(ProductionStep {
+            item_name: eff.item.name.clone(),
+            facility: format!("{} (x{})", eff.item.facility, facility_counts.get_count(&eff.item.facility)),
+            quantity: *batches,
+            time: step_time,
+            energy: eff.total_energy_per_unit.map(|e| e * *batches as f64),
+            profit_contribution: step_profit,
+        });
+    }
+
+    // Recalculate actual total time (the longest step determines total time since they run in parallel)
+    let actual_total_time = steps.iter().map(|s| s.time).fold(0.0, f64::max);
+
+    // Only return parallel path if we have multiple facilities running
+    if steps.len() <= 1 {
+        return None; // Fall back to single-facility optimization
+    }
+
+    Some(ProductionPath {
+        steps,
+        total_time: actual_total_time,
+        total_energy,
+        total_profit,
+        currency: selected_items[0].item.sell_currency.clone(),
+        items_produced: total_items,
+        is_energy_self_sufficient: false,
+        energy_items_produced: None,
+        energy_item_name: None,
+    })
+}
+
 /// Calculates efficiency metrics for items that can be consumed for energy.
 ///
 /// Only items with a non-None energy field can be consumed for energy.
