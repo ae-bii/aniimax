@@ -4,7 +4,7 @@ high_speed_wheat, 0, 1, 90, 15, 809, 1, ecological_module:1
 potatoes, 2, 17, 450, 3, 5390, 1,
 sugarcane, 8, 32, 1350, 5, 6800, 2,
 rice, 5, 10, 810, 10, 3690, 2,
-cotton, 20, 67, 4050, 6, NULL, 3,
+cotton, 20, 67, 4050, 6, , 3,
 strawberry, 26, 104, 3600, 5, 11970, 3,
 soybean, 39, 114, 5400, 7, 12500, 3,
 
