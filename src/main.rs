@@ -11,7 +11,7 @@ use aniimax::{
     data::load_all_data,
     display::{display_energy_recommendations, display_results},
     models::{FacilityCounts, ModuleLevels},
-    optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_self_sufficient_path},
+    optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_parallel_production_path, find_self_sufficient_path},
 };
 
 /// Command-line arguments for Aniimax.
@@ -34,6 +34,10 @@ struct Args {
     /// Enable energy self-sufficient mode (produce items for energy instead of buying)
     #[arg(long, default_value = "false")]
     energy_self_sufficient: bool,
+
+    /// Enable cross-facility parallel production (run all facilities simultaneously)
+    #[arg(long, default_value = "false")]
+    parallel: bool,
 
     // ========== Farmland ==========
     /// Number of Farmland plots available
@@ -163,7 +167,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Energy Cost:     {}/min", args.energy_cost);
     println!(
         "  Mode:            {}",
-        if args.energy_self_sufficient { "Energy Self-Sufficient" } else { "Time Optimization" }
+        if args.energy_self_sufficient { 
+            "Energy Self-Sufficient" 
+        } else if args.parallel {
+            "Cross-Facility Parallel"
+        } else { 
+            "Time Optimization" 
+        }
     );
 
     println!();
@@ -212,6 +222,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             args.energy_cost,
             &facility_counts,
         )
+    } else if args.parallel {
+        // Try parallel first, fall back to single-facility if not beneficial
+        find_parallel_production_path(&efficiencies, args.target, &facility_counts)
+            .or_else(|| find_best_production_path(
+                &efficiencies,
+                args.target,
+                false,
+                0.0,
+                &facility_counts,
+            ))
     } else {
         find_best_production_path(
             &efficiencies,
