@@ -1,0 +1,4 @@
+name, sell_value, production_time, yield
+fertilizer, 21, 1800, 30
+wool, 400, 1800, 2
+petals, 88, 1800, 8
