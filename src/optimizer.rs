@@ -4,12 +4,219 @@
 //! production efficiencies and finds the best production paths to
 //! achieve currency goals.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{
     EnergyItemEfficiency, FacilityCounts, ModuleLevels, ProductionEfficiency, ProductionItem, ProductionPath,
     ProductionStep,
 };
+
+/// Result of calculating production requirements for an item
+#[derive(Debug, Clone)]
+struct ProductionRequirements {
+    /// Total time to produce the item (including all dependencies)
+    total_time: f64,
+    /// Total energy consumed (including all dependencies)
+    total_energy: Option<f64>,
+    /// Total cost of raw materials
+    total_cost: f64,
+    /// Names of all raw materials in the chain
+    raw_names: Vec<String>,
+    /// Primary facility for the base raw material
+    primary_facility: Option<String>,
+    /// Whether this production chain is valid
+    is_valid: bool,
+}
+
+/// Recursively calculates production requirements for an item.
+/// 
+/// This handles both simple raw materials and processed items that may
+/// require other processed items as ingredients (e.g., caramel_nut_chips requires nuts).
+fn calculate_item_requirements(
+    item_name: &str,
+    required_amount: f64,
+    item_map: &HashMap<String, &ProductionItem>,
+    facility_counts: &FacilityCounts,
+    module_levels: &ModuleLevels,
+    fertilizer_time_per_unit: f64,
+    nimbus_bed_count: f64,
+    visited: &mut HashSet<String>, // Prevent infinite recursion
+) -> ProductionRequirements {
+    // Check for circular dependencies
+    if visited.contains(item_name) {
+        return ProductionRequirements {
+            total_time: 0.0,
+            total_energy: None,
+            total_cost: 0.0,
+            raw_names: vec![],
+            primary_facility: None,
+            is_valid: false,
+        };
+    }
+    
+    let item = match item_map.get(item_name) {
+        Some(i) => *i,
+        None => {
+            return ProductionRequirements {
+                total_time: 0.0,
+                total_energy: None,
+                total_cost: 0.0,
+                raw_names: vec![],
+                primary_facility: None,
+                is_valid: false,
+            };
+        }
+    };
+    
+    // Check if facility can produce this item
+    if !facility_counts.can_produce(&item.facility, item.facility_level) {
+        return ProductionRequirements {
+            total_time: 0.0,
+            total_energy: None,
+            total_cost: 0.0,
+            raw_names: vec![],
+            primary_facility: None,
+            is_valid: false,
+        };
+    }
+    
+    // Check module requirements
+    if let Some((ref module_name, required_level)) = item.module_requirement {
+        if !module_levels.can_use(module_name, required_level) {
+            return ProductionRequirements {
+                total_time: 0.0,
+                total_energy: None,
+                total_cost: 0.0,
+                raw_names: vec![],
+                primary_facility: None,
+                is_valid: false,
+            };
+        }
+    }
+    
+    // Check fertilizer requirements
+    if item.requires_fertilizer && nimbus_bed_count == 0.0 {
+        return ProductionRequirements {
+            total_time: 0.0,
+            total_energy: None,
+            total_cost: 0.0,
+            raw_names: vec![],
+            primary_facility: None,
+            is_valid: false,
+        };
+    }
+    
+    visited.insert(item_name.to_string());
+    
+    let result = if let Some(ref raw_mats) = item.raw_materials {
+        // This is a processed item - recursively calculate requirements for each ingredient
+        let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+        
+        let mut max_ingredient_time = 0.0;
+        let mut total_ingredient_energy: Option<f64> = None;
+        let mut total_ingredient_cost = 0.0;
+        let mut all_raw_names: Vec<String> = Vec::new();
+        let mut primary_facility: Option<String> = None;
+        
+        // Calculate how many batches of this processed item we need
+        let batches_needed = (required_amount / item.yield_amount as f64).ceil();
+        
+        for (i, raw_mat) in raw_mats.iter().enumerate() {
+            let ingredient_required = required_amounts.get(i).copied().unwrap_or(1) as f64 * batches_needed;
+            
+            let ingredient_reqs = calculate_item_requirements(
+                raw_mat,
+                ingredient_required,
+                item_map,
+                facility_counts,
+                module_levels,
+                fertilizer_time_per_unit,
+                nimbus_bed_count,
+                visited,
+            );
+            
+            if !ingredient_reqs.is_valid {
+                visited.remove(item_name);
+                return ProductionRequirements {
+                    total_time: 0.0,
+                    total_energy: None,
+                    total_cost: 0.0,
+                    raw_names: vec![],
+                    primary_facility: None,
+                    is_valid: false,
+                };
+            }
+            
+            // Ingredients can be gathered in parallel, so take max time
+            if ingredient_reqs.total_time > max_ingredient_time {
+                max_ingredient_time = ingredient_reqs.total_time;
+            }
+            
+            // Energy and cost are additive
+            if let Some(e) = ingredient_reqs.total_energy {
+                total_ingredient_energy = Some(total_ingredient_energy.unwrap_or(0.0) + e);
+            }
+            total_ingredient_cost += ingredient_reqs.total_cost;
+            
+            all_raw_names.extend(ingredient_reqs.raw_names);
+            if primary_facility.is_none() {
+                primary_facility = ingredient_reqs.primary_facility;
+            }
+        }
+        
+        // Add processing time for this item
+        let processing_facility_count = facility_counts.get_count(&item.facility) as f64;
+        let processing_time = item.production_time * (batches_needed / processing_facility_count).ceil();
+        
+        // Add processing energy
+        let total_energy = match (total_ingredient_energy, item.energy) {
+            (Some(ie), Some(pe)) => Some(ie + pe * batches_needed),
+            (Some(ie), None) => Some(ie),
+            (None, Some(pe)) => Some(pe * batches_needed),
+            (None, None) => None,
+        };
+        
+        ProductionRequirements {
+            total_time: max_ingredient_time + processing_time,
+            total_energy,
+            total_cost: total_ingredient_cost,
+            raw_names: all_raw_names,
+            primary_facility,
+            is_valid: true,
+        }
+    } else {
+        // This is a base raw material
+        let facility_count = facility_counts.get_count(&item.facility) as f64;
+        let batches_needed = (required_amount / item.yield_amount as f64).ceil();
+        
+        // Calculate time with parallel facilities
+        let time_per_batch = item.production_time;
+        let parallel_batches = (batches_needed / facility_count).ceil();
+        
+        // Add fertilizer time if required
+        let fertilizer_time = if item.requires_fertilizer {
+            fertilizer_time_per_unit * batches_needed
+        } else {
+            0.0
+        };
+        
+        let total_time = time_per_batch * parallel_batches + fertilizer_time;
+        let total_energy = item.energy.map(|e| e * batches_needed);
+        let total_cost = item.cost.unwrap_or(0.0) * batches_needed;
+        
+        ProductionRequirements {
+            total_time,
+            total_energy,
+            total_cost,
+            raw_names: vec![item_name.to_string()],
+            primary_facility: Some(item.facility.clone()),
+            is_valid: true,
+        }
+    };
+    
+    visited.remove(item_name);
+    result
+}
 
 /// Calculates efficiency metrics for all production items.
 ///
@@ -108,13 +315,13 @@ pub fn calculate_efficiencies(
 
         let (total_time, total_energy, raw_cost, requires_raw, raw_facility) =
             if let Some(ref raw_mats) = item.raw_materials {
-                // This is a processed item - need to account for raw material production
+                // This is a processed item - use recursive calculation to handle nested dependencies
                 let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
                 
                 // Track totals across all raw materials
-                let mut total_raw_time = 0.0;
-                let mut total_raw_energy: Option<f64> = None;
-                let mut total_raw_cost = 0.0;
+                let mut max_ingredient_time = 0.0;
+                let mut total_ingredient_energy: Option<f64> = None;
+                let mut total_ingredient_cost = 0.0;
                 let mut all_raw_names: Vec<String> = Vec::new();
                 let mut primary_facility: Option<String> = None;
                 let mut skip_item = false;
@@ -122,65 +329,37 @@ pub fn calculate_efficiencies(
                 for (i, raw_mat) in raw_mats.iter().enumerate() {
                     let required = required_amounts.get(i).copied().unwrap_or(1) as f64;
                     
-                    if let Some(raw_item) = item_map.get(raw_mat) {
-                        // Check if raw material is available at its facility's level
-                        if !facility_counts.can_produce(&raw_item.facility, raw_item.facility_level) {
-                            skip_item = true;
-                            break;
-                        }
-
-                        // Check if raw material meets module requirements
-                        if let Some((ref module_name, required_level)) = raw_item.module_requirement {
-                            if !module_levels.can_use(module_name, required_level) {
-                                skip_item = true;
-                                break;
-                            }
-                        }
-
-                        // Check if raw material requires fertilizer but no Nimbus Bed is available
-                        if raw_item.requires_fertilizer && nimbus_bed_count == 0.0 {
-                            skip_item = true;
-                            break;
-                        }
-
-                        let raw_yield = raw_item.yield_amount as f64;
-                        let batches_needed = (required / raw_yield).ceil();
-
-                        // Calculate time considering parallel production
-                        let raw_facility_count = facility_counts.get_count(&raw_item.facility) as f64;
-
-                        // Raw material time (parallelized within this material type)
-                        let raw_time_per_batch = raw_item.production_time;
-                        let raw_batches_parallel = (batches_needed / raw_facility_count).ceil();
-                        
-                        // Add fertilizer time if raw material requires it (1 fertilizer per batch)
-                        let fertilizer_time = if raw_item.requires_fertilizer {
-                            fertilizer_time_per_unit * batches_needed
-                        } else {
-                            0.0
-                        };
-                        
-                        // For multiple materials, assume they can be gathered in parallel
-                        // So we take the max time, not sum
-                        let this_raw_time = raw_time_per_batch * raw_batches_parallel + fertilizer_time;
-                        if this_raw_time > total_raw_time {
-                            total_raw_time = this_raw_time;
-                        }
-
-                        // Energy and cost are additive
-                        if let Some(e) = raw_item.energy {
-                            total_raw_energy = Some(total_raw_energy.unwrap_or(0.0) + e * batches_needed);
-                        }
-                        total_raw_cost += raw_item.cost.unwrap_or(0.0) * batches_needed;
-
-                        all_raw_names.push(raw_mat.clone());
-                        if primary_facility.is_none() {
-                            primary_facility = Some(raw_item.facility.clone());
-                        }
-                    } else {
-                        // Raw material not found, skip this item
+                    let mut visited = HashSet::new();
+                    let reqs = calculate_item_requirements(
+                        raw_mat,
+                        required,
+                        &item_map,
+                        facility_counts,
+                        module_levels,
+                        fertilizer_time_per_unit,
+                        nimbus_bed_count,
+                        &mut visited,
+                    );
+                    
+                    if !reqs.is_valid {
                         skip_item = true;
                         break;
+                    }
+                    
+                    // Ingredients can be gathered in parallel, so take max time
+                    if reqs.total_time > max_ingredient_time {
+                        max_ingredient_time = reqs.total_time;
+                    }
+                    
+                    // Energy and cost are additive
+                    if let Some(e) = reqs.total_energy {
+                        total_ingredient_energy = Some(total_ingredient_energy.unwrap_or(0.0) + e);
+                    }
+                    total_ingredient_cost += reqs.total_cost;
+                    
+                    all_raw_names.extend(reqs.raw_names);
+                    if primary_facility.is_none() {
+                        primary_facility = reqs.primary_facility;
                     }
                 }
 
@@ -192,19 +371,25 @@ pub fn calculate_efficiencies(
                 let processing_time = item.production_time / processing_facility_count;
 
                 // Total time is sequential: gather raw materials (in parallel), then process
-                let total_time = total_raw_time + processing_time;
-                let total_energy = match (total_raw_energy, item.energy) {
-                    (Some(re), Some(pe)) => Some(re + pe),
-                    (Some(re), None) => Some(re),
+                let total_time = max_ingredient_time + processing_time;
+                let total_energy = match (total_ingredient_energy, item.energy) {
+                    (Some(ie), Some(pe)) => Some(ie + pe),
+                    (Some(ie), None) => Some(ie),
                     (None, Some(pe)) => Some(pe),
                     (None, None) => None,
+                };
+
+                // Deduplicate raw names while preserving order
+                let unique_raw_names: Vec<String> = {
+                    let mut seen = HashSet::new();
+                    all_raw_names.into_iter().filter(|n| seen.insert(n.clone())).collect()
                 };
 
                 (
                     total_time,
                     total_energy,
-                    total_raw_cost,
-                    Some(all_raw_names.join("+")),
+                    total_ingredient_cost,
+                    Some(unique_raw_names.join("+")),
                     primary_facility,
                 )
             } else {
