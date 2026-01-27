@@ -10,7 +10,7 @@ use std::fs::File;
 use std::path::Path;
 
 use crate::models::{
-    FarmlandRow, MineralRow, ProcessingRowNoEnergy, ProcessingRowWithEnergy,
+    FarmlandRow, MineralRow, NimbusBedRow, ProcessingRowNoEnergy, ProcessingRowWithEnergy,
     ProductionItem, WoodlandRow,
 };
 
@@ -31,6 +31,29 @@ fn parse_module_requirement(req: &Option<String>) -> Option<(String, u32)> {
         }
         None
     })
+}
+
+/// Parses a semicolon-separated list of raw material names.
+///
+/// # Example
+/// - "wheat" -> vec!["wheat"]
+/// - "lavender;rose" -> vec!["lavender", "rose"]
+fn parse_raw_materials(s: &str) -> Vec<String> {
+    s.split(';')
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+/// Parses a semicolon-separated list of required amounts.
+///
+/// # Example
+/// - "3" -> vec![3]
+/// - "3;3" -> vec![3, 3]
+fn parse_required_amounts(s: &str) -> Vec<u32> {
+    s.split(';')
+        .filter_map(|part| part.trim().parse::<u32>().ok())
+        .collect()
 }
 
 /// Loads farmland crop data from a CSV file.
@@ -69,6 +92,7 @@ pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             energy: row.energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
+            requires_fertilizer: row.facility_level >= 4, // Farmland level 4+ requires fertilizer
         });
     }
     Ok(items)
@@ -117,6 +141,7 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
+            requires_fertilizer: row.facility_level >= 3, // Woodland level 3+ requires fertilizer
         });
     }
     Ok(items)
@@ -158,6 +183,7 @@ pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
             energy: None,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
+            requires_fertilizer: false,
         });
     }
     Ok(items)
@@ -190,19 +216,22 @@ pub fn load_processing_with_energy(
     let mut items = Vec::new();
     for result in rdr.deserialize() {
         let row: ProcessingRowWithEnergy = result?;
+        let raw_mats = parse_raw_materials(&row.raw_materials);
+        let req_amounts = parse_required_amounts(&row.required_amount);
         items.push(ProductionItem {
             name: row.name,
             facility: facility_name.to_string(),
-            raw_materials: Some(row.raw_materials),
-            required_amount: Some(row.required_amount),
+            raw_materials: Some(raw_mats),
+            required_amount: Some(req_amounts),
             cost: None,
             sell_currency: "coins".to_string(),
             sell_value: row.sell_value,
             production_time: row.production_time,
             yield_amount: 1,
-            energy: Some(row.energy),
+            energy: row.energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
+            requires_fertilizer: false,
         });
     }
     Ok(items)
@@ -235,11 +264,13 @@ pub fn load_processing_no_energy(
     let mut items = Vec::new();
     for result in rdr.deserialize() {
         let row: ProcessingRowNoEnergy = result?;
+        let raw_mats = parse_raw_materials(&row.raw_materials);
+        let req_amounts = parse_required_amounts(&row.required_amount);
         items.push(ProductionItem {
             name: row.name,
             facility: facility_name.to_string(),
-            raw_materials: Some(row.raw_materials),
-            required_amount: Some(row.required_amount),
+            raw_materials: Some(raw_mats),
+            required_amount: Some(req_amounts),
             cost: None,
             sell_currency: "coins".to_string(),
             sell_value: row.sell_value,
@@ -248,6 +279,49 @@ pub fn load_processing_no_energy(
             energy: None,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
+            requires_fertilizer: false,
+        });
+    }
+    Ok(items)
+}
+
+/// Loads nimbus bed data from a CSV file.
+///
+/// # Arguments
+///
+/// * `path` - Path to the nimbus bed CSV file
+///
+/// # Returns
+///
+/// A vector of [`ProductionItem`] representing all nimbus bed products,
+/// or an error if the file cannot be read or parsed.
+///
+/// # CSV Format
+///
+/// Expected columns: `name, sell_value, production_time, yield`
+pub fn load_nimbus_bed(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    let file = File::open(path)?;
+    let mut rdr = ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .from_reader(file);
+
+    let mut items = Vec::new();
+    for result in rdr.deserialize() {
+        let row: NimbusBedRow = result?;
+        items.push(ProductionItem {
+            name: row.name,
+            facility: "Nimbus Bed".to_string(),
+            raw_materials: None,
+            required_amount: None,
+            cost: None,
+            sell_currency: "coins".to_string(),
+            sell_value: row.sell_value,
+            production_time: row.production_time,
+            yield_amount: row.yield_amount,
+            energy: None,
+            facility_level: 1,
+            module_requirement: None,
+            requires_fertilizer: false,
         });
     }
     Ok(items)
@@ -256,7 +330,7 @@ pub fn load_processing_no_energy(
 /// Loads all production data from the data directory.
 ///
 /// This function loads data from all facility types:
-/// - Raw materials: Farmland, Woodland, Mineral Pile
+/// - Raw materials: Farmland, Woodland, Mineral Pile, Nimbus Bed
 /// - Processing: Carousel Mill, Jukebox Dryer, Crafting Table, Dance Pad Polisher, Aniipod Maker
 ///
 /// # Arguments
@@ -284,6 +358,7 @@ pub fn load_all_data(data_dir: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
     all_items.extend(load_farmland(&data_dir.join("farmland.csv"))?);
     all_items.extend(load_woodland(&data_dir.join("woodland.csv"))?);
     all_items.extend(load_mineral_pile(&data_dir.join("mineral_pile.csv"))?);
+    all_items.extend(load_nimbus_bed(&data_dir.join("nimbus_bed.csv"))?);
 
     // Load processing facilities
     all_items.extend(load_processing_with_energy(
