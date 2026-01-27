@@ -12,6 +12,7 @@ fn default_facility_counts() -> FacilityCounts {
         crafting_table: (1, 1),
         dance_pad_polisher: (1, 1),
         aniipod_maker: (1, 1),
+        nimbus_bed: (1, 1),
     }
 }
 
@@ -71,6 +72,7 @@ fn test_production_item_creation() {
         energy: Some(809.0),
         facility_level: 1,
         module_requirement: None,
+        requires_fertilizer: false,
     };
 
     assert_eq!(item.name, "wheat");
@@ -85,8 +87,8 @@ fn test_processed_item_creation() {
     let item = ProductionItem {
         name: "wheatmeal".to_string(),
         facility: "Carousel Mill".to_string(),
-        raw_materials: Some("wheat".to_string()),
-        required_amount: Some(2),
+        raw_materials: Some(vec!["wheat".to_string()]),
+        required_amount: Some(vec![2]),
         cost: None,
         sell_currency: "coins".to_string(),
         sell_value: 25.0,
@@ -95,9 +97,10 @@ fn test_processed_item_creation() {
         energy: Some(3000.0),
         facility_level: 1,
         module_requirement: None,
+        requires_fertilizer: false,
     };
 
     assert_eq!(item.name, "wheatmeal");
-    assert_eq!(item.raw_materials, Some("wheat".to_string()));
-    assert_eq!(item.required_amount, Some(2));
+    assert_eq!(item.raw_materials, Some(vec!["wheat".to_string()]));
+    assert_eq!(item.required_amount, Some(vec![2]));
 }

@@ -15,6 +15,7 @@ fn default_facility_counts() -> FacilityCounts {
         crafting_table: (1, 3),
         dance_pad_polisher: (1, 3),
         aniipod_maker: (1, 3),
+        nimbus_bed: (1, 1),
     }
 }
 
@@ -82,6 +83,7 @@ fn test_calculate_efficiencies_filters_by_level() {
         crafting_table: (1, 1),
         dance_pad_polisher: (1, 1),
         aniipod_maker: (1, 1),
+        nimbus_bed: (0, 1),
     };
 
     // Level 3 for all
@@ -94,6 +96,7 @@ fn test_calculate_efficiencies_filters_by_level() {
         crafting_table: (1, 3),
         dance_pad_polisher: (1, 3),
         aniipod_maker: (1, 3),
+        nimbus_bed: (1, 1),
     };
 
     let eff_level_1 = calculate_efficiencies(&items, "coins", &counts_level_1, &modules);
@@ -194,6 +197,7 @@ fn test_parallel_production_increases_efficiency() {
         crafting_table: (1, 3),
         dance_pad_polisher: (1, 3),
         aniipod_maker: (1, 3),
+        nimbus_bed: (1, 1),
     };
 
     // Multiple facilities
@@ -206,6 +210,7 @@ fn test_parallel_production_increases_efficiency() {
         crafting_table: (2, 3),
         dance_pad_polisher: (2, 3),
         aniipod_maker: (2, 3),
+        nimbus_bed: (1, 1),
     };
 
     let eff_single = calculate_efficiencies(&items, "coins", &counts_single, &modules);
