@@ -28,6 +28,7 @@ use serde::Deserialize;
 ///     energy: Some(809.0),
 ///     facility_level: 1,
 ///     module_requirement: None,
+///     requires_fertilizer: false,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -36,10 +37,10 @@ pub struct ProductionItem {
     pub name: String,
     /// The facility where this item is produced (e.g., "Farmland", "Carousel Mill")
     pub facility: String,
-    /// The raw material required for processing (None for raw materials)
-    pub raw_materials: Option<String>,
-    /// The amount of raw materials required per production
-    pub required_amount: Option<u32>,
+    /// The raw materials required for processing (None for raw materials, can be multiple)
+    pub raw_materials: Option<Vec<String>>,
+    /// The amount of each raw material required per production (parallel to raw_materials)
+    pub required_amount: Option<Vec<u32>>,
     /// The cost to plant/start production (for raw materials)
     pub cost: Option<f64>,
     /// The currency received when selling ("coins" or "coupons")
@@ -56,6 +57,8 @@ pub struct ProductionItem {
     pub facility_level: u32,
     /// Module requirement: (module_name, required_level) - None if no module needed
     pub module_requirement: Option<(String, u32)>,
+    /// Whether this item requires fertilizer to produce
+    pub requires_fertilizer: bool,
 }
 
 /// Efficiency metrics for an item when consumed for energy.
@@ -163,6 +166,7 @@ pub struct ProductionEfficiency {
 ///     crafting_table: (1, 1),
 ///     dance_pad_polisher: (1, 1),
 ///     aniipod_maker: (1, 1),
+///     nimbus_bed: (1, 1),
 /// };
 ///
 /// assert_eq!(counts.get_count("Farmland"), 4);
@@ -186,6 +190,8 @@ pub struct FacilityCounts {
     pub dance_pad_polisher: (u32, u32),
     /// (count, level) for Aniipod Maker machines
     pub aniipod_maker: (u32, u32),
+    /// (count, level) for Nimbus Bed slots
+    pub nimbus_bed: (u32, u32),
 }
 
 impl FacilityCounts {
@@ -208,6 +214,7 @@ impl FacilityCounts {
             "Crafting Table" => self.crafting_table.0,
             "Dance Pad Polisher" => self.dance_pad_polisher.0,
             "Aniipod Maker" => self.aniipod_maker.0,
+            "Nimbus Bed" => self.nimbus_bed.0,
             _ => 1,
         }
     }
@@ -231,6 +238,7 @@ impl FacilityCounts {
             "Crafting Table" => self.crafting_table.1,
             "Dance Pad Polisher" => self.dance_pad_polisher.1,
             "Aniipod Maker" => self.aniipod_maker.1,
+            "Nimbus Bed" => self.nimbus_bed.1,
             _ => 1,
         }
     }
@@ -396,16 +404,17 @@ pub struct MineralRow {
 pub struct ProcessingRowWithEnergy {
     /// Item name
     pub name: String,
-    /// Required raw material name
+    /// Required raw material name(s), semicolon-separated if multiple
     pub raw_materials: String,
-    /// Amount of raw materials needed
-    pub required_amount: u32,
+    /// Amount of raw materials needed, semicolon-separated if multiple
+    pub required_amount: String,
     /// Sell value per unit
     pub sell_value: f64,
     /// Production time in seconds
     pub production_time: f64,
-    /// Energy consumed
-    pub energy: f64,
+    /// Energy consumed (optional for items that don't consume energy)
+    #[serde(default, deserialize_with = "crate::deserialize_optional_f64")]
+    pub energy: Option<f64>,
     /// Required facility level
     pub facility_level: u32,
     /// Module requirement (format: "module_name:level" or empty)
@@ -418,10 +427,10 @@ pub struct ProcessingRowWithEnergy {
 pub struct ProcessingRowNoEnergy {
     /// Item name
     pub name: String,
-    /// Required raw material name
+    /// Required raw material name(s), semicolon-separated if multiple
     pub raw_materials: String,
-    /// Amount of raw materials needed
-    pub required_amount: u32,
+    /// Amount of raw materials needed, semicolon-separated if multiple
+    pub required_amount: String,
     /// Sell value per unit
     pub sell_value: f64,
     /// Production time in seconds
@@ -431,4 +440,18 @@ pub struct ProcessingRowNoEnergy {
     /// Module requirement (format: "module_name:level" or empty)
     #[serde(default)]
     pub module_requirement: Option<String>,
+}
+
+/// CSV row structure for Nimbus Bed items.
+#[derive(Debug, Deserialize)]
+pub struct NimbusBedRow {
+    /// Item name
+    pub name: String,
+    /// Sell value per unit
+    pub sell_value: f64,
+    /// Production time in seconds
+    pub production_time: f64,
+    /// Number of items yielded
+    #[serde(rename = "yield")]
+    pub yield_amount: u32,
 }
