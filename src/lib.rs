@@ -43,6 +43,7 @@
 //!     crafting_table: (1, 1),
 //!     dance_pad_polisher: (1, 1),
 //!     aniipod_maker: (1, 1),
+//!     nimbus_bed: (1, 1),      // Produces fertilizer for level 4+ farmland and level 3+ woodland
 //! };
 //!
 //! // Define module levels (0 = not unlocked)
@@ -72,3 +73,23 @@ pub mod display;
 pub mod models;
 pub mod optimizer;
 pub mod wasm;
+
+use serde::{Deserialize, Deserializer};
+
+/// Custom deserializer for optional f64 that handles empty strings.
+/// Returns None for empty strings, Some(value) for valid floats.
+pub fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed
+            .parse::<f64>()
+            .map(Some)
+            .map_err(serde::de::Error::custom)
+    }
+}
