@@ -56,6 +56,7 @@ use crate::models::{
 ///     crafting_table: (1, 1),
 ///     dance_pad_polisher: (1, 1),
 ///     aniipod_maker: (1, 1),
+///     nimbus_bed: (1, 1),      // 1 nimbus bed (for fertilizer)
 /// };
 /// let modules = ModuleLevels::default();
 ///
@@ -69,6 +70,16 @@ pub fn calculate_efficiencies(
 ) -> Vec<ProductionEfficiency> {
     let item_map: HashMap<String, &ProductionItem> =
         items.iter().map(|i| (i.name.clone(), i)).collect();
+
+    // Find fertilizer item for calculating fertilizer production time
+    let fertilizer_item = item_map.get("fertilizer");
+    let nimbus_bed_count = facility_counts.get_count("Nimbus Bed") as f64;
+
+    // Calculate time to produce one fertilizer (if Nimbus Bed is available)
+    // Fertilizer: 30 yield per 1800s, so each fertilizer takes 60s to produce
+    let fertilizer_time_per_unit = fertilizer_item
+        .map(|f| f.production_time / (f.yield_amount as f64 * nimbus_bed_count.max(1.0)))
+        .unwrap_or(0.0);
 
     let mut efficiencies = Vec::new();
 
@@ -90,68 +101,128 @@ pub fn calculate_efficiencies(
             continue;
         }
 
+        // Filter out items that require fertilizer if no Nimbus Bed is available
+        if item.requires_fertilizer && nimbus_bed_count == 0.0 {
+            continue;
+        }
+
         let (total_time, total_energy, raw_cost, requires_raw, raw_facility) =
-            if let Some(ref raw_mat) = item.raw_materials {
+            if let Some(ref raw_mats) = item.raw_materials {
                 // This is a processed item - need to account for raw material production
-                if let Some(raw_item) = item_map.get(raw_mat) {
-                    // Check if raw material is available at its facility's level
-                    if !facility_counts.can_produce(&raw_item.facility, raw_item.facility_level) {
-                        continue;
-                    }
+                let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+                
+                // Track totals across all raw materials
+                let mut total_raw_time = 0.0;
+                let mut total_raw_energy: Option<f64> = None;
+                let mut total_raw_cost = 0.0;
+                let mut all_raw_names: Vec<String> = Vec::new();
+                let mut primary_facility: Option<String> = None;
+                let mut skip_item = false;
 
-                    // Check if raw material meets module requirements
-                    if let Some((ref module_name, required_level)) = raw_item.module_requirement {
-                        if !module_levels.can_use(module_name, required_level) {
-                            continue;
+                for (i, raw_mat) in raw_mats.iter().enumerate() {
+                    let required = required_amounts.get(i).copied().unwrap_or(1) as f64;
+                    
+                    if let Some(raw_item) = item_map.get(raw_mat) {
+                        // Check if raw material is available at its facility's level
+                        if !facility_counts.can_produce(&raw_item.facility, raw_item.facility_level) {
+                            skip_item = true;
+                            break;
                         }
+
+                        // Check if raw material meets module requirements
+                        if let Some((ref module_name, required_level)) = raw_item.module_requirement {
+                            if !module_levels.can_use(module_name, required_level) {
+                                skip_item = true;
+                                break;
+                            }
+                        }
+
+                        // Check if raw material requires fertilizer but no Nimbus Bed is available
+                        if raw_item.requires_fertilizer && nimbus_bed_count == 0.0 {
+                            skip_item = true;
+                            break;
+                        }
+
+                        let raw_yield = raw_item.yield_amount as f64;
+                        let batches_needed = (required / raw_yield).ceil();
+
+                        // Calculate time considering parallel production
+                        let raw_facility_count = facility_counts.get_count(&raw_item.facility) as f64;
+
+                        // Raw material time (parallelized within this material type)
+                        let raw_time_per_batch = raw_item.production_time;
+                        let raw_batches_parallel = (batches_needed / raw_facility_count).ceil();
+                        
+                        // Add fertilizer time if raw material requires it (1 fertilizer per batch)
+                        let fertilizer_time = if raw_item.requires_fertilizer {
+                            fertilizer_time_per_unit * batches_needed
+                        } else {
+                            0.0
+                        };
+                        
+                        // For multiple materials, assume they can be gathered in parallel
+                        // So we take the max time, not sum
+                        let this_raw_time = raw_time_per_batch * raw_batches_parallel + fertilizer_time;
+                        if this_raw_time > total_raw_time {
+                            total_raw_time = this_raw_time;
+                        }
+
+                        // Energy and cost are additive
+                        if let Some(e) = raw_item.energy {
+                            total_raw_energy = Some(total_raw_energy.unwrap_or(0.0) + e * batches_needed);
+                        }
+                        total_raw_cost += raw_item.cost.unwrap_or(0.0) * batches_needed;
+
+                        all_raw_names.push(raw_mat.clone());
+                        if primary_facility.is_none() {
+                            primary_facility = Some(raw_item.facility.clone());
+                        }
+                    } else {
+                        // Raw material not found, skip this item
+                        skip_item = true;
+                        break;
                     }
+                }
 
-                    let required = item.required_amount.unwrap_or(1) as f64;
-                    let raw_yield = raw_item.yield_amount as f64;
-                    let batches_needed = (required / raw_yield).ceil();
-
-                    // Calculate time considering parallel production
-                    let raw_facility_count = facility_counts.get_count(&raw_item.facility) as f64;
-                    let processing_facility_count = facility_counts.get_count(&item.facility) as f64;
-
-                    // Raw material time (parallelized)
-                    let raw_time_per_batch = raw_item.production_time;
-                    let raw_batches_parallel = (batches_needed / raw_facility_count).ceil();
-                    let raw_time = raw_time_per_batch * raw_batches_parallel;
-
-                    // Processing time (parallelized)
-                    let processing_time = item.production_time / processing_facility_count;
-
-                    let raw_energy = raw_item.energy.map(|e| e * batches_needed);
-                    let raw_cost_val = raw_item.cost.unwrap_or(0.0) * batches_needed;
-
-                    // Total time is sequential: gather raw materials, then process
-                    let total_time = raw_time + processing_time;
-                    let total_energy = match (raw_energy, item.energy) {
-                        (Some(re), Some(pe)) => Some(re + pe),
-                        (Some(re), None) => Some(re),
-                        (None, Some(pe)) => Some(pe),
-                        (None, None) => None,
-                    };
-
-                    (
-                        total_time,
-                        total_energy,
-                        raw_cost_val,
-                        Some(raw_mat.clone()),
-                        Some(raw_item.facility.clone()),
-                    )
-                } else {
-                    // Raw material not found, skip
+                if skip_item {
                     continue;
                 }
+
+                let processing_facility_count = facility_counts.get_count(&item.facility) as f64;
+                let processing_time = item.production_time / processing_facility_count;
+
+                // Total time is sequential: gather raw materials (in parallel), then process
+                let total_time = total_raw_time + processing_time;
+                let total_energy = match (total_raw_energy, item.energy) {
+                    (Some(re), Some(pe)) => Some(re + pe),
+                    (Some(re), None) => Some(re),
+                    (None, Some(pe)) => Some(pe),
+                    (None, None) => None,
+                };
+
+                (
+                    total_time,
+                    total_energy,
+                    total_raw_cost,
+                    Some(all_raw_names.join("+")),
+                    primary_facility,
+                )
             } else {
                 // This is a raw material - direct production
                 let facility_count = facility_counts.get_count(&item.facility) as f64;
                 let time_per_batch = item.production_time;
+                
+                // Add fertilizer time if required (1 fertilizer per batch)
+                let fertilizer_time = if item.requires_fertilizer {
+                    fertilizer_time_per_unit
+                } else {
+                    0.0
+                };
+                
                 // With parallel facilities, effective time per yield is reduced
+                // Fertilizer time is added per batch (once per production cycle)
                 let effective_time_per_yield =
-                    time_per_batch / (item.yield_amount as f64 * facility_count);
+                    (time_per_batch + fertilizer_time) / (item.yield_amount as f64 * facility_count);
                 // Energy per batch (not per unit) to match units_needed which counts batches
                 let energy_per_batch = item.energy;
                 let cost_per_batch = item.cost.unwrap_or(0.0);
@@ -234,6 +305,7 @@ pub fn calculate_efficiencies(
 ///     crafting_table: (1, 1),
 ///     dance_pad_polisher: (1, 1),
 ///     aniipod_maker: (1, 1),
+///     nimbus_bed: (1, 1),      // 1 nimbus bed (for fertilizer)
 /// };
 /// let modules = ModuleLevels::default();
 ///
@@ -290,7 +362,11 @@ pub fn find_best_production_path(
 
     // Add raw material step if needed
     if let Some(ref raw_name) = best.requires_raw {
-        let raw_amount_needed = best.item.required_amount.unwrap_or(1) * units_needed;
+        // Sum all required amounts for display purposes
+        let raw_amount_needed = best.item.required_amount
+            .as_ref()
+            .map(|amounts| amounts.iter().sum::<u32>())
+            .unwrap_or(1) * units_needed;
         let raw_facility = best.raw_facility.as_deref().unwrap_or("Unknown");
         let raw_facility_count = facility_counts.get_count(raw_facility);
         steps.push(ProductionStep {
@@ -752,8 +828,10 @@ pub fn find_self_sufficient_path(
 
     // Add raw material step for profit item if needed
     if let Some(ref raw_name) = best_profit.requires_raw {
-        let raw_amount_needed =
-            best_profit.item.required_amount.unwrap_or(1) * batches_for_profit as u32;
+        let raw_amount_needed = best_profit.item.required_amount
+            .as_ref()
+            .map(|amounts| amounts.iter().sum::<u32>())
+            .unwrap_or(1) * batches_for_profit as u32;
         let raw_facility = best_profit.raw_facility.as_deref().unwrap_or("Unknown");
         let raw_facility_count = facility_counts.get_count(raw_facility);
         steps.push(ProductionStep {
