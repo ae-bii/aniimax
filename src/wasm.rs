@@ -12,10 +12,16 @@ use crate::optimizer::{
 };
 
 /// JavaScript-friendly facility configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct JsFacilityConfig {
+    #[serde(default)]
     pub count: u32,
+    #[serde(default = "default_level")]
     pub level: u32,
+}
+
+fn default_level() -> u32 {
+    1
 }
 
 /// JavaScript-friendly module levels configuration.
@@ -48,6 +54,8 @@ pub struct JsOptimizeInput {
     pub crafting_table: JsFacilityConfig,
     pub dance_pad_polisher: JsFacilityConfig,
     pub aniipod_maker: JsFacilityConfig,
+    #[serde(default)]
+    pub nimbus_bed: JsFacilityConfig,
     #[serde(default)]
     pub modules: JsModuleLevels,
 }
@@ -150,6 +158,21 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         })
     }
 
+    // Helper to parse semicolon-separated raw material names
+    fn parse_raw_materials(s: &str) -> Vec<String> {
+        s.split(';')
+            .map(|part| part.trim().to_string())
+            .filter(|part| !part.is_empty())
+            .collect()
+    }
+
+    // Helper to parse semicolon-separated required amounts
+    fn parse_required_amounts(s: &str) -> Vec<u32> {
+        s.split(';')
+            .filter_map(|part| part.trim().parse::<u32>().ok())
+            .collect()
+    }
+
     let mut items = Vec::new();
 
     // Farmland items
@@ -172,6 +195,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy: row.energy,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: row.facility_level >= 4,
             });
         }
     }
@@ -199,6 +223,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: row.facility_level >= 3,
             });
         }
     }
@@ -223,6 +248,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy: None,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
             });
         }
     }
@@ -234,19 +260,22 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         .from_reader(carousel_data.as_bytes());
     for result in rdr.deserialize::<crate::models::ProcessingRowWithEnergy>() {
         if let Ok(row) = result {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
             items.push(ProductionItem {
                 name: row.name,
                 facility: "Carousel Mill".to_string(),
-                raw_materials: Some(row.raw_materials),
-                required_amount: Some(row.required_amount),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
                 cost: None,
                 sell_currency: "coins".to_string(),
                 sell_value: row.sell_value,
                 production_time: row.production_time,
                 yield_amount: 1,
-                energy: Some(row.energy),
+                energy: row.energy,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
             });
         }
     }
@@ -258,19 +287,22 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         .from_reader(jukebox_data.as_bytes());
     for result in rdr.deserialize::<crate::models::ProcessingRowWithEnergy>() {
         if let Ok(row) = result {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
             items.push(ProductionItem {
                 name: row.name,
                 facility: "Jukebox Dryer".to_string(),
-                raw_materials: Some(row.raw_materials),
-                required_amount: Some(row.required_amount),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
                 cost: None,
                 sell_currency: "coins".to_string(),
                 sell_value: row.sell_value,
                 production_time: row.production_time,
                 yield_amount: 1,
-                energy: Some(row.energy),
+                energy: row.energy,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
             });
         }
     }
@@ -282,11 +314,13 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         .from_reader(crafting_data.as_bytes());
     for result in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>() {
         if let Ok(row) = result {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
             items.push(ProductionItem {
                 name: row.name,
                 facility: "Crafting Table".to_string(),
-                raw_materials: Some(row.raw_materials),
-                required_amount: Some(row.required_amount),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
                 cost: None,
                 sell_currency: "coupons".to_string(),
                 sell_value: row.sell_value,
@@ -295,6 +329,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy: None,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
             });
         }
     }
@@ -306,11 +341,13 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         .from_reader(dance_data.as_bytes());
     for result in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>() {
         if let Ok(row) = result {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
             items.push(ProductionItem {
                 name: row.name,
                 facility: "Dance Pad Polisher".to_string(),
-                raw_materials: Some(row.raw_materials),
-                required_amount: Some(row.required_amount),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
                 cost: None,
                 sell_currency: "coupons".to_string(),
                 sell_value: row.sell_value,
@@ -319,6 +356,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy: None,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
             });
         }
     }
@@ -330,11 +368,13 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         .from_reader(aniipod_data.as_bytes());
     for result in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>() {
         if let Ok(row) = result {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
             items.push(ProductionItem {
                 name: row.name,
                 facility: "Aniipod Maker".to_string(),
-                raw_materials: Some(row.raw_materials),
-                required_amount: Some(row.required_amount),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
                 cost: None,
                 sell_currency: "coins".to_string(),
                 sell_value: row.sell_value,
@@ -343,6 +383,32 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 energy: None,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
+                requires_fertilizer: false,
+            });
+        }
+    }
+
+    // Nimbus Bed items (produces fertilizer, wool, petals)
+    let nimbus_data = include_str!("../data/nimbus_bed.csv");
+    let mut rdr = ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .from_reader(nimbus_data.as_bytes());
+    for result in rdr.deserialize::<crate::models::NimbusBedRow>() {
+        if let Ok(row) = result {
+            items.push(ProductionItem {
+                name: row.name,
+                facility: "Nimbus Bed".to_string(),
+                raw_materials: None,
+                required_amount: None,
+                cost: None,
+                sell_currency: "coins".to_string(),
+                sell_value: row.sell_value,
+                production_time: row.production_time,
+                yield_amount: row.yield_amount,
+                energy: None,
+                facility_level: 1,
+                module_requirement: None,
+                requires_fertilizer: false,
             });
         }
     }
@@ -386,6 +452,7 @@ pub fn optimize(input_json: &str) -> String {
         crafting_table: (input.crafting_table.count, input.crafting_table.level),
         dance_pad_polisher: (input.dance_pad_polisher.count, input.dance_pad_polisher.level),
         aniipod_maker: (input.aniipod_maker.count, input.aniipod_maker.level),
+        nimbus_bed: (input.nimbus_bed.count, input.nimbus_bed.level),
     };
 
     let module_levels = ModuleLevels {
@@ -544,6 +611,7 @@ pub fn get_available_items(input_json: &str) -> String {
             crafting_table: (i.crafting_table.count, i.crafting_table.level),
             dance_pad_polisher: (i.dance_pad_polisher.count, i.dance_pad_polisher.level),
             aniipod_maker: (i.aniipod_maker.count, i.aniipod_maker.level),
+            nimbus_bed: (i.nimbus_bed.count, i.nimbus_bed.level),
         },
         Err(_) => FacilityCounts {
             farmland: (1, 99),
@@ -554,6 +622,7 @@ pub fn get_available_items(input_json: &str) -> String {
             crafting_table: (1, 99),
             dance_pad_polisher: (1, 99),
             aniipod_maker: (1, 99),
+            nimbus_bed: (1, 99),
         },
     };
 
