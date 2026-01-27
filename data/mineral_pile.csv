@@ -2,4 +2,10 @@ name, sell_currency, sell_value, production_time, yield, facility_level, module_
 rock, coupons, 8, 120, 4, 1,
 high_speed_rock, coupons, 8, 120, 6, 1, mineral_detector:1
 copper, coupons, 14, 240, 5, 2,
-high_speed_copper, coupons, 14, 240, 7, 2, mineral_detector:2
+high_speed_copper, coupons, 14, 120, 7, 2, mineral_detector:2
+iron, coupons, 51, 600, 5, 3,
+high_speed_iron, coupons, 51, 120, 7, 3, mineral_detector:3
+quartz, coupons, 260, 900, 2, 4,
+high_speed_quartz, coupons, 260, 240, 3, 4, mineral_detector:4
+gem, coins, 1632, 2700, 1, 5,
+high_speed_gem, coins, 1632, 600, 2, 5, mineral_detector:5
