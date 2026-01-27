@@ -9,7 +9,7 @@ rubber, 42, coupons, 213, 5850, 4, NULL, 2,
 high_speed_rubber, 42, coupons, 213, 5850, 7, NULL, 2, ecological_module:4
 lemon, 56, coins, 224, 6300, 5, 17270, 3,
 coconut, 72, coins, 243, 8100, 6, 17960, 3,
-maple, 65, coins, 650, 7200, 2, 32060, 3,
+maple_syrup, 65, coins, 650, 7200, 2, 32060, 3,
 walnut, 96, coins, 646, 9000, 3, 28790, 4,
 pine, 229, coupons, 4590, 21600, 1, , 4,
-high_speed_pine, 229, coupons, 4590, 21600, 2, , 4,
+high_speed_pine, 229, coupons, 4590, 21600, 2, , 4, ecological_module:5

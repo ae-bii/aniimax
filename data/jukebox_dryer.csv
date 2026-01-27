@@ -3,3 +3,11 @@ potato_chips, potatoes, 2, 44, 108, 910, 1,
 dried_strawberry, strawberry, 3, 437, 156, 1560, 2,
 dried_bean_curd, tofu, 1, 1117, 156, 2030, 2,
 premium_dried_strawberry, strawberry, 3, 546, 156, 23540, 2, kitchen_module:3
+dried_lemon_slices, lemon, 6, 2016, 224, 2270, 3,
+dried_flowers, lavender;rose, 3;3, 1971, 480, , 3,
+shredded_coconut, coconut, 4, 1458, 480, 2220, 3,
+nuts, walnut;chestnut, 3;3, 3312, 480, , 4,
+herbs, ginseng, 2, 3570, 480, 56970, 4,
+high_grade_herbs, ginseng, 2, 4463, 960, 56970, 4, kitchen_module:4
+dried_grapes, grape, 8, 2652, 288, 3225, 4,
+caramel_nut_chips, nuts;maple_syrup, 1;1, 5943, 480, 4080, 4,
