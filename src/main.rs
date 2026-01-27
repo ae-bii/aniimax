@@ -111,6 +111,15 @@ struct Args {
     #[arg(long, default_value = "1")]
     aniipod_maker_level: u32,
 
+    // ========== Nimbus Bed ==========
+    /// Number of Nimbus Bed slots available (produces fertilizer for level 4+ Farmland and level 3+ Woodland)
+    #[arg(long, default_value = "0")]
+    nimbus_bed: u32,
+
+    /// Nimbus Bed facility level
+    #[arg(long, default_value = "1")]
+    nimbus_bed_level: u32,
+
     // ========== Item Upgrade Modules ==========
     /// Ecological Module level (1=high-speed wheat, 2=high-speed willow)
     #[arg(long, default_value = "0")]
@@ -149,6 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         crafting_table: (args.crafting_table, args.crafting_table_level),
         dance_pad_polisher: (args.dance_pad_polisher, args.dance_pad_polisher_level),
         aniipod_maker: (args.aniipod_maker, args.aniipod_maker_level),
+        nimbus_bed: (args.nimbus_bed, args.nimbus_bed_level),
     };
 
     // Build module levels from args
@@ -186,6 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Crafting Table:     {} x Lv.{}", args.crafting_table, args.crafting_table_level);
     println!("  Dance Pad Polisher: {} x Lv.{}", args.dance_pad_polisher, args.dance_pad_polisher_level);
     println!("  Aniipod Maker:      {} x Lv.{}", args.aniipod_maker, args.aniipod_maker_level);
+    println!("  Nimbus Bed:         {} x Lv.{}", args.nimbus_bed, args.nimbus_bed_level);
 
     println!();
     println!("Item Modules:");
