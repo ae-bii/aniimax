@@ -61,6 +61,10 @@ function getInputValues() {
             count: parseInt(document.getElementById('aniipod-maker-count').value) || 1,
             level: parseInt(document.getElementById('aniipod-maker-level').value) || 1
         },
+        nimbus_bed: {
+            count: parseInt(document.getElementById('nimbus-bed-count').value) || 0,
+            level: parseInt(document.getElementById('nimbus-bed-level').value) || 1
+        },
         modules: {
             ecological_module: parseInt(document.getElementById('ecological-module-level').value) || 0,
             kitchen_module: parseInt(document.getElementById('kitchen-module-level').value) || 0,
