@@ -11,6 +11,160 @@ use crate::models::{
     ProductionStep,
 };
 
+/// Calculates the optimal allocation of facilities to minimize production time
+/// when producing multiple different materials.
+/// 
+/// Given:
+/// - `materials`: Vec of (material_name, batches_needed, time_per_batch)
+/// - `total_facilities`: Total number of facilities available
+/// 
+/// Returns: Vec of (material_name, batches_needed, optimal_facilities_to_allocate)
+/// 
+/// The algorithm finds the allocation that minimizes max(ceil(batches_i / facilities_i) * time_i)
+/// by trying all possible integer allocations.
+fn calculate_optimal_facility_allocation(
+    materials: &[(String, u32, f64)],
+    total_facilities: u32,
+) -> Vec<(String, u32, u32)> {
+    if materials.is_empty() || total_facilities == 0 {
+        return vec![];
+    }
+    
+    if materials.len() == 1 {
+        // Single material gets all facilities
+        return vec![(materials[0].0.clone(), materials[0].1, total_facilities)];
+    }
+    
+    // For any number of materials, find the optimal allocation recursively
+    // This tries all possible ways to distribute facilities among materials
+    let n = materials.len();
+    
+    // Calculate minimum facilities needed per material (1 if batches > 0, else 0)
+    let min_facilities: Vec<u32> = materials.iter()
+        .map(|(_, batches, _)| if *batches > 0 { 1 } else { 0 })
+        .collect();
+    
+    let min_total: u32 = min_facilities.iter().sum();
+    
+    if min_total > total_facilities {
+        // Not enough facilities - allocate proportionally
+        let total_batches: u32 = materials.iter().map(|(_, b, _)| b).sum();
+        if total_batches == 0 {
+            return materials.iter()
+                .map(|(name, batches, _)| (name.clone(), *batches, 0))
+                .collect();
+        }
+        
+        let mut result: Vec<(String, u32, u32)> = Vec::with_capacity(n);
+        let mut remaining = total_facilities;
+        
+        for (i, (name, batches, _)) in materials.iter().enumerate() {
+            let alloc = if i == n - 1 {
+                remaining
+            } else {
+                let frac = (*batches as f64 / total_batches as f64 * total_facilities as f64).round() as u32;
+                frac.min(remaining)
+            };
+            result.push((name.clone(), *batches, alloc));
+            remaining = remaining.saturating_sub(alloc);
+        }
+        return result;
+    }
+    
+    // Use recursive search to find optimal allocation
+    let mut best_allocation: Vec<u32> = min_facilities.clone();
+    let mut best_time = calculate_max_time(materials, &best_allocation);
+    
+    // Distribute remaining facilities optimally
+    let remaining_to_distribute = total_facilities - min_total;
+    
+    if remaining_to_distribute > 0 {
+        find_optimal_allocation_recursive(
+            materials,
+            &min_facilities,
+            remaining_to_distribute,
+            0,
+            &mut vec![0; n],
+            &mut best_allocation,
+            &mut best_time,
+        );
+    }
+    
+    materials.iter()
+        .zip(best_allocation.iter())
+        .map(|((name, batches, _), &facilities)| (name.clone(), *batches, facilities))
+        .collect()
+}
+
+/// Calculate the maximum time across all materials given an allocation
+fn calculate_max_time(materials: &[(String, u32, f64)], allocation: &[u32]) -> f64 {
+    materials.iter()
+        .zip(allocation.iter())
+        .map(|((_, batches, time), &facilities)| {
+            if *batches == 0 {
+                0.0
+            } else if facilities == 0 {
+                f64::MAX
+            } else {
+                ((*batches as f64 / facilities as f64).ceil()) * time
+            }
+        })
+        .fold(0.0, f64::max)
+}
+
+/// Recursively find the optimal allocation by trying all distributions of extra facilities
+fn find_optimal_allocation_recursive(
+    materials: &[(String, u32, f64)],
+    base_allocation: &[u32],
+    remaining: u32,
+    start_idx: usize,
+    current_extra: &mut Vec<u32>,
+    best_allocation: &mut Vec<u32>,
+    best_time: &mut f64,
+) {
+    if remaining == 0 {
+        // Evaluate this allocation
+        let allocation: Vec<u32> = base_allocation.iter()
+            .zip(current_extra.iter())
+            .map(|(base, extra)| base + extra)
+            .collect();
+        
+        let time = calculate_max_time(materials, &allocation);
+        if time < *best_time {
+            *best_time = time;
+            *best_allocation = allocation;
+        }
+        return;
+    }
+    
+    // Pruning: if we've already found a good solution, skip branches that can't improve
+    // (This is a simple optimization - we could add more sophisticated pruning)
+    
+    // Try giving the remaining facilities to each material from start_idx onwards
+    for i in start_idx..materials.len() {
+        // Only allocate to materials that need batches
+        if materials[i].1 == 0 {
+            continue;
+        }
+        
+        // Try allocating 1 to remaining facilities to material i
+        let max_to_allocate = remaining;
+        for alloc in 1..=max_to_allocate {
+            current_extra[i] += alloc;
+            find_optimal_allocation_recursive(
+                materials,
+                base_allocation,
+                remaining - alloc,
+                i, // Allow same material to get more, or move to next
+                current_extra,
+                best_allocation,
+                best_time,
+            );
+            current_extra[i] -= alloc;
+        }
+    }
+}
+
 /// Result of calculating production requirements for an item
 #[derive(Debug, Clone)]
 struct ProductionRequirements {
@@ -404,7 +558,7 @@ pub fn calculate_efficiencies(
             continue;
         }
 
-        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility, all_facilities, intermediate_steps) =
+        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility, all_facilities, intermediate_steps, raw_material_details) =
             if let Some(ref raw_mats) = item.raw_materials {
                 // This is a processed item - use recursive calculation to handle nested dependencies
                 let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -417,6 +571,8 @@ pub fn calculate_efficiencies(
                 let mut primary_facility: Option<String> = None;
                 let mut all_facilities_collected: HashSet<String> = HashSet::new();
                 let mut all_intermediate_steps: Vec<(String, String, u32)> = Vec::new();
+                // (name, amount_per_batch, time_per_batch, facility) - includes facility for filtering
+                let mut raw_material_details_collected: Vec<(String, u32, f64, String)> = Vec::new();
                 let mut skip_item = false;
                 
                 // Add THIS item's processing facility
@@ -544,6 +700,16 @@ pub fn calculate_efficiencies(
                         // Convert to "processed batches worth" per second
                         let batches_worth_per_second = units_per_second / required_per_batch;
                         gathering_batches_per_second = gathering_batches_per_second.min(batches_worth_per_second);
+                        
+                        // Collect raw material details for optimal allocation calculation
+                        // Only include materials from the primary facility (for allocation to make sense)
+                        // (name, amount_per_batch, time_per_batch, facility)
+                        raw_material_details_collected.push((
+                            raw.name.clone(),
+                            required_per_batch as u32,
+                            raw.production_time,
+                            raw.facility.clone(),
+                        ));
                     }
                 }
                 
@@ -572,6 +738,27 @@ pub fn calculate_efficiencies(
                     let mut seen = HashSet::new();
                     all_raw_names.into_iter().filter(|n| seen.insert(n.clone())).collect()
                 };
+                
+                // Only keep raw_material_details if we have multiple materials FROM THE SAME FACILITY
+                // (allocation only makes sense when splitting facilities of the same type)
+                let raw_details = if raw_material_details_collected.len() > 1 {
+                    // Check if all materials come from the same facility
+                    let first_facility = &raw_material_details_collected[0].3;
+                    let all_same_facility = raw_material_details_collected.iter()
+                        .all(|(_, _, _, facility)| facility == first_facility);
+                    
+                    if all_same_facility {
+                        // Convert to (name, amount, time) format - drop facility field
+                        Some(raw_material_details_collected.into_iter()
+                            .map(|(name, amt, time, _)| (name, amt, time))
+                            .collect())
+                    } else {
+                        // Materials come from different facilities, allocation doesn't apply
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 (
                     total_time,
@@ -582,6 +769,7 @@ pub fn calculate_efficiencies(
                     primary_facility,
                     all_facilities_collected,
                     all_intermediate_steps,
+                    raw_details,
                 )
             } else {
                 // This is a raw material - direct production
@@ -608,7 +796,7 @@ pub fn calculate_efficiencies(
                 let mut raw_all_facilities = HashSet::new();
                 raw_all_facilities.insert(item.facility.clone());
 
-                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None, raw_all_facilities, vec![])
+                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None, raw_all_facilities, vec![], None)
             };
 
         let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
@@ -642,6 +830,7 @@ pub fn calculate_efficiencies(
             intermediate_steps,
             startup_time,
             effective_profit_per_second,
+            raw_material_details,
         });
     }
 
@@ -753,6 +942,27 @@ pub fn find_best_production_path(
             .unwrap_or(1) * units_needed;
         let raw_facility = best.raw_facility.as_deref().unwrap_or("Unknown");
         let raw_facility_count = facility_counts.get_count(raw_facility);
+        
+        // Calculate optimal facility allocation for multi-material production
+        let facility_allocation = if let Some(ref details) = best.raw_material_details {
+            // details is Vec<(name, amount_per_batch, time_per_batch)>
+            // We need to scale amounts by units_needed and calculate optimal facility split
+            let materials_for_allocation: Vec<(String, u32, f64)> = details.iter()
+                .map(|(name, amt_per_batch, time)| {
+                    (name.clone(), amt_per_batch * units_needed, *time)
+                })
+                .collect();
+            
+            let allocation = calculate_optimal_facility_allocation(&materials_for_allocation, raw_facility_count);
+            if allocation.len() > 1 {
+                Some(allocation)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
         steps.push(ProductionStep {
             item_name: raw_name.clone(),
             facility: format!("{} (x{})", raw_facility, raw_facility_count),
@@ -761,6 +971,7 @@ pub fn find_best_production_path(
             energy: None,
             profit_contribution: 0.0,
             chain_id: None,
+            facility_allocation,
         });
         
         // Add intermediate processing steps (e.g., nuts for caramel_nut_chips)
@@ -774,6 +985,7 @@ pub fn find_best_production_path(
                 energy: None,
                 profit_contribution: 0.0,
                 chain_id: None,
+                facility_allocation: None,
             });
         }
     }
@@ -789,6 +1001,7 @@ pub fn find_best_production_path(
             .map(|e| e * units_needed as f64),
         profit_contribution: profit_per_unit * units_needed as f64,
         chain_id: None,
+        facility_allocation: None,
     });
 
     // Calculate actual time with parallelization
@@ -980,6 +1193,26 @@ pub fn find_parallel_production_path(
             } else {
                 batches
             };
+            
+            // Calculate optimal facility allocation for multi-material production
+            let raw_facility_count = facility_counts.get_count(raw_facility);
+            let facility_allocation = if let Some(ref details) = eff.raw_material_details {
+                let materials_for_allocation: Vec<(String, u32, f64)> = details.iter()
+                    .map(|(name, amt_per_batch, time)| {
+                        (name.clone(), amt_per_batch * batches, *time)
+                    })
+                    .collect();
+                
+                let allocation = calculate_optimal_facility_allocation(&materials_for_allocation, raw_facility_count);
+                if allocation.len() > 1 {
+                    Some(allocation)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
             steps.push(ProductionStep {
                 item_name: requires.clone(),
                 facility: format!("{} (x{})", raw_facility, facility_counts.get_count(raw_facility)),
@@ -988,6 +1221,7 @@ pub fn find_parallel_production_path(
                 energy: None,
                 profit_contribution: 0.0,
                 chain_id: Some(current_chain_id),
+                facility_allocation,
             });
             
             // Step 2: Intermediate processing steps (e.g., nuts for caramel_nut_chips)
@@ -1001,6 +1235,7 @@ pub fn find_parallel_production_path(
                     energy: None,
                     profit_contribution: 0.0,
                     chain_id: Some(current_chain_id),
+                    facility_allocation: None,
                 });
             }
         }
@@ -1014,6 +1249,7 @@ pub fn find_parallel_production_path(
             energy: eff.total_energy_per_unit.map(|e| e * batches as f64),
             profit_contribution: step_profit,
             chain_id: Some(current_chain_id),
+            facility_allocation: None,
         });
     }
 
@@ -1281,6 +1517,7 @@ pub fn find_self_sufficient_path(
         energy: Some(energy_batches as f64 * best_energy.energy_per_batch),
         profit_contribution: -(energy_batches as f64 * best_energy.cost_per_batch), // Cost of seeds
         chain_id: None,
+        facility_allocation: None,
     });
 
     // Add raw material step for profit item if needed
@@ -1291,6 +1528,25 @@ pub fn find_self_sufficient_path(
             .unwrap_or(1) * batches_for_profit as u32;
         let raw_facility = best_profit.raw_facility.as_deref().unwrap_or("Unknown");
         let raw_facility_count = facility_counts.get_count(raw_facility);
+        
+        // Calculate optimal facility allocation for multi-material production
+        let facility_allocation = if let Some(ref details) = best_profit.raw_material_details {
+            let materials_for_allocation: Vec<(String, u32, f64)> = details.iter()
+                .map(|(name, amt_per_batch, time)| {
+                    (name.clone(), amt_per_batch * batches_for_profit as u32, *time)
+                })
+                .collect();
+            
+            let allocation = calculate_optimal_facility_allocation(&materials_for_allocation, raw_facility_count);
+            if allocation.len() > 1 {
+                Some(allocation)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
         steps.push(ProductionStep {
             item_name: raw_name.clone(),
             facility: format!("{} (x{})", raw_facility, raw_facility_count),
@@ -1299,6 +1555,7 @@ pub fn find_self_sufficient_path(
             energy: None,
             profit_contribution: 0.0,
             chain_id: None,
+            facility_allocation,
         });
         
         // Add intermediate processing steps (e.g., nuts for caramel_nut_chips)
@@ -1312,6 +1569,7 @@ pub fn find_self_sufficient_path(
                 energy: None,
                 profit_contribution: 0.0,
                 chain_id: None,
+                facility_allocation: None,
             });
         }
     }
@@ -1329,6 +1587,7 @@ pub fn find_self_sufficient_path(
         energy: None,
         profit_contribution: profit_per_batch * batches_for_profit,
         chain_id: None,
+        facility_allocation: None,
     });
 
     // Calculate actual profit (minus seed costs for energy items)
