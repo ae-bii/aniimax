@@ -364,8 +364,8 @@ The algorithm uses **binary search on candidate completion times**:
 1. **Generate candidate times**: For each material $i$ with $B_i$ batches and time $t_i$, the possible completion times are $\lceil B_i / k \rceil \cdot t_i$ for $k = 1, 2, \ldots$. Using the divisor counting trick, there are only $O(\sqrt{B_i})$ distinct values.
 
 2. **Binary search**: For each candidate time $T$, check if it's achievable:
-   - For material $i$: max rounds = $\lfloor T / t_i \rfloor$
-   - Min facilities needed: $\lceil B_i / \text{max\_rounds} \rceil$
+   - For material $i$: max rounds $= \lfloor T / t_i \rfloor$
+   - Min facilities needed $= \lceil B_i / r_i \rceil$ where $r_i$ is max rounds
    - Feasible if total facilities needed $\leq F$
 
 3. **Allocate**: Once the optimal time is found, assign minimum facilities to each material and greedily distribute remaining facilities.
