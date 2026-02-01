@@ -182,11 +182,35 @@ Aniimax uses a greedy algorithm to find efficient production paths. Here's how i
 
 For each producible item, the optimizer calculates key metrics:
 
-**Profit per second:**
+**Raw Material Profit per Second:**
+
+For raw materials (wheat, chestnut, rock, etc.), profit per second considers parallel production:
 
 ```math
-\text{Profit/sec} = \frac{(\text{sell\_value} \times \text{yield}) - \text{raw\_material\_cost}}{\text{total\_production\_time}}
+\text{Profit/sec} = \frac{(\text{sell\_value} \times \text{yield}) - \text{cost}}{\text{production\_time} / \text{facility\_count}}
 ```
+
+**Processed Item Profit per Second (Steady-State Throughput):**
+
+For processed items (wheatmeal, potato_chips, etc.), the optimizer calculates the **steady-state throughput** based on the production bottleneck. In continuous production, raw material gathering and processing can happen in parallel - the slower of the two determines overall throughput.
+
+```math
+\text{Gathering Rate} = \frac{\text{raw\_facility\_count} \times \text{raw\_yield}}{\text{raw\_production\_time} \times \text{required\_amount}}
+```
+
+```math
+\text{Processing Rate} = \frac{\text{processing\_facility\_count}}{\text{processing\_time}}
+```
+
+```math
+\text{Batches/sec} = \min(\text{Gathering Rate}, \text{Processing Rate})
+```
+
+```math
+\text{Profit/sec} = \text{Batches/sec} \times \text{net\_profit\_per\_batch}
+```
+
+This means adding more farms speeds up processed item production (until processing becomes the bottleneck), and adding more processing facilities speeds up production (until raw material gathering becomes the bottleneck).
 
 **Profit per energy** (for energy optimization mode):
 
@@ -194,17 +218,9 @@ For each producible item, the optimizer calculates key metrics:
 \text{Profit/energy} = \frac{\text{profit}}{\text{energy\_consumed}}
 ```
 
-**Effective profit per second** (accounts for parallel production):
+**High-Speed Variants:**
 
-```math
-\text{Effective Profit/sec} = \frac{\text{profit}}{\text{production\_time} / \text{facility\_count}}
-```
-
-For processed items (like wheatmeal from wheat), the total production time includes the time needed to grow the raw materials:
-
-```math
-t_{\text{total}} = t_{\text{processing}} + \frac{t_{\text{raw}} \times \text{required\_amount}}{\text{raw\_yield}}
-```
+When calculating raw material requirements, the optimizer automatically uses high-speed variants (like `high_speed_wheat` instead of `wheat`) if you have the required module level. These variants produce more yield in the same time, making processed items more efficient.
 
 ### 2. Item Filtering
 
@@ -274,14 +290,14 @@ With parallel mode:
 - Total time: 23h 18m (the longer of the two)
 - Faster completion with same total profit!
 
-### Example
+### Example: Raw Materials
 
 With 4 Farmlands at level 3, producing rice:
 
-- Rice yields 10 units in 810 seconds, selling for 10 coins each
+- Rice yields 10 units in 810 seconds, selling for 10 coins each (cost: 5 coins per batch)
 
 ```math
-\text{Profit} = 10 \times 10 = 100 \text{ coins}
+\text{Net Profit} = (10 \times 10) - 5 = 95 \text{ coins per batch}
 ```
 
 ```math
@@ -289,10 +305,30 @@ t_{\text{effective}} = \frac{810}{4} = 202.5 \text{ seconds}
 ```
 
 ```math
-\text{Profit/sec} = \frac{100}{202.5} \approx 0.49 \text{ coins/sec}
+\text{Profit/sec} = \frac{95}{202.5} \approx 0.47 \text{ coins/sec}
 ```
 
-Note: All 4 batches complete together, so you actually earn 4 × 100 = 400 coins in 202.5 seconds.
+### Example: Processed Items
+
+With 4 Farmlands and 2 Carousel Mills, producing super_wheatmeal (requires 120 wheat, sells for 210 coins):
+
+Using high_speed_wheat (yield 15, time 90s) with ecological_module:
+
+```math
+\text{Gathering Rate} = \frac{4 \times 15}{90 \times 120} = 0.00556 \text{ batches/sec}
+```
+
+```math
+\text{Processing Rate} = \frac{2}{60} = 0.0333 \text{ batches/sec}
+```
+
+Bottleneck is gathering (0.00556 < 0.0333):
+
+```math
+\text{Profit/sec} = 0.00556 \times 210 = 1.17 \text{ coins/sec}
+```
+
+Adding more farms increases the gathering rate until it matches or exceeds the processing rate.
 
 ## Library Usage
 
