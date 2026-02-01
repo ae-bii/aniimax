@@ -125,6 +125,9 @@ pub struct ProductionStep {
     pub profit_contribution: f64,
     /// Chain ID for parallel production (steps with same ID run together)
     pub chain_id: Option<u32>,
+    /// Optimal facility allocation: Vec<(material_name, batches_needed, facilities_to_allocate)>
+    /// Shows how to split facilities when producing multiple materials to minimize time
+    pub facility_allocation: Option<Vec<(String, u32, u32)>>,
 }
 
 /// Calculated efficiency metrics for a production item.
@@ -156,6 +159,8 @@ pub struct ProductionEfficiency {
     pub startup_time: f64,
     /// Effective profit per second considering parallel facility usage
     pub effective_profit_per_second: f64,
+    /// Raw material details for optimal allocation: Vec<(name, amount_per_batch, time_per_batch)>
+    pub raw_material_details: Option<Vec<(String, u32, f64)>>,
 }
 
 /// Tracks the number of each facility type available.
