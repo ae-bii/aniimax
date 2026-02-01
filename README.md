@@ -184,19 +184,27 @@ For each producible item, the optimizer calculates key metrics:
 
 **Profit per second:**
 
-$$\text{Profit/sec} = \frac{(\text{sell\_value} \times \text{yield}) - \text{raw\_material\_cost}}{\text{total\_production\_time}}$$
+```math
+\text{Profit/sec} = \frac{(\text{sell\_value} \times \text{yield}) - \text{raw\_material\_cost}}{\text{total\_production\_time}}
+```
 
 **Profit per energy** (for energy optimization mode):
 
-$$\text{Profit/energy} = \frac{\text{profit}}{\text{energy\_consumed}}$$
+```math
+\text{Profit/energy} = \frac{\text{profit}}{\text{energy\_consumed}}
+```
 
 **Effective profit per second** (accounts for parallel production):
 
-$$\text{Effective Profit/sec} = \frac{\text{profit}}{\text{production\_time} / \text{facility\_count}}$$
+```math
+\text{Effective Profit/sec} = \frac{\text{profit}}{\text{production\_time} / \text{facility\_count}}
+```
 
 For processed items (like wheatmeal from wheat), the total production time includes the time needed to grow the raw materials:
 
-$$t_{\text{total}} = t_{\text{processing}} + \frac{t_{\text{raw}} \times \text{required\_amount}}{\text{raw\_yield}}$$
+```math
+t_{\text{total}} = t_{\text{processing}} + \frac{t_{\text{raw}} \times \text{required\_amount}}{\text{raw\_yield}}
+```
 
 ### 2. Item Filtering
 
@@ -229,7 +237,9 @@ Items are filtered based on your configuration:
 
 When you have multiple facilities (e.g., 4 Farmlands), production time is divided:
 
-$$t_{\text{effective}} = \frac{t_{\text{actual}}}{n_{\text{facilities}}}$$
+```math
+t_{\text{effective}} = \frac{t_{\text{actual}}}{n_{\text{facilities}}}
+```
 
 This significantly impacts which items are most efficient.
 
@@ -244,9 +254,13 @@ In this mode:
 - Total time = time of the longest step (not the sum)
 - Combined profit = sum of profits from all facilities
 
-$$t_{\text{total}} = \max(t_{\text{farmland}}, t_{\text{woodland}}, t_{\text{mineral}})$$
+```math
+t_{\text{total}} = \max(t_{\text{farmland}}, t_{\text{woodland}}, t_{\text{mineral}})
+```
 
-$$\text{Profit}_{\text{total}} = \text{Profit}_{\text{farmland}} + \text{Profit}_{\text{woodland}} + \text{Profit}_{\text{mineral}}$$
+```math
+\text{Profit}_{\text{total}} = \text{Profit}_{\text{farmland}} + \text{Profit}_{\text{woodland}} + \text{Profit}_{\text{mineral}}
+```
 
 **Example**: Producing 10,000 coins
 
@@ -266,13 +280,19 @@ With 4 Farmlands at level 3, producing rice:
 
 - Rice yields 10 units in 810 seconds, selling for 10 coins each
 
-$$\text{Profit} = 10 \times 10 = 100 \text{ coins}$$
+```math
+\text{Profit} = 10 \times 10 = 100 \text{ coins}
+```
 
-$$t_{\text{effective}} = \frac{810}{4} = 202.5 \text{ seconds}$$
+```math
+t_{\text{effective}} = \frac{810}{4} = 202.5 \text{ seconds}
+```
 
-$$\text{Profit/sec} = \frac{100}{202.5} \approx 0.49 \text{ coins/sec}$$
+```math
+\text{Profit/sec} = \frac{100}{202.5} \approx 0.49 \text{ coins/sec}
+```
 
-Note: All 4 batches complete together, so you actually earn $4 \times 100 = 400$ coins in 202.5 seconds.
+Note: All 4 batches complete together, so you actually earn 4 × 100 = 400 coins in 202.5 seconds.
 
 ## Library Usage
 
