@@ -20,14 +20,20 @@ use crate::models::{
 /// 
 /// Returns: Vec of (material_name, batches_needed, optimal_facilities_to_allocate)
 /// 
-/// The algorithm finds the allocation that minimizes max(ceil(batches_i / facilities_i) * time_i)
-/// by trying all possible integer allocations.
+/// Uses binary search on the answer for O(M * sqrt(B) * log(M * sqrt(B))) complexity,
+/// where M = number of materials, B = max batches.
 fn calculate_optimal_facility_allocation(
     materials: &[(String, u32, f64)],
     total_facilities: u32,
 ) -> Vec<(String, u32, u32)> {
-    if materials.is_empty() || total_facilities == 0 {
+    if materials.is_empty() {
         return vec![];
+    }
+    
+    if total_facilities == 0 {
+        return materials.iter()
+            .map(|(name, batches, _)| (name.clone(), *batches, 0))
+            .collect();
     }
     
     if materials.len() == 1 {
@@ -35,134 +41,244 @@ fn calculate_optimal_facility_allocation(
         return vec![(materials[0].0.clone(), materials[0].1, total_facilities)];
     }
     
-    // For any number of materials, find the optimal allocation recursively
-    // This tries all possible ways to distribute facilities among materials
-    let n = materials.len();
-    
-    // Calculate minimum facilities needed per material (1 if batches > 0, else 0)
-    let min_facilities: Vec<u32> = materials.iter()
-        .map(|(_, batches, _)| if *batches > 0 { 1 } else { 0 })
+    // Filter to only materials that need production (batches > 0 and time > 0)
+    let active_materials: Vec<(usize, u32, f64)> = materials.iter()
+        .enumerate()
+        .filter(|(_, (_, batches, time))| *batches > 0 && *time > 0.0)
+        .map(|(i, (_, batches, time))| (i, *batches, *time))
         .collect();
     
-    let min_total: u32 = min_facilities.iter().sum();
-    
-    if min_total > total_facilities {
-        // Not enough facilities - allocate proportionally
-        let total_batches: u32 = materials.iter().map(|(_, b, _)| b).sum();
-        if total_batches == 0 {
-            return materials.iter()
-                .map(|(name, batches, _)| (name.clone(), *batches, 0))
-                .collect();
-        }
-        
-        let mut result: Vec<(String, u32, u32)> = Vec::with_capacity(n);
-        let mut remaining = total_facilities;
-        
-        for (i, (name, batches, _)) in materials.iter().enumerate() {
-            let alloc = if i == n - 1 {
-                remaining
-            } else {
-                let frac = (*batches as f64 / total_batches as f64 * total_facilities as f64).round() as u32;
-                frac.min(remaining)
-            };
-            result.push((name.clone(), *batches, alloc));
-            remaining = remaining.saturating_sub(alloc);
-        }
-        return result;
-    }
-    
-    // Use recursive search to find optimal allocation
-    let mut best_allocation: Vec<u32> = min_facilities.clone();
-    let mut best_time = calculate_max_time(materials, &best_allocation);
-    
-    // Distribute remaining facilities optimally
-    let remaining_to_distribute = total_facilities - min_total;
-    
-    if remaining_to_distribute > 0 {
-        find_optimal_allocation_recursive(
-            materials,
-            &min_facilities,
-            remaining_to_distribute,
-            0,
-            &mut vec![0; n],
-            &mut best_allocation,
-            &mut best_time,
-        );
-    }
-    
-    materials.iter()
-        .zip(best_allocation.iter())
-        .map(|((name, batches, _), &facilities)| (name.clone(), *batches, facilities))
-        .collect()
-}
-
-/// Calculate the maximum time across all materials given an allocation
-fn calculate_max_time(materials: &[(String, u32, f64)], allocation: &[u32]) -> f64 {
-    materials.iter()
-        .zip(allocation.iter())
-        .map(|((_, batches, time), &facilities)| {
-            if *batches == 0 {
-                0.0
-            } else if facilities == 0 {
-                f64::MAX
-            } else {
-                ((*batches as f64 / facilities as f64).ceil()) * time
-            }
-        })
-        .fold(0.0, f64::max)
-}
-
-/// Recursively find the optimal allocation by trying all distributions of extra facilities
-fn find_optimal_allocation_recursive(
-    materials: &[(String, u32, f64)],
-    base_allocation: &[u32],
-    remaining: u32,
-    start_idx: usize,
-    current_extra: &mut Vec<u32>,
-    best_allocation: &mut Vec<u32>,
-    best_time: &mut f64,
-) {
-    if remaining == 0 {
-        // Evaluate this allocation
-        let allocation: Vec<u32> = base_allocation.iter()
-            .zip(current_extra.iter())
-            .map(|(base, extra)| base + extra)
+    if active_materials.is_empty() {
+        // No active materials - just return with 0 allocations
+        return materials.iter()
+            .map(|(name, batches, _)| (name.clone(), *batches, 0))
             .collect();
-        
-        let time = calculate_max_time(materials, &allocation);
-        if time < *best_time {
-            *best_time = time;
-            *best_allocation = allocation;
-        }
-        return;
     }
     
-    // Pruning: if we've already found a good solution, skip branches that can't improve
-    // (This is a simple optimization - we could add more sophisticated pruning)
+    // Check if we have enough facilities (at least 1 per active material)
+    if (active_materials.len() as u32) > total_facilities {
+        // Not enough - distribute proportionally
+        return distribute_proportionally(materials, total_facilities);
+    }
     
-    // Try giving the remaining facilities to each material from start_idx onwards
-    for i in start_idx..materials.len() {
-        // Only allocate to materials that need batches
-        if materials[i].1 == 0 {
+    // Collect all possible completion times using sqrt decomposition
+    // For ceil(b/k) where k goes from 1 to b, there are only O(sqrt(b)) distinct values
+    let mut candidate_times: Vec<f64> = Vec::new();
+    for (_, batches, time) in &active_materials {
+        if *batches == 0 || *time <= 0.0 {
+            continue;
+        }
+        let mut k = 1u32;
+        while k <= *batches {
+            let rounds = (*batches + k - 1) / k; // ceil(batches / k)
+            candidate_times.push(rounds as f64 * time);
+            // Jump to next k that gives a different ceil value
+            if rounds > 1 {
+                k = *batches / (rounds - 1);
+                if k * (rounds - 1) < *batches {
+                    k += 1;
+                }
+            } else {
+                break;
+            }
+        }
+        // Also add the case where we use all facilities for this material
+        if total_facilities > 0 {
+            candidate_times.push(((*batches + total_facilities - 1) / total_facilities) as f64 * time);
+        }
+    }
+    
+    // Handle empty candidates
+    if candidate_times.is_empty() {
+        return materials.iter()
+            .enumerate()
+            .map(|(i, (name, batches, _))| {
+                let alloc = if i < active_materials.len() { 1 } else { 0 };
+                (name.clone(), *batches, alloc)
+            })
+            .collect();
+    }
+    
+    // Sort and deduplicate
+    candidate_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    candidate_times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    
+    // Binary search for minimum feasible time
+    let optimal_time = binary_search_min_time(&candidate_times, &active_materials, total_facilities);
+    
+    // Calculate the allocation for this optimal time
+    calculate_allocation_for_time(materials, &active_materials, optimal_time, total_facilities)
+}
+
+/// Binary search to find the minimum feasible completion time
+fn binary_search_min_time(
+    candidate_times: &[f64],
+    active_materials: &[(usize, u32, f64)],
+    total_facilities: u32,
+) -> f64 {
+    if candidate_times.is_empty() {
+        return 0.0;
+    }
+    
+    let mut lo = 0;
+    let mut hi = candidate_times.len();
+    
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if is_time_feasible(candidate_times[mid], active_materials, total_facilities) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    
+    if lo < candidate_times.len() {
+        candidate_times[lo]
+    } else {
+        // Fallback - use the largest candidate time
+        candidate_times.last().copied().unwrap_or(0.0)
+    }
+}
+
+/// Check if a target completion time is achievable with the given facilities
+fn is_time_feasible(
+    target_time: f64,
+    active_materials: &[(usize, u32, f64)],
+    total_facilities: u32,
+) -> bool {
+    let mut facilities_needed = 0u32;
+    
+    for (_, batches, time) in active_materials {
+        if *time <= 0.0 {
             continue;
         }
         
-        // Try allocating 1 to remaining facilities to material i
-        let max_to_allocate = remaining;
-        for alloc in 1..=max_to_allocate {
-            current_extra[i] += alloc;
-            find_optimal_allocation_recursive(
-                materials,
-                base_allocation,
-                remaining - alloc,
-                i, // Allow same material to get more, or move to next
-                current_extra,
-                best_allocation,
-                best_time,
-            );
-            current_extra[i] -= alloc;
+        let max_rounds = (target_time / time).floor() as u32;
+        if max_rounds == 0 {
+            return false; // Can't complete even one round in time
+        }
+        
+        // Minimum facilities needed: ceil(batches / max_rounds)
+        let min_facilities = (*batches + max_rounds - 1) / max_rounds;
+        facilities_needed = facilities_needed.saturating_add(min_facilities);
+        
+        if facilities_needed > total_facilities {
+            return false;
         }
     }
+    
+    true
+}
+
+/// Calculate the actual facility allocation for a given target time
+fn calculate_allocation_for_time(
+    materials: &[(String, u32, f64)],
+    active_materials: &[(usize, u32, f64)],
+    target_time: f64,
+    total_facilities: u32,
+) -> Vec<(String, u32, u32)> {
+    let mut result: Vec<(String, u32, u32)> = materials.iter()
+        .map(|(name, batches, _)| (name.clone(), *batches, 0))
+        .collect();
+    
+    // Calculate minimum facilities needed for each active material
+    let mut allocations: Vec<(usize, u32)> = Vec::new();
+    let mut total_min = 0u32;
+    
+    for (idx, batches, time) in active_materials {
+        if *time <= 0.0 {
+            allocations.push((*idx, 1));
+            total_min += 1;
+            continue;
+        }
+        
+        let max_rounds = (target_time / time).floor() as u32;
+        let min_facilities = if max_rounds == 0 {
+            *batches // Need one facility per batch (shouldn't happen if time is feasible)
+        } else {
+            (*batches + max_rounds - 1) / max_rounds
+        };
+        
+        allocations.push((*idx, min_facilities));
+        total_min += min_facilities;
+    }
+    
+    // Distribute remaining facilities to reduce time further where possible
+    let mut remaining = total_facilities.saturating_sub(total_min);
+    
+    // Assign minimum allocations first
+    for (idx, min_fac) in &allocations {
+        result[*idx].2 = *min_fac;
+    }
+    
+    // Distribute remaining facilities greedily - give to the material that benefits most
+    while remaining > 0 {
+        let mut best_improvement = 0.0f64;
+        let mut best_idx = None;
+        
+        for (idx, batches, time) in active_materials {
+            let current_facilities = result[*idx].2;
+            if current_facilities == 0 {
+                continue;
+            }
+            
+            let current_rounds = (*batches + current_facilities - 1) / current_facilities;
+            let new_rounds = (*batches + current_facilities) / (current_facilities + 1);
+            
+            if new_rounds < current_rounds {
+                let improvement = (current_rounds - new_rounds) as f64 * time;
+                if improvement > best_improvement {
+                    best_improvement = improvement;
+                    best_idx = Some(*idx);
+                }
+            }
+        }
+        
+        if let Some(idx) = best_idx {
+            result[idx].2 += 1;
+            remaining -= 1;
+        } else {
+            // No improvement possible, distribute to first active material
+            if let Some((idx, _, _)) = active_materials.first() {
+                result[*idx].2 += remaining;
+            }
+            break;
+        }
+    }
+    
+    result
+}
+
+/// Distribute facilities proportionally when there aren't enough
+fn distribute_proportionally(
+    materials: &[(String, u32, f64)],
+    total_facilities: u32,
+) -> Vec<(String, u32, u32)> {
+    let total_batches: u32 = materials.iter().map(|(_, b, _)| b).sum();
+    
+    if total_batches == 0 {
+        return materials.iter()
+            .map(|(name, batches, _)| (name.clone(), *batches, 0))
+            .collect();
+    }
+    
+    let mut result: Vec<(String, u32, u32)> = Vec::with_capacity(materials.len());
+    let mut remaining = total_facilities;
+    
+    for (i, (name, batches, _)) in materials.iter().enumerate() {
+        let alloc = if i == materials.len() - 1 {
+            remaining
+        } else if *batches > 0 {
+            let frac = (*batches as f64 / total_batches as f64 * total_facilities as f64).round() as u32;
+            frac.min(remaining).max(1)
+        } else {
+            0
+        };
+        result.push((name.clone(), *batches, alloc));
+        remaining = remaining.saturating_sub(alloc);
+    }
+    
+    result
 }
 
 /// Result of calculating production requirements for an item
