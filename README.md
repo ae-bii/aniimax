@@ -357,19 +357,26 @@ t = \max\left(\lceil\frac{666}{8}\rceil \times 5400, \lceil\frac{666}{12}\rceil 
 
 The optimal allocation saves **~25 hours** by giving more facilities to the slower-producing material (rose).
 
-**How it works:**
+**Algorithm:**
 
-For 2 materials, the algorithm tries all possible splits and selects the one that minimizes:
+The algorithm uses **binary search on candidate completion times**:
+
+1. **Generate candidate times**: For each material $i$ with $B_i$ batches and time $t_i$, the possible completion times are $\lceil B_i / k \rceil \cdot t_i$ for $k = 1, 2, \ldots$. Using the divisor counting trick, there are only $O(\sqrt{B_i})$ distinct values.
+
+2. **Binary search**: For each candidate time $T$, check if it's achievable:
+   - For material $i$: max rounds = $\lfloor T / t_i \rfloor$
+   - Min facilities needed: $\lceil B_i / \text{max\_rounds} \rceil$
+   - Feasible if total facilities needed $\leq F$
+
+3. **Allocate**: Once the optimal time is found, assign minimum facilities to each material and greedily distribute remaining facilities.
+
+The objective is to minimize:
 
 ```math
-\min_{f_1 \in [1, F-1]} \max\left(\lceil\frac{B_1}{f_1}\rceil \times t_1, \lceil\frac{B_2}{F-f_1}\rceil \times t_2\right)
+\min \max_i \left(\lceil\frac{B_i}{f_i}\rceil \times t_i\right) \quad \text{s.t.} \quad \sum_i f_i = F
 ```
 
-Where:
-- $F$ = total facilities available
-- $B_i$ = batches needed for material $i$
-- $t_i$ = production time for material $i$
-- $f_i$ = facilities allocated to material $i$
+**Complexity**: $O(M \cdot \sqrt{B} \cdot \log(M \cdot \sqrt{B}))$ where $M$ = materials, $B$ = max batches.
 
 **When it applies:**
 - Multiple materials from the **same** facility (lavender + rose from Farmland)
@@ -427,7 +434,7 @@ Let $n$ = number of production items, $m$ = maximum chain depth, $f$ = facilitie
 |-----------|------------|-------------|
 | Efficiency calculation | $O(n \cdot m^2)$ | Recursive chain traversal for each item |
 | Parallel mode selection | $O(n \log n + n \cdot f)$ | Sort + greedy selection with conflict detection |
-| Facility allocation | $O(\binom{F+M-1}{M-1})$ | Optimal allocation via recursive search |
+| Facility allocation | $O(M \cdot \sqrt{B} \cdot \log(M\sqrt{B}))$ | Binary search on candidate times |
 | Startup time calculation | $O(k)$ | Max over $k$ selected chains |
 
 With ~64 items, shallow chains ($m \leq 3$), and typically $M \leq 3$ materials, the algorithm runs in sub-millisecond time.
