@@ -344,7 +344,7 @@ pub fn calculate_efficiencies(
             continue;
         }
 
-        let (total_time, total_energy, raw_cost, requires_raw, raw_facility) =
+        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility) =
             if let Some(ref raw_mats) = item.raw_materials {
                 // This is a processed item - use recursive calculation to handle nested dependencies
                 let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -399,9 +399,73 @@ pub fn calculate_efficiencies(
                 }
 
                 let processing_facility_count = facility_counts.get_count(&item.facility) as f64;
-                let processing_time = item.production_time / processing_facility_count;
+                let processing_time_per_mill = item.production_time; // Time for 1 mill to process 1 batch
+                let processing_time = processing_time_per_mill / processing_facility_count;
 
-                // Total time is sequential: gather raw materials (in parallel), then process
+                // For steady-state production, we need to find the bottleneck between:
+                // 1. Raw material production rate
+                // 2. Processing rate
+                //
+                // Processing rate: processing_facility_count batches per processing_time_per_mill seconds
+                // Raw material rate: depends on how fast we can gather ingredients
+                //
+                // max_ingredient_time is the time to gather materials for 1 processed batch
+                // But with more farms, we gather materials faster than needed for 1 batch
+                // 
+                // For super_wheatmeal example:
+                // - 1 batch needs 120 wheat
+                // - With 20 farms, we gather 300 wheat per 90 seconds
+                // - That's 300/120 = 2.5 batches worth per 90 seconds
+                // - Processing can do 5 batches per 60 seconds = 7.5 batches per 90 seconds
+                // - Bottleneck is gathering: 2.5 batches per 90 seconds
+                //
+                // The issue is max_ingredient_time is calculated assuming we stop after gathering 120 wheat.
+                // We need to calculate the raw material RATE instead.
+                //
+                // For now, let's calculate: what's the rate at which farms can supply materials?
+                // rate = (yield per batch × facility_count) / batch_time / required_per_processed_batch
+                // This gives us "processed batches worth of materials per second"
+                
+                // Calculate gathering rate: processed_batches_worth per second
+                // We assume all raw materials come from the same facility type for simplicity
+                // (This is true for most recipes like super_wheatmeal)
+                let mut gathering_batches_per_second = f64::INFINITY;
+                
+                for (i, raw_mat) in raw_mats.iter().enumerate() {
+                    let required_per_batch = required_amounts.get(i).copied().unwrap_or(1) as f64;
+                    
+                    // Find the raw material item to get its production rate
+                    let high_speed_name = format!("high_speed_{}", raw_mat);
+                    let raw_item = if let Some(hs) = item_map.get(&high_speed_name) {
+                        if let Some((ref module_name, required_level)) = hs.module_requirement {
+                            if module_levels.can_use(module_name, required_level) { Some(*hs) } else { item_map.get(raw_mat.as_str()).copied() }
+                        } else { Some(*hs) }
+                    } else {
+                        item_map.get(raw_mat.as_str()).copied()
+                    };
+                    
+                    if let Some(raw) = raw_item {
+                        let raw_facility_count = facility_counts.get_count(&raw.facility) as f64;
+                        // Units produced per second by all facilities for this raw material
+                        let units_per_second = (raw.yield_amount as f64 * raw_facility_count) / raw.production_time;
+                        // Convert to "processed batches worth" per second
+                        let batches_worth_per_second = units_per_second / required_per_batch;
+                        gathering_batches_per_second = gathering_batches_per_second.min(batches_worth_per_second);
+                    }
+                }
+                
+                // Processing rate: processed batches per second
+                let processing_batches_per_second = processing_facility_count / processing_time_per_mill;
+                
+                // Steady-state rate is the minimum (bottleneck)
+                let batches_per_second = gathering_batches_per_second.min(processing_batches_per_second);
+                let steady_state_time = if batches_per_second > 0.0 && batches_per_second.is_finite() { 
+                    1.0 / batches_per_second 
+                } else { 
+                    f64::INFINITY 
+                };
+                
+                // Total time for a single batch (used for display) is still sequential
                 let total_time = max_ingredient_time + processing_time;
                 let total_energy = match (total_ingredient_energy, item.energy) {
                     (Some(ie), Some(pe)) => Some(ie + pe),
@@ -418,6 +482,7 @@ pub fn calculate_efficiencies(
 
                 (
                     total_time,
+                    steady_state_time, // Pass steady_state_time for efficiency calculation
                     total_energy,
                     total_ingredient_cost,
                     Some(unique_raw_names.join("+")),
@@ -436,37 +501,22 @@ pub fn calculate_efficiencies(
                 };
                 
                 // For display purposes, time_per_unit is how long to produce one unit
-                // But for efficiency comparison, we use time_per_batch (considering parallel facilities)
                 let effective_time_per_yield =
                     (time_per_batch + fertilizer_time) / (item.yield_amount as f64 * facility_count);
+                // For raw materials, steady-state time equals batch time / facility count
+                let steady_state_time = (time_per_batch + fertilizer_time) / facility_count;
                 // Energy per batch (not per unit) to match units_needed which counts batches
                 let energy_per_batch = item.energy;
                 let cost_per_batch = item.cost.unwrap_or(0.0);
 
-                (effective_time_per_yield, energy_per_batch, cost_per_batch, None, None)
+                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None)
             };
 
         let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
         
-        // For consistent comparison, calculate profit_per_second using batch-level time
-        // For raw materials: batch_time / facility_count (parallel production)
-        // For processed items: total_time already includes raw gathering + processing
-        let batch_time = if item.raw_materials.is_none() {
-            // Raw material: use batch time divided by facility count
-            let facility_count = facility_counts.get_count(&item.facility) as f64;
-            let fertilizer_time = if item.requires_fertilizer {
-                fertilizer_time_per_unit
-            } else {
-                0.0
-            };
-            (item.production_time + fertilizer_time) / facility_count
-        } else {
-            // Processed item: total_time is already the full batch time
-            total_time
-        };
-        
-        let profit_per_second = if batch_time > 0.0 {
-            net_profit / batch_time
+        // For efficiency comparison, use steady-state time (bottleneck)
+        let profit_per_second = if steady_state_time > 0.0 {
+            net_profit / steady_state_time
         } else {
             0.0
         };
