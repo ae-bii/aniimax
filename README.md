@@ -16,6 +16,7 @@ A command-line tool, Rust library, and **web application** for optimizing produc
 - **Parallel Production**: Account for multiple facilities running simultaneously
 - **Cross-Facility Parallel Mode**: Run different facility types at the same time (e.g., Farmland→Carousel Mill + Woodland→Jukebox Dryer)
 - **Multi-Level Production Chains**: Supports complex chains like caramel_nut_chips (Woodland → Jukebox Dryer → Jukebox Dryer)
+- **Optimal Facility Allocation**: Calculates how to split facilities when producing multiple materials (e.g., lavender + rose for dried_flowers)
 - **Startup Time Tracking**: Shows first-batch delay vs steady-state production time
 - **Multi-Currency Support**: Optimize for either coins or coupons
 - **Per-Facility Level Filtering**: Set different levels for each facility type
@@ -333,6 +334,51 @@ With parallel mode (multiple independent chains):
 
 The parallel mode improves profit by utilizing the idle Woodland facility!
 
+### 6. Optimal Facility Allocation
+
+When a recipe requires multiple different raw materials from the **same facility type**, Aniimax calculates the optimal way to split your facilities to minimize total production time.
+
+**Example**: Producing `dried_flowers` (requires 3 lavender + 3 rose) with 20 Farmlands
+
+| Material | Batches Needed | Production Time |
+|----------|---------------|-----------------|
+| lavender | 666           | 5400s (1.5h)    |
+| rose     | 666           | 8100s (2.25h)   |
+
+**Naive split (10 each):**
+```math
+t = \max\left(\lceil\frac{666}{10}\rceil \times 5400, \lceil\frac{666}{10}\rceil \times 8100\right) = \max(67 \times 5400, 67 \times 8100) = 542700s
+```
+
+**Optimal split (8 lavender, 12 rose):**
+```math
+t = \max\left(\lceil\frac{666}{8}\rceil \times 5400, \lceil\frac{666}{12}\rceil \times 8100\right) = \max(84 \times 5400, 56 \times 8100) = 453600s
+```
+
+The optimal allocation saves **~25 hours** by giving more facilities to the slower-producing material (rose).
+
+**How it works:**
+
+For 2 materials, the algorithm tries all possible splits and selects the one that minimizes:
+
+```math
+\min_{f_1 \in [1, F-1]} \max\left(\lceil\frac{B_1}{f_1}\rceil \times t_1, \lceil\frac{B_2}{F-f_1}\rceil \times t_2\right)
+```
+
+Where:
+- $F$ = total facilities available
+- $B_i$ = batches needed for material $i$
+- $t_i$ = production time for material $i$
+- $f_i$ = facilities allocated to material $i$
+
+**When it applies:**
+- Multiple materials from the **same** facility (lavender + rose from Farmland)
+- Different production times between materials
+
+**Does NOT apply:**
+- Materials from different facilities (no allocation needed)
+- Single material recipes (all facilities make the same thing)
+
 ### Example: Raw Materials
 
 With 4 Farmlands at level 3, producing rice:
@@ -375,15 +421,16 @@ Adding more farms increases the gathering rate until it matches or exceeds the p
 
 ### Computational Complexity
 
-Let $n$ = number of production items, $m$ = maximum chain depth, $f$ = facilities per chain, $k$ = selected parallel chains.
+Let $n$ = number of production items, $m$ = maximum chain depth, $f$ = facilities per chain, $k$ = selected parallel chains, $F$ = facility count, $M$ = number of materials in a recipe.
 
 | Operation | Complexity | Description |
 |-----------|------------|-------------|
 | Efficiency calculation | $O(n \cdot m^2)$ | Recursive chain traversal for each item |
 | Parallel mode selection | $O(n \log n + n \cdot f)$ | Sort + greedy selection with conflict detection |
+| Facility allocation | $O(\binom{F+M-1}{M-1})$ | Optimal allocation via recursive search |
 | Startup time calculation | $O(k)$ | Max over $k$ selected chains |
 
-With ~64 items and shallow chains ($m \leq 3$), the algorithm runs in sub-millisecond time.
+With ~64 items, shallow chains ($m \leq 3$), and typically $M \leq 3$ materials, the algorithm runs in sub-millisecond time.
 
 ## Library Usage
 
