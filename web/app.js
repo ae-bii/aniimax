@@ -161,39 +161,119 @@ function displayResults(result) {
     if (parallelMode && result.steps && result.steps.length > 1) {
         const infoEl = document.createElement('div');
         infoEl.className = 'parallel-info';
+        
+        // Count unique chains
+        const uniqueChains = new Set(result.steps.map(s => s.chain_id).filter(id => id !== null && id !== undefined));
+        const chainCount = uniqueChains.size || result.steps.length;
+        
         infoEl.innerHTML = `
             <strong>Cross-Facility Parallel Mode</strong><br>
-            Running ${result.steps.length} facilities simultaneously. Total time = longest step.
+            Running ${chainCount} facilities simultaneously. Total time = longest step.
         `;
         stepsList.appendChild(infoEl);
     }
     
     const isParallelResult = parallelMode && result.steps && result.steps.length > 1;
     
-    result.steps.forEach((step, index) => {
-        const stepEl = document.createElement('div');
-        stepEl.className = 'step-item';
-        const isEnergyStep = step.item_name.includes('(for energy)');
-        const isProfitStep = step.item_name.includes('(for profit)');
-        let stepClass = isEnergyStep ? 'energy-step' : (isProfitStep ? 'profit-step' : '');
-        if (isParallelResult) stepClass = 'parallel-step';
+    // Group steps by chain_id for parallel mode
+    if (isParallelResult) {
+        // Group steps by chain_id
+        const chainGroups = new Map();
+        result.steps.forEach(step => {
+            const chainId = step.chain_id !== null && step.chain_id !== undefined ? step.chain_id : 'single';
+            if (!chainGroups.has(chainId)) {
+                chainGroups.set(chainId, []);
+            }
+            chainGroups.get(chainId).push(step);
+        });
         
-        // For parallel mode, show "||" symbol; otherwise show step number
-        const stepIndicator = isParallelResult ? '||' : (index + 1);
-        
-        stepEl.innerHTML = `
-            <div class="step-number ${stepClass}">${stepIndicator}</div>
-            <div class="step-details">
-                <div class="step-name">${step.quantity} batches of ${step.item_name}</div>
-                <div class="step-facility">at ${step.facility}</div>
-            </div>
-            <div class="step-meta">
-                ${step.time_seconds > 0 ? `Time: ${formatTime(step.time_seconds)}` : ''}
-                ${step.energy !== null && step.energy > 0 ? `<br>Energy: ${formatNumber(step.energy)}` : ''}
-            </div>
-        `;
-        stepsList.appendChild(stepEl);
-    });
+        // Display each chain group
+        let chainNumber = 1;
+        chainGroups.forEach((steps, chainId) => {
+            // Create chain container
+            const chainContainer = document.createElement('div');
+            chainContainer.className = 'chain-group';
+            
+            // Determine chain description from facilities
+            const facilities = [...new Set(steps.map(s => s.facility.split(' (')[0]))];
+            const chainDescription = facilities.join(' → ');
+            
+            // Calculate chain totals
+            const chainProfit = steps.reduce((sum, s) => {
+                // Find efficiency for this step to get profit info
+                const eff = result.all_efficiencies.find(e => e.item_name === s.item_name);
+                if (eff && s.quantity > 0) {
+                    const profitPerBatch = eff.sell_value * eff.yield_amount;
+                    return sum + (profitPerBatch * s.quantity);
+                }
+                return sum;
+            }, 0);
+            const chainTime = Math.max(...steps.map(s => s.time_seconds));
+            
+            // Chain header
+            const chainHeader = document.createElement('div');
+            chainHeader.className = 'chain-header';
+            chainHeader.innerHTML = `
+                <div class="chain-title">
+                    <span class="chain-number">Chain ${chainNumber}</span>
+                    <span class="chain-path">${chainDescription}</span>
+                </div>
+                <div class="chain-meta">
+                    ${chainTime > 0 ? formatTime(chainTime) : ''}
+                </div>
+            `;
+            chainContainer.appendChild(chainHeader);
+            
+            // Chain steps
+            steps.forEach((step, index) => {
+                const stepEl = document.createElement('div');
+                stepEl.className = 'step-item chain-step';
+                
+                // Determine if this is a raw material (no profit contribution in the step usually)
+                const isRawMaterial = step.item_name.includes('+') || 
+                    (result.all_efficiencies.find(e => e.item_name === step.item_name)?.requires_raw === null &&
+                     !step.item_name.includes('(for'));
+                
+                stepEl.innerHTML = `
+                    <div class="step-indicator">→</div>
+                    <div class="step-details">
+                        <div class="step-name">${step.quantity} x ${step.item_name}</div>
+                        <div class="step-facility">at ${step.facility}${isRawMaterial && !step.item_name.includes('(for') ? ' (raw material)' : ''}</div>
+                    </div>
+                    <div class="step-meta">
+                        ${step.time_seconds > 0 ? `Time: ${formatTime(step.time_seconds)}` : ''}
+                        ${step.energy !== null && step.energy > 0 ? `<br>Energy: ${formatNumber(step.energy)}` : ''}
+                    </div>
+                `;
+                chainContainer.appendChild(stepEl);
+            });
+            
+            stepsList.appendChild(chainContainer);
+            chainNumber++;
+        });
+    } else {
+        // Non-parallel mode - display steps sequentially
+        result.steps.forEach((step, index) => {
+            const stepEl = document.createElement('div');
+            stepEl.className = 'step-item';
+            const isEnergyStep = step.item_name.includes('(for energy)');
+            const isProfitStep = step.item_name.includes('(for profit)');
+            let stepClass = isEnergyStep ? 'energy-step' : (isProfitStep ? 'profit-step' : '');
+            
+            stepEl.innerHTML = `
+                <div class="step-number ${stepClass}">${index + 1}</div>
+                <div class="step-details">
+                    <div class="step-name">${step.quantity} batches of ${step.item_name}</div>
+                    <div class="step-facility">at ${step.facility}</div>
+                </div>
+                <div class="step-meta">
+                    ${step.time_seconds > 0 ? `Time: ${formatTime(step.time_seconds)}` : ''}
+                    ${step.energy !== null && step.energy > 0 ? `<br>Energy: ${formatNumber(step.energy)}` : ''}
+                </div>
+            `;
+            stepsList.appendChild(stepEl);
+        });
+    }
     
     // Display all options table
     const tbody = document.getElementById('options-tbody');
