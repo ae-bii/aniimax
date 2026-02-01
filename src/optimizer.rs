@@ -24,6 +24,10 @@ struct ProductionRequirements {
     raw_names: Vec<String>,
     /// Primary facility for the base raw material
     primary_facility: Option<String>,
+    /// All facilities used in this production chain (for conflict detection)
+    all_facilities: HashSet<String>,
+    /// Intermediate processing steps: (item_name, facility, amount_per_parent_batch)
+    intermediate_steps: Vec<(String, String, u32)>,
     /// Whether this production chain is valid
     is_valid: bool,
 }
@@ -50,6 +54,8 @@ fn calculate_item_requirements(
             total_cost: 0.0,
             raw_names: vec![],
             primary_facility: None,
+            all_facilities: HashSet::new(),
+            intermediate_steps: vec![],
             is_valid: false,
         };
     }
@@ -81,6 +87,8 @@ fn calculate_item_requirements(
                     total_cost: 0.0,
                     raw_names: vec![],
                     primary_facility: None,
+                    all_facilities: HashSet::new(),
+                    intermediate_steps: vec![],
                     is_valid: false,
                 };
             }
@@ -94,6 +102,8 @@ fn calculate_item_requirements(
                 total_cost: 0.0,
                 raw_names: vec![],
                 primary_facility: None,
+                all_facilities: HashSet::new(),
+                intermediate_steps: vec![],
                 is_valid: false,
             };
         }
@@ -107,6 +117,8 @@ fn calculate_item_requirements(
             total_cost: 0.0,
             raw_names: vec![],
             primary_facility: None,
+            all_facilities: HashSet::new(),
+            intermediate_steps: vec![],
             is_valid: false,
         };
     }
@@ -120,6 +132,8 @@ fn calculate_item_requirements(
                 total_cost: 0.0,
                 raw_names: vec![],
                 primary_facility: None,
+                all_facilities: HashSet::new(),
+                intermediate_steps: vec![],
                 is_valid: false,
             };
         }
@@ -133,6 +147,8 @@ fn calculate_item_requirements(
             total_cost: 0.0,
             raw_names: vec![],
             primary_facility: None,
+            all_facilities: HashSet::new(),
+            intermediate_steps: vec![],
             is_valid: false,
         };
     }
@@ -148,12 +164,18 @@ fn calculate_item_requirements(
         let mut total_ingredient_cost = 0.0;
         let mut all_raw_names: Vec<String> = Vec::new();
         let mut primary_facility: Option<String> = None;
+        let mut all_facilities: HashSet<String> = HashSet::new();
+        let mut intermediate_steps: Vec<(String, String, u32)> = Vec::new();
+        
+        // Add THIS item's processing facility
+        all_facilities.insert(item.facility.clone());
         
         // Calculate how many batches of this processed item we need
         let batches_needed = (required_amount / item.yield_amount as f64).ceil();
         
         for (i, raw_mat) in raw_mats.iter().enumerate() {
-            let ingredient_required = required_amounts.get(i).copied().unwrap_or(1) as f64 * batches_needed;
+            let ingredient_required_per_batch = required_amounts.get(i).copied().unwrap_or(1);
+            let ingredient_required = ingredient_required_per_batch as f64 * batches_needed;
             
             let ingredient_reqs = calculate_item_requirements(
                 raw_mat,
@@ -174,6 +196,8 @@ fn calculate_item_requirements(
                     total_cost: 0.0,
                     raw_names: vec![],
                     primary_facility: None,
+                    all_facilities: HashSet::new(),
+                    intermediate_steps: vec![],
                     is_valid: false,
                 };
             }
@@ -192,6 +216,35 @@ fn calculate_item_requirements(
             all_raw_names.extend(ingredient_reqs.raw_names);
             if primary_facility.is_none() {
                 primary_facility = ingredient_reqs.primary_facility;
+            }
+            
+            // Merge all facilities from ingredients
+            all_facilities.extend(ingredient_reqs.all_facilities);
+            
+            // Propagate intermediate steps from ingredients
+            intermediate_steps.extend(ingredient_reqs.intermediate_steps);
+            
+            // If this ingredient is itself a processed item, add it as an intermediate step
+            // Check by looking up the item and seeing if it has raw_materials
+            let high_speed_mat = format!("high_speed_{}", raw_mat);
+            let mat_item = item_map.get(&high_speed_mat)
+                .filter(|hs| {
+                    let can_use = if let Some((ref m, l)) = hs.module_requirement {
+                        module_levels.can_use(m, l)
+                    } else { true };
+                    can_use && facility_counts.can_produce(&hs.facility, hs.facility_level)
+                })
+                .or_else(|| item_map.get(raw_mat.as_str()));
+            
+            if let Some(mat) = mat_item {
+                if mat.raw_materials.is_some() {
+                    // This is a processed intermediate - add it as a step
+                    intermediate_steps.push((
+                        mat.name.clone(),
+                        mat.facility.clone(),
+                        ingredient_required_per_batch,
+                    ));
+                }
             }
         }
         
@@ -213,6 +266,8 @@ fn calculate_item_requirements(
             total_cost: total_ingredient_cost,
             raw_names: all_raw_names,
             primary_facility,
+            all_facilities,
+            intermediate_steps,
             is_valid: true,
         }
     } else {
@@ -235,12 +290,17 @@ fn calculate_item_requirements(
         let total_energy = item.energy.map(|e| e * batches_needed);
         let total_cost = item.cost.unwrap_or(0.0) * batches_needed;
         
+        let mut all_facilities = HashSet::new();
+        all_facilities.insert(item.facility.clone());
+        
         ProductionRequirements {
             total_time,
             total_energy,
             total_cost,
             raw_names: vec![actual_name.to_string()],
             primary_facility: Some(item.facility.clone()),
+            all_facilities,
+            intermediate_steps: vec![],
             is_valid: true,
         }
     };
@@ -344,7 +404,7 @@ pub fn calculate_efficiencies(
             continue;
         }
 
-        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility) =
+        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility, all_facilities, intermediate_steps) =
             if let Some(ref raw_mats) = item.raw_materials {
                 // This is a processed item - use recursive calculation to handle nested dependencies
                 let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -355,15 +415,20 @@ pub fn calculate_efficiencies(
                 let mut total_ingredient_cost = 0.0;
                 let mut all_raw_names: Vec<String> = Vec::new();
                 let mut primary_facility: Option<String> = None;
+                let mut all_facilities_collected: HashSet<String> = HashSet::new();
+                let mut all_intermediate_steps: Vec<(String, String, u32)> = Vec::new();
                 let mut skip_item = false;
+                
+                // Add THIS item's processing facility
+                all_facilities_collected.insert(item.facility.clone());
 
                 for (i, raw_mat) in raw_mats.iter().enumerate() {
-                    let required = required_amounts.get(i).copied().unwrap_or(1) as f64;
+                    let required = required_amounts.get(i).copied().unwrap_or(1);
                     
                     let mut visited = HashSet::new();
                     let reqs = calculate_item_requirements(
                         raw_mat,
-                        required,
+                        required as f64,
                         &item_map,
                         facility_counts,
                         module_levels,
@@ -391,6 +456,34 @@ pub fn calculate_efficiencies(
                     all_raw_names.extend(reqs.raw_names);
                     if primary_facility.is_none() {
                         primary_facility = reqs.primary_facility;
+                    }
+                    
+                    // Merge all facilities from ingredients
+                    all_facilities_collected.extend(reqs.all_facilities);
+                    
+                    // Collect intermediate steps from recursive requirements
+                    all_intermediate_steps.extend(reqs.intermediate_steps);
+                    
+                    // If this raw_mat is itself a processed item, add it as an intermediate step
+                    let high_speed_name = format!("high_speed_{}", raw_mat);
+                    let mat_item = item_map.get(&high_speed_name)
+                        .filter(|hs| {
+                            let can_use = if let Some((ref m, l)) = hs.module_requirement {
+                                module_levels.can_use(m, l)
+                            } else { true };
+                            can_use && facility_counts.can_produce(&hs.facility, hs.facility_level)
+                        })
+                        .or_else(|| item_map.get(raw_mat.as_str()));
+                    
+                    if let Some(mat) = mat_item {
+                        if mat.raw_materials.is_some() {
+                            // This is a processed intermediate
+                            all_intermediate_steps.push((
+                                mat.name.clone(),
+                                mat.facility.clone(),
+                                required,
+                            ));
+                        }
                     }
                 }
 
@@ -487,6 +580,8 @@ pub fn calculate_efficiencies(
                     total_ingredient_cost,
                     Some(unique_raw_names.join("+")),
                     primary_facility,
+                    all_facilities_collected,
+                    all_intermediate_steps,
                 )
             } else {
                 // This is a raw material - direct production
@@ -508,8 +603,12 @@ pub fn calculate_efficiencies(
                 // Energy per batch (not per unit) to match units_needed which counts batches
                 let energy_per_batch = item.energy;
                 let cost_per_batch = item.cost.unwrap_or(0.0);
+                
+                // Raw materials use just their own facility
+                let mut raw_all_facilities = HashSet::new();
+                raw_all_facilities.insert(item.facility.clone());
 
-                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None)
+                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None, raw_all_facilities, vec![])
             };
 
         let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
@@ -525,6 +624,10 @@ pub fn calculate_efficiencies(
         // For time optimization, use batch-based profit_per_second directly
         // (facility parallelism is already factored into batch_time)
         let effective_profit_per_second = profit_per_second;
+        
+        // Startup time is the time to produce the first batch (before steady-state begins)
+        // This equals total_time for the first unit/batch
+        let startup_time = total_time;
 
         efficiencies.push(ProductionEfficiency {
             item: item.clone(),
@@ -535,6 +638,9 @@ pub fn calculate_efficiencies(
             requires_raw,
             raw_cost,
             raw_facility,
+            all_facilities,
+            intermediate_steps,
+            startup_time,
             effective_profit_per_second,
         });
     }
@@ -654,7 +760,22 @@ pub fn find_best_production_path(
             time: 0.0, // Time is included in total
             energy: None,
             profit_contribution: 0.0,
+            chain_id: None,
         });
+        
+        // Add intermediate processing steps (e.g., nuts for caramel_nut_chips)
+        for (int_name, int_facility, int_amount_per_batch) in &best.intermediate_steps {
+            let int_qty = int_amount_per_batch * units_needed;
+            steps.push(ProductionStep {
+                item_name: int_name.clone(),
+                facility: format!("{} (x{})", int_facility, facility_counts.get_count(int_facility)),
+                quantity: int_qty,
+                time: 0.0,
+                energy: None,
+                profit_contribution: 0.0,
+                chain_id: None,
+            });
+        }
     }
 
     // Add production step
@@ -667,13 +788,17 @@ pub fn find_best_production_path(
             .total_energy_per_unit
             .map(|e| e * units_needed as f64),
         profit_contribution: profit_per_unit * units_needed as f64,
+        chain_id: None,
     });
 
     // Calculate actual time with parallelization
-    // Note: units_needed represents number of production batches
+    // For processed items, use the steady-state calculation:
+    //   time = units_needed * profit_per_unit / effective_profit_per_second
+    // For raw materials, use direct batch calculation
     let total_time = if best.requires_raw.is_some() {
-        // For processed items, time is already calculated with parallelization
-        best.total_time_per_unit * units_needed as f64 / main_facility_count as f64
+        // For processed items, effective_profit_per_second already accounts for bottleneck
+        // time = profit_needed / profit_per_second
+        units_needed as f64 * profit_per_unit / best.effective_profit_per_second
     } else {
         // For raw materials, units_needed is already the number of batches
         best.item.production_time * (units_needed as f64 / main_facility_count as f64).ceil()
@@ -685,7 +810,8 @@ pub fn find_best_production_path(
 
     Some(ProductionPath {
         steps,
-        total_time,
+        total_time: total_time + best.startup_time, // Include startup delay
+        startup_time: best.startup_time,
         total_energy,
         total_profit: profit_per_unit * units_needed as f64,
         currency: best.item.sell_currency.clone(),
@@ -698,8 +824,20 @@ pub fn find_best_production_path(
 
 /// Finds the optimal production path using cross-facility parallelization.
 ///
-/// This function considers that different facility types (farmland, woodland, etc.)
-/// can operate simultaneously, maximizing overall profit per time.
+/// This function finds all production chains that can run simultaneously without
+/// sharing any facilities. For example:
+/// - Farmland → Carousel Mill (super_wheatmeal)
+/// - Woodland → Crafting Table (wood_sculpture)  
+/// - Nimbus Bed (wool)
+/// All running in parallel since they use different facilities.
+///
+/// # Algorithm
+///
+/// Uses a greedy approach:
+/// 1. Sort all items by profit per second
+/// 2. Select the best item
+/// 3. Find the next best item that doesn't share any facilities with selected items
+/// 4. Repeat until no more non-conflicting items can be added
 ///
 /// # Arguments
 ///
@@ -719,164 +857,204 @@ pub fn find_parallel_production_path(
         return None;
     }
 
-    // For raw material facilities, find the best item for each
-    let raw_facilities = ["Farmland", "Woodland", "Mineral Pile"];
-    
-    let mut best_per_facility: HashMap<String, &ProductionEfficiency> = HashMap::new();
-
-    for eff in efficiencies {
-        // Only consider raw materials for parallel production (no dependencies)
-        if eff.requires_raw.is_some() {
-            continue;
-        }
-
-        let facility = &eff.item.facility;
-        
-        // Check if this facility has any slots
-        if facility_counts.get_count(facility) == 0 {
-            continue;
-        }
-
-        let is_better = match best_per_facility.get(facility) {
-            Some(existing) => eff.effective_profit_per_second > existing.effective_profit_per_second,
-            None => true,
-        };
-
-        if is_better {
-            best_per_facility.insert(facility.clone(), eff);
-        }
+    // Helper to get all facilities used by an item (including intermediate processing)
+    fn get_facilities_used(eff: &ProductionEfficiency) -> HashSet<String> {
+        // Use the pre-computed all_facilities set which tracks the entire chain
+        eff.all_facilities.clone()
     }
 
-    if best_per_facility.is_empty() {
-        return None;
-    }
+    // Sort efficiencies by profit per second (descending)
+    let mut sorted_effs: Vec<&ProductionEfficiency> = efficiencies.iter().collect();
+    sorted_effs.sort_by(|a, b| {
+        b.effective_profit_per_second
+            .partial_cmp(&a.effective_profit_per_second)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    // Collect selected items for each raw facility
+    // Greedily select non-conflicting items
     let mut selected_items: Vec<&ProductionEfficiency> = Vec::new();
+    let mut occupied_facilities: HashSet<String> = HashSet::new();
 
-    for facility in &raw_facilities {
-        if let Some(eff) = best_per_facility.get(*facility) {
+    for eff in &sorted_effs {
+        // Skip items with no profit
+        if eff.effective_profit_per_second <= 0.0 {
+            continue;
+        }
+        
+        // Skip items from facilities with 0 count
+        if facility_counts.get_count(&eff.item.facility) == 0 {
+            continue;
+        }
+        if let Some(ref raw_fac) = eff.raw_facility {
+            if facility_counts.get_count(raw_fac) == 0 {
+                continue;
+            }
+        }
+
+        let facilities_needed = get_facilities_used(eff);
+        
+        // Check if any facility is already occupied
+        let has_conflict = facilities_needed.iter().any(|f| occupied_facilities.contains(f));
+        
+        if !has_conflict {
+            // Add this item to selected list
             selected_items.push(eff);
+            occupied_facilities.extend(facilities_needed);
         }
     }
 
-    // Need at least 2 facilities for parallel to make sense
+    // Need at least 2 items for parallel mode to be useful
     if selected_items.len() <= 1 {
         return None;
     }
 
-    // Binary search for the minimum time T such that the total profit from
-    // all facilities running for time T meets or exceeds the target
-    
-    // Helper to calculate profit given a time limit
-    let calc_profit_and_batches = |time: f64| -> (f64, Vec<(&ProductionEfficiency, u32)>) {
-        let mut total = 0.0;
-        let mut batches_list = Vec::new();
-        
-        for eff in &selected_items {
-            let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
-            let time_per_effective_batch = eff.item.production_time / facility_count;
-            let batches = (time / time_per_effective_batch).floor() as u32;
-            
-            if batches > 0 {
-                let profit_per_batch = eff.item.sell_value * eff.item.yield_amount as f64 - eff.raw_cost;
-                total += profit_per_batch * batches as f64;
-                batches_list.push((*eff, batches));
-            }
-        }
-        
-        (total, batches_list)
-    };
-    
-    // Find lower bound (continuous profit model)
-    let mut combined_profit_per_second = 0.0;
-    for eff in &selected_items {
-        combined_profit_per_second += eff.effective_profit_per_second;
-    }
-    let theoretical_min_time = target_amount / combined_profit_per_second;
-    
-    // Find the actual time needed - iterate through batch completion times
-    // Start with the best item's batch times and check each one
-    let best_item = selected_items
+    // Calculate combined profit rate
+    let combined_profit_per_second: f64 = selected_items
         .iter()
-        .max_by(|a, b| {
-            a.effective_profit_per_second
-                .partial_cmp(&b.effective_profit_per_second)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })?;
-    
-    let best_facility_count = facility_counts.get_count(&best_item.item.facility) as f64;
-    let best_time_per_effective_batch = best_item.item.production_time / best_facility_count;
-    
-    // Start from the minimum batches that could theoretically work
-    let min_batches = (theoretical_min_time / best_time_per_effective_batch).ceil() as u32;
-    
-    // Find the minimum number of batches for the best item such that total profit >= target
-    let mut required_batches = min_batches;
-    let final_batches_result: Vec<(&ProductionEfficiency, u32)>;
-    
-    loop {
-        let time = required_batches as f64 * best_time_per_effective_batch;
-        let (profit, batches) = calc_profit_and_batches(time);
-        
-        if profit >= target_amount {
-            final_batches_result = batches;
-            break;
-        }
-        
-        required_batches += 1;
-        
-        // Safety check to avoid infinite loop
-        if required_batches > 1_000_000 {
-            return None;
-        }
-    }
+        .map(|eff| eff.effective_profit_per_second)
+        .sum();
 
-    // Build production steps from final_batches_result
+    // Calculate startup time: max first-batch time across all parallel chains
+    // This is the time before steady-state production begins
+    let startup_time: f64 = selected_items
+        .iter()
+        .map(|eff| eff.startup_time)
+        .fold(0.0, f64::max);
+
+    // Calculate time needed (steady-state only, startup added separately)
+    let theoretical_time = target_amount / combined_profit_per_second;
+
+    // Build production steps
     let mut steps = Vec::new();
     let mut total_profit = 0.0;
     let mut total_energy: Option<f64> = None;
     let mut total_items = 0u32;
+    let mut chain_id: u32 = 0;
 
-    for (eff, batches) in &final_batches_result {
-        if *batches == 0 {
+    for eff in &selected_items {
+        let current_chain_id = chain_id;
+        chain_id += 1;
+        
+        let profit_per_batch = eff.item.sell_value * eff.item.yield_amount as f64 - eff.raw_cost;
+        
+        // Calculate batches based on steady-state time
+        let batches = if eff.requires_raw.is_some() {
+            // Processed item: use steady-state calculation
+            (theoretical_time * eff.effective_profit_per_second / profit_per_batch).ceil() as u32
+        } else {
+            // Raw item
+            let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
+            let time_per_effective_batch = eff.item.production_time / facility_count;
+            (theoretical_time / time_per_effective_batch).ceil() as u32
+        };
+
+        if batches == 0 {
             continue;
         }
-        
-        let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
-        let profit_per_batch = eff.item.sell_value * eff.item.yield_amount as f64 - eff.raw_cost;
-        let step_profit = profit_per_batch * *batches as f64;
+
+        let step_profit = profit_per_batch * batches as f64;
         total_profit += step_profit;
 
+        // Calculate actual time for this step
+        let step_time = if eff.requires_raw.is_some() {
+            // For processed items, time = batches * steady_state_time_per_batch
+            batches as f64 * (profit_per_batch / eff.effective_profit_per_second)
+        } else {
+            let facility_count = facility_counts.get_count(&eff.item.facility) as f64;
+            eff.item.production_time * (batches as f64 / facility_count).ceil()
+        };
+
         if let Some(energy) = eff.total_energy_per_unit {
-            let step_energy = energy * *batches as f64;
+            let step_energy = energy * batches as f64;
             total_energy = Some(total_energy.unwrap_or(0.0) + step_energy);
         }
 
-        total_items += *batches * eff.item.yield_amount;
-        let step_time = eff.item.production_time * (*batches as f64 / facility_count).ceil();
+        total_items += batches * eff.item.yield_amount;
 
+        // For processed items, show the full production chain
+        if let Some(ref requires) = eff.requires_raw {
+            // Step 1: Raw materials
+            let raw_facility = eff.raw_facility.as_ref().unwrap_or(&eff.item.facility);
+            let raw_qty = if let Some(ref amounts) = eff.item.required_amount {
+                amounts.iter().sum::<u32>() * batches
+            } else {
+                batches
+            };
+            steps.push(ProductionStep {
+                item_name: requires.clone(),
+                facility: format!("{} (x{})", raw_facility, facility_counts.get_count(raw_facility)),
+                quantity: raw_qty,
+                time: step_time,
+                energy: None,
+                profit_contribution: 0.0,
+                chain_id: Some(current_chain_id),
+            });
+            
+            // Step 2: Intermediate processing steps (e.g., nuts for caramel_nut_chips)
+            for (int_name, int_facility, int_amount_per_batch) in &eff.intermediate_steps {
+                let int_qty = int_amount_per_batch * batches;
+                steps.push(ProductionStep {
+                    item_name: int_name.clone(),
+                    facility: format!("{} (x{})", int_facility, facility_counts.get_count(int_facility)),
+                    quantity: int_qty,
+                    time: step_time,
+                    energy: None,
+                    profit_contribution: 0.0,
+                    chain_id: Some(current_chain_id),
+                });
+            }
+        }
+
+        // Step 3 (or 1 for raw items): Final product
         steps.push(ProductionStep {
             item_name: eff.item.name.clone(),
             facility: format!("{} (x{})", eff.item.facility, facility_counts.get_count(&eff.item.facility)),
-            quantity: *batches,
+            quantity: batches,
             time: step_time,
-            energy: eff.total_energy_per_unit.map(|e| e * *batches as f64),
+            energy: eff.total_energy_per_unit.map(|e| e * batches as f64),
             profit_contribution: step_profit,
+            chain_id: Some(current_chain_id),
         });
     }
 
-    // Recalculate actual total time (the longest step determines total time since they run in parallel)
+    // Make sure we meet target by iteratively increasing if needed
+    while total_profit < target_amount {
+        // Find the step with highest profit/sec and add one batch
+        let best_step_idx = steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.profit_contribution > 0.0)
+            .max_by(|(_, a), (_, b)| {
+                let a_rate = a.profit_contribution / a.time;
+                let b_rate = b.profit_contribution / b.time;
+                a_rate.partial_cmp(&b_rate).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i);
+
+        if let Some(idx) = best_step_idx {
+            let step = &mut steps[idx];
+            let profit_per_batch = step.profit_contribution / step.quantity as f64;
+            step.quantity += 1;
+            step.profit_contribution += profit_per_batch;
+            total_profit += profit_per_batch;
+        } else {
+            break;
+        }
+    }
+
+    // Recalculate actual total time (longest step since they run in parallel)
     let actual_total_time = steps.iter().map(|s| s.time).fold(0.0, f64::max);
 
-    // Only return parallel path if we have multiple facilities running
-    if steps.len() <= 1 {
-        return None; // Fall back to single-facility optimization
+    // Only return if we have multiple independent productions
+    let production_count = steps.iter().filter(|s| s.profit_contribution > 0.0).count();
+    if production_count <= 1 {
+        return None;
     }
 
     Some(ProductionPath {
         steps,
-        total_time: actual_total_time,
+        total_time: actual_total_time + startup_time, // Include startup delay
+        startup_time,
         total_energy,
         total_profit,
         currency: selected_items[0].item.sell_currency.clone(),
@@ -1102,6 +1280,7 @@ pub fn find_self_sufficient_path(
         time: actual_energy_production_time,
         energy: Some(energy_batches as f64 * best_energy.energy_per_batch),
         profit_contribution: -(energy_batches as f64 * best_energy.cost_per_batch), // Cost of seeds
+        chain_id: None,
     });
 
     // Add raw material step for profit item if needed
@@ -1119,7 +1298,22 @@ pub fn find_self_sufficient_path(
             time: 0.0,
             energy: None,
             profit_contribution: 0.0,
+            chain_id: None,
         });
+        
+        // Add intermediate processing steps (e.g., nuts for caramel_nut_chips)
+        for (int_name, int_facility, int_amount_per_batch) in &best_profit.intermediate_steps {
+            let int_qty = int_amount_per_batch * batches_for_profit as u32;
+            steps.push(ProductionStep {
+                item_name: int_name.clone(),
+                facility: format!("{} (x{})", int_facility, facility_counts.get_count(int_facility)),
+                quantity: int_qty,
+                time: 0.0,
+                energy: None,
+                profit_contribution: 0.0,
+                chain_id: None,
+            });
+        }
     }
 
     // Add profit production step
@@ -1134,16 +1328,21 @@ pub fn find_self_sufficient_path(
         time: time_for_profit,
         energy: None,
         profit_contribution: profit_per_batch * batches_for_profit,
+        chain_id: None,
     });
 
     // Calculate actual profit (minus seed costs for energy items)
     let energy_seed_cost = energy_batches as f64 * best_energy.cost_per_batch;
     let gross_profit = profit_per_batch * batches_for_profit;
     let net_profit = gross_profit - energy_seed_cost;
+    
+    // For energy self-sufficient mode, startup time is the longer of the two chains
+    let startup_time = best_profit.startup_time.max(best_energy.item.production_time);
 
     Some(ProductionPath {
         steps,
-        total_time,
+        total_time: total_time + startup_time,
+        startup_time,
         total_energy: Some(total_energy_needed),
         total_profit: net_profit,
         currency: best_profit.item.sell_currency.clone(),
