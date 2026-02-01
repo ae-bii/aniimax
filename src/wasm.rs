@@ -69,6 +69,8 @@ pub struct JsProductionStep {
     pub time_seconds: f64,
     pub energy: Option<f64>,
     pub chain_id: Option<u32>,
+    /// Optimal facility allocation: Vec<(material_name, batches_needed, facilities_to_allocate)>
+    pub facility_allocation: Option<Vec<(String, u32, u32)>>,
 }
 
 /// JavaScript-friendly efficiency output.
@@ -553,6 +555,7 @@ pub fn optimize(input_json: &str) -> String {
                     time_seconds: s.time,
                     energy: s.energy,
                     chain_id: s.chain_id,
+                    facility_allocation: s.facility_allocation.clone(),
                 })
                 .collect();
 
