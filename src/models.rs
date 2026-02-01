@@ -4,6 +4,7 @@
 //! including production items, efficiency calculations, and production paths.
 
 use serde::Deserialize;
+use std::collections::HashSet;
 
 /// Represents a single production item that can be produced in the game.
 ///
@@ -86,6 +87,8 @@ pub struct ProductionPath {
     pub steps: Vec<ProductionStep>,
     /// Total time required to complete all production (in seconds)
     pub total_time: f64,
+    /// Startup time before steady-state production begins (max first-batch time across parallel chains)
+    pub startup_time: f64,
     /// Total energy consumed (calculated as time * energy_cost_per_min / 60)
     pub total_energy: Option<f64>,
     /// Total profit generated
@@ -120,6 +123,8 @@ pub struct ProductionStep {
     pub energy: Option<f64>,
     /// Profit contribution from this step
     pub profit_contribution: f64,
+    /// Chain ID for parallel production (steps with same ID run together)
+    pub chain_id: Option<u32>,
 }
 
 /// Calculated efficiency metrics for a production item.
@@ -143,6 +148,12 @@ pub struct ProductionEfficiency {
     pub raw_cost: f64,
     /// Facility that produces the raw material
     pub raw_facility: Option<String>,
+    /// All facilities used in this production chain (including intermediate processing)
+    pub all_facilities: HashSet<String>,
+    /// Intermediate processing steps: Vec<(item_name, facility, required_amount_per_batch)>
+    pub intermediate_steps: Vec<(String, String, u32)>,
+    /// Time to produce the first batch (startup delay before steady-state)
+    pub startup_time: f64,
     /// Effective profit per second considering parallel facility usage
     pub effective_profit_per_second: f64,
 }
