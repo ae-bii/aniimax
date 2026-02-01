@@ -54,9 +54,40 @@ fn calculate_item_requirements(
         };
     }
     
-    let item = match item_map.get(item_name) {
-        Some(i) => *i,
-        None => {
+    // Try to find the best variant of this item (check high_speed_ variant first)
+    let high_speed_name = format!("high_speed_{}", item_name);
+    let (item, actual_name) = {
+        // Check if high_speed variant exists and is usable
+        if let Some(hs_item) = item_map.get(&high_speed_name) {
+            // Verify we can use the high_speed variant (check module requirements)
+            let can_use_hs = if let Some((ref module_name, required_level)) = hs_item.module_requirement {
+                module_levels.can_use(module_name, required_level)
+            } else {
+                true
+            };
+            // Also check facility requirements
+            let can_produce_hs = facility_counts.can_produce(&hs_item.facility, hs_item.facility_level);
+            
+            if can_use_hs && can_produce_hs {
+                // Use high_speed variant - it produces more in same/less time
+                (*hs_item, high_speed_name.as_str())
+            } else if let Some(base_item) = item_map.get(item_name) {
+                // Fall back to base variant
+                (*base_item, item_name)
+            } else {
+                return ProductionRequirements {
+                    total_time: 0.0,
+                    total_energy: None,
+                    total_cost: 0.0,
+                    raw_names: vec![],
+                    primary_facility: None,
+                    is_valid: false,
+                };
+            }
+        } else if let Some(base_item) = item_map.get(item_name) {
+            // No high_speed variant, use base
+            (*base_item, item_name)
+        } else {
             return ProductionRequirements {
                 total_time: 0.0,
                 total_energy: None,
@@ -106,7 +137,7 @@ fn calculate_item_requirements(
         };
     }
     
-    visited.insert(item_name.to_string());
+    visited.insert(actual_name.to_string());
     
     let result = if let Some(ref raw_mats) = item.raw_materials {
         // This is a processed item - recursively calculate requirements for each ingredient
@@ -136,7 +167,7 @@ fn calculate_item_requirements(
             );
             
             if !ingredient_reqs.is_valid {
-                visited.remove(item_name);
+                visited.remove(actual_name);
                 return ProductionRequirements {
                     total_time: 0.0,
                     total_energy: None,
@@ -208,13 +239,13 @@ fn calculate_item_requirements(
             total_time,
             total_energy,
             total_cost,
-            raw_names: vec![item_name.to_string()],
+            raw_names: vec![actual_name.to_string()],
             primary_facility: Some(item.facility.clone()),
             is_valid: true,
         }
     };
     
-    visited.remove(item_name);
+    visited.remove(actual_name);
     result
 }
 
@@ -404,8 +435,8 @@ pub fn calculate_efficiencies(
                     0.0
                 };
                 
-                // With parallel facilities, effective time per yield is reduced
-                // Fertilizer time is added per batch (once per production cycle)
+                // For display purposes, time_per_unit is how long to produce one unit
+                // But for efficiency comparison, we use time_per_batch (considering parallel facilities)
                 let effective_time_per_yield =
                     (time_per_batch + fertilizer_time) / (item.yield_amount as f64 * facility_count);
                 // Energy per batch (not per unit) to match units_needed which counts batches
@@ -416,22 +447,34 @@ pub fn calculate_efficiencies(
             };
 
         let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
-        let profit_per_second = if total_time > 0.0 {
-            net_profit / total_time
+        
+        // For consistent comparison, calculate profit_per_second using batch-level time
+        // For raw materials: batch_time / facility_count (parallel production)
+        // For processed items: total_time already includes raw gathering + processing
+        let batch_time = if item.raw_materials.is_none() {
+            // Raw material: use batch time divided by facility count
+            let facility_count = facility_counts.get_count(&item.facility) as f64;
+            let fertilizer_time = if item.requires_fertilizer {
+                fertilizer_time_per_unit
+            } else {
+                0.0
+            };
+            (item.production_time + fertilizer_time) / facility_count
+        } else {
+            // Processed item: total_time is already the full batch time
+            total_time
+        };
+        
+        let profit_per_second = if batch_time > 0.0 {
+            net_profit / batch_time
         } else {
             0.0
         };
         let profit_per_energy = total_energy.map(|e| if e > 0.0 { net_profit / e } else { 0.0 });
 
-        // Calculate effective profit per second considering all parallel facilities
-        let facility_count = facility_counts.get_count(&item.facility) as f64;
-        let effective_profit_per_second = if item.raw_materials.is_some() {
-            // For processed items, parallelization is more complex
-            profit_per_second
-        } else {
-            // For raw materials, multiply by facility count
-            profit_per_second * facility_count
-        };
+        // For time optimization, use batch-based profit_per_second directly
+        // (facility parallelism is already factored into batch_time)
+        let effective_profit_per_second = profit_per_second;
 
         efficiencies.push(ProductionEfficiency {
             item: item.clone(),
