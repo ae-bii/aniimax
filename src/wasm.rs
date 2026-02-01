@@ -46,6 +46,8 @@ pub struct JsOptimizeInput {
     pub energy_cost_per_min: f64,
     #[serde(default)]
     pub parallel: bool,
+    #[serde(default)]
+    pub exclude_wheat: bool,
     pub farmland: JsFacilityConfig,
     pub woodland: JsFacilityConfig,
     pub mineral_pile: JsFacilityConfig,
@@ -465,7 +467,17 @@ pub fn optimize(input_json: &str) -> String {
         crafting_module: input.modules.crafting_module,
     };
 
-    let items = get_embedded_items();
+    let mut items = get_embedded_items();
+    
+    // Filter out wheat-related items if requested
+    if input.exclude_wheat {
+        items.retain(|item| {
+            let name = item.name.to_lowercase();
+            // Exclude wheat, high_speed_wheat, wheatmeal, super_wheatmeal
+            !name.contains("wheat")
+        });
+    }
+    
     let efficiencies = calculate_efficiencies(&items, &input.currency, &facility_counts, &module_levels);
 
     if efficiencies.is_empty() {

@@ -28,6 +28,7 @@ function getInputValues() {
         currency: document.getElementById('currency').value,
         energy_self_sufficient: document.getElementById('energy-self-sufficient').checked,
         parallel: document.getElementById('parallel-production').checked,
+        exclude_wheat: document.getElementById('exclude-wheat').checked,
         energy_cost_per_min: parseFloat(document.getElementById('energy-cost').value) || 0,
         farmland: {
             count: parseInt(document.getElementById('farmland-count').value) || 1,
