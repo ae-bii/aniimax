@@ -14,7 +14,9 @@ A command-line tool, Rust library, and **web application** for optimizing produc
 - **Energy Optimization**: Maximize profit per energy unit when energy is limited
 - **Energy Self-Sufficient Mode**: Produce items to consume for energy instead of buying
 - **Parallel Production**: Account for multiple facilities running simultaneously
-- **Cross-Facility Parallel Mode**: Run different facility types at the same time (e.g., farmland + woodland)
+- **Cross-Facility Parallel Mode**: Run different facility types at the same time (e.g., Farmland→Carousel Mill + Woodland→Jukebox Dryer)
+- **Multi-Level Production Chains**: Supports complex chains like caramel_nut_chips (Woodland → Jukebox Dryer → Jukebox Dryer)
+- **Startup Time Tracking**: Shows first-batch delay vs steady-state production time
 - **Multi-Currency Support**: Optimize for either coins or coupons
 - **Per-Facility Level Filtering**: Set different levels for each facility type
 - **Item Upgrade Modules**: Support for module-unlocked items (ecological, kitchen, mineral, crafting)
@@ -162,6 +164,8 @@ Loaded 13 production items.
 ----------------------------------------------------------------
   Total Profit:     5035 coins
   Total Time:       13m 30s
+    - Startup:      14s (first batch)
+    - Steady-state: 13m 16s
   Total Energy:     19557
   Items Produced:   530
 
@@ -261,34 +265,73 @@ This significantly impacts which items are most efficient.
 
 ### 5. Cross-Facility Parallel Mode
 
-When enabled, the optimizer will run different facility types simultaneously. For example, Farmland and Woodland can produce items at the same time since they don't share resources.
+When enabled with `--parallel`, the optimizer finds all production chains that can run simultaneously without sharing any facilities. This mode uses a greedy algorithm to maximize combined profit.
 
-In this mode:
+**How it works:**
 
-- The optimizer finds the best item for each raw material facility (Farmland, Woodland, Mineral Pile)
-- All facilities run their production in parallel
-- Total time = time of the longest step (not the sum)
-- Combined profit = sum of profits from all facilities
+1. Calculate efficiency for all producible items
+2. Sort by profit per second (descending)
+3. Greedily select non-conflicting items:
+   - Track ALL facilities used in each production chain (including intermediate processing)
+   - Skip items that would conflict with already-selected chains
+4. Run all selected chains in parallel
+
+**Multi-Level Chain Detection:**
+
+For complex items like `caramel_nut_chips` that require intermediate processing:
+- `caramel_nut_chips` needs `nuts` + `maple_syrup`
+- `nuts` (processed at Jukebox Dryer) needs `walnut` + `chestnut`
+- Full chain: **Woodland → Jukebox Dryer → Jukebox Dryer**
+
+The optimizer tracks ALL facilities in the chain, so it correctly detects that `caramel_nut_chips` uses the Jukebox Dryer twice and won't run it in parallel with other Jukebox Dryer items.
 
 ```math
-t_{\text{total}} = \max(t_{\text{farmland}}, t_{\text{woodland}}, t_{\text{mineral}})
+t_{\text{total}} = \max(t_{\text{chain\_1}}, t_{\text{chain\_2}}, ...) + t_{\text{startup}}
 ```
 
 ```math
-\text{Profit}_{\text{total}} = \text{Profit}_{\text{farmland}} + \text{Profit}_{\text{woodland}} + \text{Profit}_{\text{mineral}}
+\text{Profit}_{\text{total}} = \text{Profit}_{\text{chain\_1}} + \text{Profit}_{\text{chain\_2}} + ...
 ```
 
-**Example**: Producing 10,000 coins
+**Startup Time:**
 
-Without parallel mode:
+The total time includes a startup delay (the time to produce the first batch before steady-state begins). This is the maximum first-batch time across all parallel chains.
 
-- Only wheat production: 25h 0m total time
+**Example**: Producing 100,000 coins with 20 Farmlands, 5 Carousel Mills, and 6 Woodlands
 
-With parallel mode:
+Without parallel mode (super_wheatmeal only):
+```
+[BEST PRODUCTION PATH]
+  Step 1: Produce 57240 x high_speed_wheat at Farmland (x20)
+  Step 2: Produce 477 x super_wheatmeal at Carousel Mill (x5)
 
-- Wheat (Farmland) + Chestnut (Woodland) running simultaneously
-- Total time: 23h 18m (the longer of the two)
-- Faster completion with same total profit!
+[SUMMARY]
+  Total Time:       4h 46m 12s
+    - Startup:      3m 0s (first batch)
+    - Steady-state: 4h 43m 12s
+  Total Profit:     100170 coins
+```
+
+With parallel mode (multiple independent chains):
+```
+[PARALLEL PRODUCTION CHAINS]
+  All chains run simultaneously. Total time = longest chain.
+
+  Chain 1: Farmland → Carousel Mill (88410 coins in 4h 30m 0s)
+    → 50640 x high_speed_wheat at Farmland (x20) (raw material)
+    → 422 x super_wheatmeal at Carousel Mill (x5)
+
+  Chain 2: Woodland (12240 coins in 4h 30m 0s)
+    → 34 x chestnut at Woodland (x6)
+
+[SUMMARY]
+  Total Time:       4h 33m 0s
+    - Startup:      3m 0s (first batch)
+    - Steady-state: 4h 30m 0s
+  Total Profit:     100650 coins
+```
+
+The parallel mode improves profit by utilizing the idle Woodland facility!
 
 ### Example: Raw Materials
 
@@ -329,6 +372,18 @@ Bottleneck is gathering (0.00556 < 0.0333):
 ```
 
 Adding more farms increases the gathering rate until it matches or exceeds the processing rate.
+
+### Computational Complexity
+
+Let $n$ = number of production items, $m$ = maximum chain depth, $f$ = facilities per chain, $k$ = selected parallel chains.
+
+| Operation | Complexity | Description |
+|-----------|------------|-------------|
+| Efficiency calculation | $O(n \cdot m^2)$ | Recursive chain traversal for each item |
+| Parallel mode selection | $O(n \log n + n \cdot f)$ | Sort + greedy selection with conflict detection |
+| Startup time calculation | $O(k)$ | Max over $k$ selected chains |
+
+With ~64 items and shallow chains ($m \leq 3$), the algorithm runs in sub-millisecond time.
 
 ## Library Usage
 
