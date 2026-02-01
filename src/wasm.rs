@@ -502,18 +502,33 @@ pub fn optimize(input_json: &str) -> String {
         )
     } else if input.parallel {
         // Cross-facility parallel production mode
-        // Try parallel first, fall back to single-facility if not beneficial
-        find_parallel_production_path(
+        // Compare parallel vs single-facility approach, use whichever is faster
+        let parallel_path = find_parallel_production_path(
             &efficiencies,
             input.target_amount,
             &facility_counts,
-        ).or_else(|| find_best_production_path(
+        );
+        let single_path = find_best_production_path(
             &efficiencies,
             input.target_amount,
             false,
             0.0,
             &facility_counts,
-        ))
+        );
+        
+        match (parallel_path, single_path) {
+            (Some(p), Some(s)) => {
+                // Use the faster approach
+                if p.total_time <= s.total_time {
+                    Some(p)
+                } else {
+                    Some(s)
+                }
+            }
+            (Some(p), None) => Some(p),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        }
     } else {
         // Simple time optimization (ignore energy)
         find_best_production_path(
