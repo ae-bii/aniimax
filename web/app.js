@@ -234,11 +234,21 @@ function displayResults(result) {
                     (result.all_efficiencies.find(e => e.item_name === step.item_name)?.requires_raw === null &&
                      !step.item_name.includes('(for'));
                 
+                // Build allocation breakdown string if available
+                let allocationHtml = '';
+                if (step.facility_allocation && step.facility_allocation.length > 1) {
+                    const breakdown = step.facility_allocation
+                        .map(([name, batches, facilities]) => `${batches} x ${name} (${facilities} facilities)`)
+                        .join(', ');
+                    allocationHtml = `<div class="step-allocation">Optimal split: ${breakdown}</div>`;
+                }
+                
                 stepEl.innerHTML = `
                     <div class="step-indicator">→</div>
                     <div class="step-details">
                         <div class="step-name">${step.quantity} x ${step.item_name}</div>
                         <div class="step-facility">at ${step.facility}${isRawMaterial && !step.item_name.includes('(for') ? ' (raw material)' : ''}</div>
+                        ${allocationHtml}
                     </div>
                     <div class="step-meta">
                         ${step.time_seconds > 0 ? `Time: ${formatTime(step.time_seconds)}` : ''}
@@ -260,11 +270,21 @@ function displayResults(result) {
             const isProfitStep = step.item_name.includes('(for profit)');
             let stepClass = isEnergyStep ? 'energy-step' : (isProfitStep ? 'profit-step' : '');
             
+            // Build allocation breakdown string if available
+            let allocationHtml = '';
+            if (step.facility_allocation && step.facility_allocation.length > 1) {
+                const breakdown = step.facility_allocation
+                    .map(([name, batches, facilities]) => `${batches} x ${name} (${facilities} facilities)`)
+                    .join(', ');
+                allocationHtml = `<div class="step-allocation">Optimal split: ${breakdown}</div>`;
+            }
+            
             stepEl.innerHTML = `
                 <div class="step-number ${stepClass}">${index + 1}</div>
                 <div class="step-details">
                     <div class="step-name">${step.quantity} batches of ${step.item_name}</div>
                     <div class="step-facility">at ${step.facility}</div>
+                    ${allocationHtml}
                 </div>
                 <div class="step-meta">
                     ${step.time_seconds > 0 ? `Time: ${formatTime(step.time_seconds)}` : ''}

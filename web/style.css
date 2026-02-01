@@ -542,6 +542,13 @@ p {
     color: var(--text-muted);
 }
 
+.step-allocation {
+    font-size: 0.75rem;
+    color: #9f7aea;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
 .step-meta {
     text-align: right;
     font-size: 0.8rem;
