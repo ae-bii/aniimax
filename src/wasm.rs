@@ -68,6 +68,7 @@ pub struct JsProductionStep {
     pub quantity: u32,
     pub time_seconds: f64,
     pub energy: Option<f64>,
+    pub chain_id: Option<u32>,
 }
 
 /// JavaScript-friendly efficiency output.
@@ -551,6 +552,7 @@ pub fn optimize(input_json: &str) -> String {
                     quantity: s.quantity,
                     time_seconds: s.time,
                     energy: s.energy,
+                    chain_id: s.chain_id,
                 })
                 .collect();
 
