@@ -5,11 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aniimax - Aniimo Production Optimizer</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
     <header>
         <h1>aniimax</h1>
-        <button class="toggle-button" onclick="toggleTheme()" id="themeToggle">light</button>
+        <div class="header-buttons">
+            <button class="toggle-button" onclick="showMath()" id="mathToggle">math</button>
+            <button class="toggle-button" onclick="showHelp()" id="helpToggle">help</button>
+            <button class="toggle-button" onclick="toggleTheme()" id="themeToggle">light</button>
+        </div>
     </header>
     <p class="subtitle">aniimo homeland production optimizer</p>
     <p class="disclaimer">Note: This project is a work in progress. Not all in-game items are included yet, and production times are assumed to match the values displayed in-game.</p>
@@ -294,8 +300,130 @@
         </footer>
     </div>
 
+    <!-- Math Modal -->
+    <div id="mathModal" class="modal" onclick="closeMathOnBackdrop(event)">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>How It Works</h2>
+                <button class="close-button" onclick="closeMath()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>Production Efficiency</h3>
+                <p>For each item, we calculate the <strong>profit per second</strong> to find the most efficient production path.</p>
+                
+                <h4>Raw Materials</h4>
+                <p>For raw materials (items produced directly from facilities like Farmland):</p>
+                <div class="math-block">\[ \text{Profit/sec} = \frac{(\text{yield} \times \text{sell_price}) - \text{cost}}{t_{\text{effective}}} \]</div>
+                <p>Where effective time accounts for parallel production with multiple facilities:</p>
+                <div class="math-block">\[ t_{\text{effective}} = \frac{t_{\text{production}}}{n_{\text{facilities}}} \]</div>
+                
+                <h4>Processed Items</h4>
+                <p>For processed items that require raw materials, production is limited by the <strong>bottleneck</strong>:</p>
+                <div class="math-block">\[ \text{Gathering Rate} = \frac{n_{\text{gatherers}} \times \text{yield}}{t_{\text{gather}} \times \text{required_amount}} \]</div>
+                <div class="math-block">\[ \text{Processing Rate} = \frac{n_{\text{processors}}}{t_{\text{process}}} \]</div>
+                <div class="math-block">\[ \text{Effective Rate} = \min(\text{Gathering Rate}, \text{Processing Rate}) \]</div>
+                
+                <h3>Cross-Facility Parallel Production</h3>
+                <p>When enabled, multiple independent production chains run simultaneously:</p>
+                <div class="math-block">\[ \text{Total Profit/sec} = \sum_{i=1}^{k} \text{profit_rate}_i \]</div>
+                <p>Chains are selected greedily by efficiency, skipping any that conflict with already-selected facilities.</p>
+                
+                <h3>Optimal Facility Allocation</h3>
+                <p>When a recipe requires multiple raw materials from the <strong>same facility type</strong> (e.g., lavender + rose from Farmland), we optimize how to split facilities.</p>
+                
+                <h4>The Problem</h4>
+                <p>Minimize the maximum completion time across all materials:</p>
+                <div class="math-block">\[ \min \max_i \left( \left\lceil \frac{B_i}{f_i} \right\rceil \times t_i \right) \quad \text{s.t.} \quad \sum_i f_i = F \]</div>
+                <p>Where:</p>
+                <ul>
+                    <li>\(B_i\) = batches needed for material \(i\)</li>
+                    <li>\(f_i\) = facilities allocated to material \(i\)</li>
+                    <li>\(t_i\) = production time for material \(i\)</li>
+                    <li>\(F\) = total facilities available</li>
+                </ul>
+                
+                <h4>The Algorithm</h4>
+                <p>We use <strong>binary search on candidate completion times</strong>:</p>
+                <ol>
+                    <li><strong>Generate candidates:</strong> For each material, possible completion times are \(\lceil B_i / k \rceil \cdot t_i\) for \(k = 1, 2, \ldots\). Using the divisor counting trick, there are only \(O(\sqrt{B_i})\) distinct values.</li>
+                    <li><strong>Binary search:</strong> For candidate time \(T\), check feasibility:
+                        <ul>
+                            <li>Max rounds for material \(i\): \(r_i = \lfloor T / t_i \rfloor\)</li>
+                            <li>Min facilities needed: \(\lceil B_i / r_i \rceil\)</li>
+                            <li>Feasible if \(\sum_i \lceil B_i / r_i \rceil \leq F\)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Allocate:</strong> Assign minimum facilities, then greedily distribute remaining.</li>
+                </ol>
+                
+                <h4>Example</h4>
+                <p>Producing dried_flowers (requires lavender + rose) with 20 Farmlands:</p>
+                <table class="math-table">
+                    <tr><th>Material</th><th>Batches</th><th>Time</th></tr>
+                    <tr><td>lavender</td><td>666</td><td>5400s</td></tr>
+                    <tr><td>rose</td><td>666</td><td>8100s</td></tr>
+                </table>
+                <p><strong>Naive split (10 each):</strong></p>
+                <div class="math-block">\[ t = \max\left(\lceil 666/10 \rceil \times 5400, \lceil 666/10 \rceil \times 8100\right) = 542700s \]</div>
+                <p><strong>Optimal split (8 lavender, 12 rose):</strong></p>
+                <div class="math-block">\[ t = \max\left(\lceil 666/8 \rceil \times 5400, \lceil 666/12 \rceil \times 8100\right) = 453600s \]</div>
+                <p>The optimal allocation saves ~25 hours by giving more facilities to the slower material.</p>
+                
+                <h3>Complexity</h3>
+                <table class="math-table">
+                    <tr><th>Operation</th><th>Complexity</th></tr>
+                    <tr><td>Efficiency calculation</td><td>\(O(n \cdot m^2)\)</td></tr>
+                    <tr><td>Parallel mode selection</td><td>\(O(n \log n + n \cdot f)\)</td></tr>
+                    <tr><td>Facility allocation</td><td>\(O(M \cdot \sqrt{B} \cdot \log(M\sqrt{B}))\)</td></tr>
+                </table>
+                <p>Where \(n\) = items, \(m\) = chain depth, \(f\) = facilities per chain, \(M\) = materials in recipe, \(B\) = max batches.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal" onclick="closeHelpOnBackdrop(event)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>How to Use</h2>
+                <button class="close-button" onclick="closeHelp()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <h3>1. Set Your Target</h3>
+                <p>Enter the amount of currency (coins or coupons) you want to earn.</p>
+                
+                <h3>2. Configure Facilities</h3>
+                <p>Set the count and level of each facility you have unlocked in Aniimo Homeland.</p>
+                
+                <h3>3. Set Upgrade Modules</h3>
+                <p>Enter the level of each upgrade module you've unlocked (0 = not unlocked).</p>
+                
+                <h3>4. Calculate</h3>
+                <p>Click "Calculate Optimal Path" to find the most efficient production strategy.</p>
+                
+                <h3>Understanding Results</h3>
+                <ul>
+                    <li><strong>Profit/sec</strong>: How much currency you earn per second</li>
+                    <li><strong>Total time</strong>: How long to reach your target</li>
+                    <li><strong>Startup time</strong>: Time before first batch completes</li>
+                    <li><strong>Production steps</strong>: What to produce and where</li>
+                </ul>
+                
+                <h3>Options</h3>
+                <ul>
+                    <li><strong>Energy Cost</strong>: If you buy energy, enter cost per minute to factor it into calculations</li>
+                    <li><strong>Energy Self-Sufficient</strong>: Produce items to consume for energy instead of buying</li>
+                    <li><strong>Parallel Production</strong>: Run multiple facility types at once for higher throughput</li>
+                </ul>
+                
+                <h3>Optimal Facility Allocation</h3>
+                <p>When producing items that need multiple raw materials from the same facility (e.g., lavender + rose for dried_flowers), aniimax calculates the optimal way to split your facilities to minimize production time.</p>
+            </div>
+        </div>
+    </div>
+
     <script>
-        function toggleTheme() {
+        window.toggleTheme = function() {
             const body = document.body;
             const button = document.getElementById('themeToggle');
             body.classList.toggle('light');
@@ -305,6 +433,46 @@
                 button.textContent = 'light';
             }
         }
+        
+        window.showHelp = function() {
+            document.getElementById('helpModal').classList.add('show');
+        }
+        
+        window.closeHelp = function() {
+            document.getElementById('helpModal').classList.remove('show');
+        }
+        
+        window.closeHelpOnBackdrop = function(event) {
+            if (event.target.id === 'helpModal') {
+                closeHelp();
+            }
+        }
+        
+        window.showMath = function() {
+            document.getElementById('mathModal').classList.add('show');
+            // Trigger MathJax to render
+            if (window.MathJax) {
+                MathJax.typesetPromise();
+            }
+        }
+        
+        window.closeMath = function() {
+            document.getElementById('mathModal').classList.remove('show');
+        }
+        
+        window.closeMathOnBackdrop = function(event) {
+            if (event.target.id === 'mathModal') {
+                closeMath();
+            }
+        }
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeHelp();
+                closeMath();
+            }
+        });
     </script>
     <script type="module" src="app.js"></script>
 </body>
