@@ -234,15 +234,29 @@ fn main() -> Result<(), Box<dyn Error>> {
             &facility_counts,
         )
     } else if args.parallel {
-        // Try parallel first, fall back to single-facility if not beneficial
-        find_parallel_production_path(&efficiencies, args.target, &facility_counts)
-            .or_else(|| find_best_production_path(
-                &efficiencies,
-                args.target,
-                false,
-                0.0,
-                &facility_counts,
-            ))
+        // Compare parallel vs single-facility approach, use whichever is faster
+        let parallel_path = find_parallel_production_path(&efficiencies, args.target, &facility_counts);
+        let single_path = find_best_production_path(
+            &efficiencies,
+            args.target,
+            false,
+            0.0,
+            &facility_counts,
+        );
+        
+        match (parallel_path, single_path) {
+            (Some(p), Some(s)) => {
+                // Use the faster approach
+                if p.total_time <= s.total_time {
+                    Some(p)
+                } else {
+                    Some(s)
+                }
+            }
+            (Some(p), None) => Some(p),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        }
     } else {
         find_best_production_path(
             &efficiencies,
