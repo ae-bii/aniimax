@@ -161,6 +161,8 @@ pub struct ProductionEfficiency {
     pub effective_profit_per_second: f64,
     /// Raw material details for optimal allocation: Vec<(name, amount_per_batch, time_per_batch)>
     pub raw_material_details: Option<Vec<(String, u32, f64)>>,
+    /// Fertilizer batches needed per production batch (0 if no fertilizer required)
+    pub fertilizer_per_batch: u32,
 }
 
 /// Tracks the number of each facility type available.
