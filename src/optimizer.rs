@@ -674,7 +674,7 @@ pub fn calculate_efficiencies(
             continue;
         }
 
-        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility, all_facilities, intermediate_steps, raw_material_details) =
+        let (total_time, steady_state_time, total_energy, raw_cost, requires_raw, raw_facility, all_facilities, intermediate_steps, raw_material_details, fertilizer_per_batch) =
             if let Some(ref raw_mats) = item.raw_materials {
                 // This is a processed item - use recursive calculation to handle nested dependencies
                 let required_amounts = item.required_amount.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -690,6 +690,8 @@ pub fn calculate_efficiencies(
                 // (name, amount_per_batch, time_per_batch, facility) - includes facility for filtering
                 let mut raw_material_details_collected: Vec<(String, u32, f64, String)> = Vec::new();
                 let mut skip_item = false;
+                // Track total fertilizer needed per processed batch
+                let mut fertilizer_per_batch: u32 = 0;
                 
                 // Add THIS item's processing facility
                 all_facilities_collected.insert(item.facility.clone());
@@ -826,6 +828,14 @@ pub fn calculate_efficiencies(
                             raw.production_time,
                             raw.facility.clone(),
                         ));
+                        
+                        // Track fertilizer requirements
+                        // Each batch of a fertilizer-requiring crop needs 1 fertilizer
+                        // We need ceil(required_per_batch / yield) batches of raw material
+                        if raw.requires_fertilizer {
+                            let raw_batches_needed = (required_per_batch / raw.yield_amount as f64).ceil() as u32;
+                            fertilizer_per_batch += raw_batches_needed;
+                        }
                     }
                 }
                 
@@ -886,6 +896,7 @@ pub fn calculate_efficiencies(
                     all_facilities_collected,
                     all_intermediate_steps,
                     raw_details,
+                    fertilizer_per_batch,
                 )
             } else {
                 // This is a raw material - direct production
@@ -911,8 +922,11 @@ pub fn calculate_efficiencies(
                 // Raw materials use just their own facility
                 let mut raw_all_facilities = HashSet::new();
                 raw_all_facilities.insert(item.facility.clone());
+                
+                // For raw materials, 1 fertilizer per batch if required
+                let raw_fertilizer = if item.requires_fertilizer { 1u32 } else { 0u32 };
 
-                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None, raw_all_facilities, vec![], None)
+                (effective_time_per_yield, steady_state_time, energy_per_batch, cost_per_batch, None, None, raw_all_facilities, vec![], None, raw_fertilizer)
             };
 
         let net_profit = item.sell_value * item.yield_amount as f64 - raw_cost;
@@ -947,6 +961,7 @@ pub fn calculate_efficiencies(
             startup_time,
             effective_profit_per_second,
             raw_material_details,
+            fertilizer_per_batch,
         });
     }
 
@@ -1048,6 +1063,23 @@ pub fn find_best_production_path(
 
     // Get facility count for the main production
     let main_facility_count = facility_counts.get_count(&best.item.facility);
+    let nimbus_bed_count = facility_counts.get_count("Nimbus Bed");
+
+    // Add fertilizer production step if needed
+    if best.fertilizer_per_batch > 0 && nimbus_bed_count > 0 {
+        let total_fertilizer_needed = best.fertilizer_per_batch * units_needed;
+        
+        steps.push(ProductionStep {
+            item_name: "fertilizer".to_string(),
+            facility: format!("Nimbus Bed (x{})", nimbus_bed_count),
+            quantity: total_fertilizer_needed,
+            time: 0.0, // Time is included in total
+            energy: None,
+            profit_contribution: 0.0,
+            chain_id: None,
+            facility_allocation: None,
+        });
+    }
 
     // Add raw material step if needed
     if let Some(ref raw_name) = best.requires_raw {
@@ -1299,6 +1331,24 @@ pub fn find_parallel_production_path(
         }
 
         total_items += batches * eff.item.yield_amount;
+        
+        let nimbus_bed_count = facility_counts.get_count("Nimbus Bed");
+        
+        // Add fertilizer production step if needed
+        if eff.fertilizer_per_batch > 0 && nimbus_bed_count > 0 {
+            let total_fertilizer_needed = eff.fertilizer_per_batch * batches;
+            
+            steps.push(ProductionStep {
+                item_name: "fertilizer".to_string(),
+                facility: format!("Nimbus Bed (x{})", nimbus_bed_count),
+                quantity: total_fertilizer_needed,
+                time: 0.0, // Time is included in total
+                energy: None,
+                profit_contribution: 0.0,
+                chain_id: Some(current_chain_id),
+                facility_allocation: None,
+            });
+        }
 
         // For processed items, show the full production chain
         if let Some(ref requires) = eff.requires_raw {
@@ -1635,6 +1685,24 @@ pub fn find_self_sufficient_path(
         chain_id: None,
         facility_allocation: None,
     });
+
+    let nimbus_bed_count = facility_counts.get_count("Nimbus Bed");
+    
+    // Add fertilizer production step if needed for profit item
+    if best_profit.fertilizer_per_batch > 0 && nimbus_bed_count > 0 {
+        let total_fertilizer_needed = best_profit.fertilizer_per_batch * batches_for_profit as u32;
+        
+        steps.push(ProductionStep {
+            item_name: "fertilizer".to_string(),
+            facility: format!("Nimbus Bed (x{})", nimbus_bed_count),
+            quantity: total_fertilizer_needed,
+            time: 0.0, // Time is included in total
+            energy: None,
+            profit_contribution: 0.0,
+            chain_id: None,
+            facility_allocation: None,
+        });
+    }
 
     // Add raw material step for profit item if needed
     if let Some(ref raw_name) = best_profit.requires_raw {
