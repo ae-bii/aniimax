@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aniimax - Aniimo Production Optimizer</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
     <header>
         <h1>aniimax</h1>
         <div class="header-buttons">
+            <button class="toggle-button" onclick="showFacilities()" id="facilitiesToggle">facilities</button>
             <button class="toggle-button" onclick="showMath()" id="mathToggle">math</button>
             <button class="toggle-button" onclick="showHelp()" id="helpToggle">help</button>
             <button class="toggle-button" onclick="toggleTheme()" id="themeToggle">light</button>
@@ -25,187 +25,41 @@
         <main>
             <section class="config-section">
                 <h2>Configuration</h2>
-                
+
+                <p class="hint">Set your facilities and pick a currency, and the calculator shows the fastest achievable rate and what each facility should do. No target is needed for that. Enter a goal further down once you have a plan, and it updates instantly.</p>
+
+                <p class="hint small">Your inputs are saved automatically in this browser. They'll still be here next time you open this page. <button type="button" id="clear-saved-btn" class="toggle-button">Clear saved values</button></p>
+
                 <div class="config-group">
                     <div class="input-row">
                         <div class="input-field">
-                            <label for="target">Target Amount</label>
-                            <input type="number" id="target" value="1000" min="1">
-                        </div>
-                        <div class="input-field">
-                            <label for="currency">Currency</label>
-                            <select id="currency">
-                                <option value="coins" selected>Coins</option>
-                                <option value="coupons">Coupons</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="input-row">
-                        <div class="input-field">
-                            <label for="energy-cost">Energy Cost/min</label>
-                            <input type="number" id="energy-cost" value="0" min="0" step="0.1">
-                        </div>
-                        <div class="input-field checkbox-field">
-                            <label>
-                                <input type="checkbox" id="energy-self-sufficient">
-                                Energy Self-Sufficient
-                            </label>
-                            <p class="hint small">Produce items to consume for energy instead of buying</p>
+                            <label>Currency</label>
+                            <div class="radio-group">
+                                <label><input type="radio" name="currency" id="currency-coins" value="coins" checked> Coins</label>
+                                <label><input type="radio" name="currency" id="currency-bud-tickets" value="bud_tickets"> Bud Tickets</label>
+                            </div>
                         </div>
                     </div>
 
                     <div class="input-row">
                         <div class="input-field checkbox-field">
                             <label>
-                                <input type="checkbox" id="parallel-production">
-                                Cross-Facility Parallel Production
+                                <input type="checkbox" id="prioritize-byproducts" checked>
+                                Prioritize Wood Blocks/Mineral Sand
                             </label>
-                            <p class="hint small">Run multiple facility types simultaneously (ignored when energy self-sufficient is enabled)</p>
+                            <p class="hint small">Guarantee the maximum possible Wood Blocks/Mineral Sand rate first, even at the cost of coin/Bud Ticket profit. Uncheck to optimize purely for profit.</p>
                         </div>
                     </div>
 
-                    <div class="input-row">
-                        <div class="input-field checkbox-field">
-                            <label>
-                                <input type="checkbox" id="exclude-wheat">
-                                Exclude Wheat
-                            </label>
-                            <p class="hint small">Exclude wheat and wheat byproducts (wheatmeal, super_wheatmeal) due to an in-game bug with wheat production</p>
-                        </div>
-                    </div>
                 </div>
 
                 <h3>Facilities</h3>
                 <p class="hint">Set the count and level for each facility you have.</p>
-                
-                <div class="facilities-grid">
-                    <div class="facility-card">
-                        <h4>Farmland <span class="info-icon" data-tooltip="Lv.1: wheat, potatoes&#10;Lv.2: sugarcane, rice&#10;Lv.3: cotton, strawberry, soybean&#10;Lv.4: lavender, agave, rose (requires fertilizer)&#10;Lv.5: grape, ginseng, pumpkin (requires fertilizer)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="farmland-count">Count</label>
-                                <input type="number" id="farmland-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="farmland-level">Level</label>
-                                <input type="number" id="farmland-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
 
-                    <div class="facility-card">
-                        <h4>Woodland <span class="info-icon" data-tooltip="Lv.1: chestnut, willow&#10;Lv.2: palm, bamboo, rubber&#10;Lv.3: lemon, coconut, maple syrup (requires fertilizer)&#10;Lv.4: walnut, pine (requires fertilizer)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="woodland-count">Count</label>
-                                <input type="number" id="woodland-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="woodland-level">Level</label>
-                                <input type="number" id="woodland-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Mineral Pile <span class="info-icon" data-tooltip="Lv.1: rock (coupons)&#10;Lv.2: copper (coupons)&#10;Lv.3: iron (coupons)&#10;Lv.4: quartz (coupons)&#10;Lv.5: gem (coins)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="mineral-pile-count">Count</label>
-                                <input type="number" id="mineral-pile-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="mineral-pile-level">Level</label>
-                                <input type="number" id="mineral-pile-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Carousel Mill <span class="info-icon" data-tooltip="Lv.1: wheatmeal (from wheat), rice processed (from rice)&#10;Lv.2: tofu (from soybean)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="carousel-mill-count">Count</label>
-                                <input type="number" id="carousel-mill-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="carousel-mill-level">Level</label>
-                                <input type="number" id="carousel-mill-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Jukebox Dryer <span class="info-icon" data-tooltip="Lv.1: potato chips (from potatoes)&#10;Lv.2: dried strawberry, dried bean curd (from tofu)&#10;Lv.3: dried lemon slices, dried flowers (lavender+rose), shredded coconut&#10;Lv.4: nuts (walnut+chestnut), herbs, dried grapes, caramel nut chips (nuts+maple syrup)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="jukebox-dryer-count">Count</label>
-                                <input type="number" id="jukebox-dryer-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="jukebox-dryer-level">Level</label>
-                                <input type="number" id="jukebox-dryer-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Crafting Table <span class="info-icon" data-tooltip="Lv.1: wood sculpture (from willow)&#10;Lv.2: bamboo ware (from bamboo)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="crafting-table-count">Count</label>
-                                <input type="number" id="crafting-table-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="crafting-table-level">Level</label>
-                                <input type="number" id="crafting-table-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Dance Pad Polisher <span class="info-icon" data-tooltip="Lv.1: SF basic exp gem (from sugarcane)&#10;Lv.2: SF medium exp gem (from strawberry)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="dance-pad-polisher-count">Count</label>
-                                <input type="number" id="dance-pad-polisher-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="dance-pad-polisher-level">Level</label>
-                                <input type="number" id="dance-pad-polisher-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Aniipod Maker <span class="info-icon" data-tooltip="Lv.1: SF aniipod (from rock)&#10;Lv.2: SF aniipod pro (from copper)">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="aniipod-maker-count">Count</label>
-                                <input type="number" id="aniipod-maker-count" value="1" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="aniipod-maker-level">Level</label>
-                                <input type="number" id="aniipod-maker-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="facility-card">
-                        <h4>Nimbus Bed <span class="info-icon" data-tooltip="Required for Farmland Lv.4+ and Woodland Lv.3+ items&#10;Produces: fertilizer (30), wool (2), petals (8) per batch">?</span></h4>
-                        <div class="facility-inputs">
-                            <div class="input-field">
-                                <label for="nimbus-bed-count">Count</label>
-                                <input type="number" id="nimbus-bed-count" value="0" min="0" max="20">
-                            </div>
-                            <div class="input-field">
-                                <label for="nimbus-bed-level">Level</label>
-                                <input type="number" id="nimbus-bed-level" value="1" min="1" max="10">
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <!-- Facility cards are generated dynamically by app.js from the FACILITIES config,
+                     grouped into category sections (Materials / Aniimo Materials / Materials
+                     Processing), so new facilities can be added without editing this file. -->
+                <div class="facilities-container" id="facilities-grid"></div>
 
                 <h3>Item Upgrade Modules</h3>
                 <p class="hint">Set the level for each upgrade module you have unlocked (0 = not unlocked).</p>
@@ -248,57 +102,106 @@
                     <span class="btn-text">Calculate Optimal Path</span>
                     <span class="btn-loading" style="display: none;">Calculating...</span>
                 </button>
+                <div id="progress-bar-container" class="progress-bar-container" style="display: none;">
+                    <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                </div>
+                <p id="progress-bar-caption" class="hint small" style="display: none;"></p>
             </section>
 
             <section class="results-section" id="results-section" style="display: none;">
                 <h2>Results</h2>
-                
+
                 <div id="error-message" class="error-message" style="display: none;"></div>
-                
+
                 <div id="results-content">
                     <div class="result-summary">
-                        <h3>Optimal Production Path</h3>
                         <div class="summary-grid">
                             <div class="summary-item">
-                                <span class="summary-label">Total Profit</span>
-                                <span class="summary-value" id="total-profit">-</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">Total Time</span>
-                                <span class="summary-value" id="total-time">-</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">Total Energy</span>
-                                <span class="summary-value" id="total-energy">-</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">Items Produced</span>
-                                <span class="summary-value" id="items-produced">-</span>
+                                <span class="summary-label">Your Rate</span>
+                                <span class="summary-value" id="plan-rate">-</span>
+                                <select id="rate-unit" class="rate-unit-select">
+                                    <option value="second">per second</option>
+                                    <option value="hour">per hour</option>
+                                    <option value="day">per day</option>
+                                </select>
                             </div>
                         </div>
+                        <p class="hint small" id="plan-explored-hint"></p>
                     </div>
 
                     <div class="production-steps">
-                        <h3>Production Steps</h3>
-                        <div id="steps-list" class="steps-list"></div>
+                        <h3>What Each Facility Should Do</h3>
+                        <p class="hint small">Each row is a single product; a facility split between multiple items gets one row per item. Crops that need a growing environment (Cool/Warm/Freeze/Scorching/Adequate) are grouped by which environment they use, showing which Heat Furnace/Cooling Unit/Sunlamp configuration covers them. Everything else is grouped the same way as the Facilities section above.</p>
+                        <!-- Populated by app.js's renderFacilityPlan(): one section per
+                             environment mode in use (Cool/Warm/Freeze/Scorching/Adequate) first,
+                             then one table per facility category (Materials / Aniimo Materials /
+                             Materials Processing) for everything else. -->
+                        <div id="facility-plan-container" class="facilities-container"></div>
                     </div>
 
-                    <div class="all-options">
-                        <h3>All Options Ranked</h3>
-                        <p class="hint">Sorted by <span id="sort-criteria">time efficiency</span></p>
-                        <div class="table-wrapper">
-                            <table id="options-table">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        <th>Facility</th>
-                                        <th>Profit/sec</th>
-                                        <th>Profit/energy</th>
-                                        <th>Time/unit</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="options-tbody"></tbody>
-                            </table>
+                    <div class="production-steps" id="goal-section">
+                        <h3>Set a Goal</h3>
+                        <p class="hint small">Updates instantly from the plan above. No need to hit Calculate again.</p>
+                        <div class="config-group">
+                            <div class="input-row">
+                                <div class="input-field">
+                                    <label for="target-amount" id="target-amount-label">Target Coins</label>
+                                    <input type="number" id="target-amount" value="1000" min="0">
+                                </div>
+                                <div class="input-field">
+                                    <label for="current-amount" id="current-amount-label">Current Coins</label>
+                                    <input type="number" id="current-amount" value="0" min="0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="result-summary">
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <span class="summary-label">Total Time</span>
+                                    <span class="summary-value" id="total-time">-</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label" id="amount-produced-label">Coins Produced</span>
+                                    <span class="summary-value" id="amount-produced">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="production-steps" id="product-breakdown-section" style="display: none;">
+                            <h3>Product Breakdown</h3>
+                            <div class="table-wrapper">
+                                <table id="product-breakdown-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Facility</th>
+                                            <th>Amount</th>
+                                            <th id="product-breakdown-rate-header">Profit/sec</th>
+                                            <th>Total Worth</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="product-breakdown-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="production-steps" id="seeds-needed-section" style="display: none;">
+                            <h3>Seeds Needed</h3>
+                            <div class="table-wrapper">
+                                <table id="seeds-needed-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Crop</th>
+                                            <th>Facility</th>
+                                            <th>Plots</th>
+                                            <th>Plantings/Plot</th>
+                                            <th>Total Seeds</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="seeds-needed-tbody"></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -310,6 +213,21 @@
         </footer>
     </div>
 
+    <!-- Facilities Modal -->
+    <div id="facilitiesModal" class="modal" onclick="closeFacilitiesOnBackdrop(event)">
+        <div class="modal-content wide">
+            <div class="modal-header">
+                <h2>Facility Recipes</h2>
+                <button class="close-button" onclick="closeFacilities()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="hint">Every recipe in the game data, grouped by facility. This is a reference table, not tied to your owned facility counts or levels.</p>
+                <p class="hint small" id="facilities-loading-hint">Loading recipe data...</p>
+                <div id="facilities-modal-container" class="facilities-container"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Math Modal -->
     <div id="mathModal" class="modal" onclick="closeMathOnBackdrop(event)">
         <div class="modal-content modal-wide">
@@ -318,75 +236,33 @@
                 <button class="close-button" onclick="closeMath()">&times;</button>
             </div>
             <div class="modal-body">
-                <h3>Production Efficiency</h3>
-                <p>For each item, we calculate the <strong>profit per second</strong> to find the most efficient production path.</p>
-                
-                <h4>Raw Materials</h4>
-                <p>For raw materials (items produced directly from facilities like Farmland):</p>
-                <div class="math-block">\[ \text{Profit/sec} = \frac{(\text{yield} \times \text{sell_price}) - \text{cost}}{t_{\text{effective}}} \]</div>
-                <p>Where effective time accounts for parallel production with multiple facilities:</p>
-                <div class="math-block">\[ t_{\text{effective}} = \frac{t_{\text{production}}}{n_{\text{facilities}}} \]</div>
-                
-                <h4>Processed Items</h4>
-                <p>For processed items that require raw materials, production is limited by the <strong>bottleneck</strong>:</p>
-                <div class="math-block">\[ \text{Gathering Rate} = \frac{n_{\text{gatherers}} \times \text{yield}}{t_{\text{gather}} \times \text{required_amount}} \]</div>
-                <div class="math-block">\[ \text{Processing Rate} = \frac{n_{\text{processors}}}{t_{\text{process}}} \]</div>
-                <div class="math-block">\[ \text{Effective Rate} = \min(\text{Gathering Rate}, \text{Processing Rate}) \]</div>
-                
-                <h3>Cross-Facility Parallel Production</h3>
-                <p>When enabled, multiple independent production chains run simultaneously:</p>
-                <div class="math-block">\[ \text{Total Profit/sec} = \sum_{i=1}^{k} \text{profit_rate}_i \]</div>
-                <p>Chains are selected greedily by efficiency, skipping any that conflict with already-selected facilities.</p>
-                
-                <h3>Optimal Facility Allocation</h3>
-                <p>When a recipe requires multiple raw materials from the <strong>same facility type</strong> (e.g., lavender + rose from Farmland), we optimize how to split facilities.</p>
-                
-                <h4>The Problem</h4>
-                <p>Minimize the maximum completion time across all materials:</p>
-                <div class="math-block">\[ \min \max_i \left( \left\lceil \frac{B_i}{f_i} \right\rceil \times t_i \right) \quad \text{s.t.} \quad \sum_i f_i = F \]</div>
-                <p>Where:</p>
-                <ul>
-                    <li>\(B_i\) = batches needed for material \(i\)</li>
-                    <li>\(f_i\) = facilities allocated to material \(i\)</li>
-                    <li>\(t_i\) = production time for material \(i\)</li>
-                    <li>\(F\) = total facilities available</li>
-                </ul>
-                
-                <h4>The Algorithm</h4>
-                <p>We use <strong>binary search on candidate completion times</strong>:</p>
-                <ol>
-                    <li><strong>Generate candidates:</strong> For each material, possible completion times are \(\lceil B_i / k \rceil \cdot t_i\) for \(k = 1, 2, \ldots\). Using the divisor counting trick, there are only \(O(\sqrt{B_i})\) distinct values.</li>
-                    <li><strong>Binary search:</strong> For candidate time \(T\), check feasibility:
-                        <ul>
-                            <li>Max rounds for material \(i\): \(r_i = \lfloor T / t_i \rfloor\)</li>
-                            <li>Min facilities needed: \(\lceil B_i / r_i \rceil\)</li>
-                            <li>Feasible if \(\sum_i \lceil B_i / r_i \rceil \leq F\)</li>
-                        </ul>
-                    </li>
-                    <li><strong>Allocate:</strong> Assign minimum facilities, then greedily distribute remaining.</li>
-                </ol>
-                
-                <h4>Example</h4>
-                <p>Producing dried_flowers (requires lavender + rose) with 20 Farmlands:</p>
-                <table class="math-table">
-                    <tr><th>Material</th><th>Batches</th><th>Time</th></tr>
-                    <tr><td>lavender</td><td>666</td><td>5400s</td></tr>
-                    <tr><td>rose</td><td>666</td><td>8100s</td></tr>
-                </table>
-                <p><strong>Naive split (10 each):</strong></p>
-                <div class="math-block">\[ t = \max\left(\lceil 666/10 \rceil \times 5400, \lceil 666/10 \rceil \times 8100\right) = 542700s \]</div>
-                <p><strong>Optimal split (8 lavender, 12 rose):</strong></p>
-                <div class="math-block">\[ t = \max\left(\lceil 666/8 \rceil \times 5400, \lceil 666/12 \rceil \times 8100\right) = 453600s \]</div>
-                <p>The optimal allocation saves ~25 hours by giving more facilities to the slower material.</p>
-                
-                <h3>Complexity</h3>
-                <table class="math-table">
-                    <tr><th>Operation</th><th>Complexity</th></tr>
-                    <tr><td>Efficiency calculation</td><td>\(O(n \cdot m^2)\)</td></tr>
-                    <tr><td>Parallel mode selection</td><td>\(O(n \log n + n \cdot f)\)</td></tr>
-                    <tr><td>Facility allocation</td><td>\(O(M \cdot \sqrt{B} \cdot \log(M\sqrt{B}))\)</td></tr>
-                </table>
-                <p>Where \(n\) = items, \(m\) = chain depth, \(f\) = facilities per chain, \(M\) = materials in recipe, \(B\) = max batches.</p>
+                <h3>1. Profit per Item</h3>
+                <p>For every item, we compute net profit per batch and the time to make one, tracing its full ingredient chain back to whatever facilities produce the raw materials.</p>
+                <div class="math-block">\[ \text{profit}_{\text{batch}} = (\text{yield} \times \text{sell_price}) - \text{raw_cost} \]</div>
+                <p>Dividing by batch time gives a per-second rate, but that rate alone doesn't say how much of each facility one batch actually needs. For that we track <strong>utilization</strong>: batches per second at this item's own facility, plus the same for every facility touched anywhere upstream in its ingredient tree (e.g. soy_sauce_tofu pulls from both Bouncy Brew Keg and Carousel Mill, which both draw soybean from Farmland).</p>
+
+                <h3>2. Environment Coverage</h3>
+                <p>Some crops need a growing environment (Cool/Warm/Freeze/Scorching/Adequate), supplied by Heat Furnace/Cooling Unit/Sunlamp buildings. Each building covers a fixed 2D area around it, so how many plots of each facility type it can cover is an exact geometric packing problem, solved once up front per owned building using each candidate item's standalone profit-per-plot to prioritize which types get coverage. This produces a hard cap on how much of each covered facility type is usable, feeding into the allocation below as an extra capacity limit.</p>
+
+                <h3>3. Joint Facility Allocation</h3>
+                <p>Every owned facility can be shared by several candidate items at once, so picking each item's rate independently would double-count shared capacity (two recipes both claiming the same Farmland soybean plots as if the other didn't exist). A facility can also be owned across multiple levels (e.g. some plots upgraded further than others); a higher-level plot can run a lower-level recipe too, so capacity is tracked per level threshold rather than as one flat total. Instead of picking rates independently, we solve one linear program across every candidate item and every owned facility simultaneously:</p>
+                <div class="math-block">\[ \max \sum_i \text{profit}_{\text{batch},i} \cdot x_i \quad \text{s.t.} \quad \sum_i \text{utilization}_{i,f} \cdot x_i \leq \text{capacity}_f \ \ \forall f \]</div>
+                <p>Where \(x_i\) is item \(i\)'s batches/sec and \(f\) ranges over every owned facility and level threshold, plus each environment coverage cap from step 2. This is solved exactly (not greedily) with an off-the-shelf simplex solver, so the result is the provably-best combination of rates achievable given shared upstream supply and coverage.</p>
+
+                <h3>4. Rounding to Whole Units: Growers</h3>
+                <p>The linear program's solution is continuous, e.g. "62% of Farmland's soybean plots." A grower facility (Farmland, Woodland, Mineral Pile, and similar) can't actually run a fractional plot; each unit commits to one crop for its whole cycle. So every grower facility's fractional shares get converted to whole counts using the largest-remainder method (the same apportionment technique used to allocate parliament seats), landing as close to the true fractions as an integer solution allows.</p>
+                <p>Each item's final rate is then capped by what its grower facilities can actually supply once rounded, taking the minimum against the continuous rate rather than recomputing from scratch, since the continuous solve already accounted for fair sharing at every processor a chain passes through.</p>
+
+                <h3>5. Whole-Unit Dedication: Processors</h3>
+                <p>A processor facility (Carousel Mill, Claw Game Cooker, and similar) isn't tied to one crop for a whole cycle the way a grower is, but it still can't be time-shared between recipes in practice. A player sets one up to run one recipe continuously, not a "38% of the time" split. If a chain needs two different items made at the same facility type (an intermediate step plus the final item), each one needs its own dedicated unit, not one unit alternating. When the linear program's solution would ask a processor facility to serve more distinct recipes than it has units, we keep only the most profitable candidates (one dedicated unit each) and drop the rest, then re-solve so their freed-up upstream supply finds a genuine next-best use rather than being silently discarded.</p>
+
+                <h3>6. Refining the Choice</h3>
+                <p>Environment coverage (step 2) is priced from each item's own standalone economics, before the full joint solve runs. Occasionally that naive pricing favors a chain that turns out worse once every other constraint is accounted for, either because it never ends up producing anything once the rest of the plan settles, or because a competing chain would have used the same scarce coverage more effectively overall. After solving once, the algorithm checks which chains actually end up producing something, then tries excluding a losing candidate and re-solving; the exclusion is kept only if the resulting plan's real total is genuinely better.</p>
+
+                <h3>7. Time to Reach a Goal</h3>
+                <p>Once the plan's rates are settled, each item contributes nothing until its own lead time has passed (time for its first batch to clear the chain), then its steady rate after that:</p>
+                <div class="math-block">\[ \text{amount}(t) = \sum_i \text{rate}_i \cdot \max(0,\ t - \text{lead}_i) \]</div>
+                <p>This is monotonically non-decreasing in \(t\), so the smallest \(t\) reaching your target amount is found with a binary search rather than solving anything analytically.</p>
             </div>
         </div>
     </div>
@@ -399,35 +275,30 @@
                 <button class="close-button" onclick="closeHelp()">&times;</button>
             </div>
             <div class="modal-body">
-                <h3>1. Set Your Target</h3>
-                <p>Enter the amount of currency (coins or coupons) you want to earn.</p>
-                
+                <h3>1. Pick a Target</h3>
+                <p>Choose Coins or Bud Tickets; only recipes that sell for that currency are considered. Wood Blocks/Mineral Sand aren't a separate target; they come as a byproduct of certain Woodland/Mineral Pile crops regardless of what you're optimizing for, and the "Prioritize Wood Blocks/Mineral Sand" checkbox can guarantee their maximum possible rate even at the cost of Coins/Bud Ticket profit.</p>
+
                 <h3>2. Configure Facilities</h3>
                 <p>Set the count and level of each facility you have unlocked in Aniimo Homeland.</p>
-                
+
                 <h3>3. Set Upgrade Modules</h3>
                 <p>Enter the level of each upgrade module you've unlocked (0 = not unlocked).</p>
-                
+
                 <h3>4. Calculate</h3>
-                <p>Click "Calculate Optimal Path" to find the most efficient production strategy.</p>
-                
+                <p>Click "Calculate Optimal Path" to see your best achievable rate and what each facility should produce. No target amount is needed for this step.</p>
+
+                <h3>5. Set a Goal (Optional)</h3>
+                <p>Once you have a plan, enter a target amount and your current balance further down to see how long it will take. This updates instantly as you type, with no need to recalculate the plan.</p>
+
                 <h3>Understanding Results</h3>
                 <ul>
-                    <li><strong>Profit/sec</strong>: How much currency you earn per second</li>
-                    <li><strong>Total time</strong>: How long to reach your target</li>
-                    <li><strong>Startup time</strong>: Time before first batch completes</li>
-                    <li><strong>Production steps</strong>: What to produce and where</li>
+                    <li><strong>Your Rate</strong>: The best steady-state rate of your chosen target achievable with your current facilities, viewable per second, hour, or day</li>
+                    <li><strong>What Each Facility Should Do</strong>: Which item to dedicate each owned facility to, running in parallel</li>
+                    <li><strong>Total Time / Amount Produced</strong>: How long your goal takes, and the item-level breakdown of what gets made along the way</li>
                 </ul>
-                
-                <h3>Options</h3>
-                <ul>
-                    <li><strong>Energy Cost</strong>: If you buy energy, enter cost per minute to factor it into calculations</li>
-                    <li><strong>Energy Self-Sufficient</strong>: Produce items to consume for energy instead of buying</li>
-                    <li><strong>Parallel Production</strong>: Run multiple facility types at once for higher throughput</li>
-                </ul>
-                
-                <h3>Optimal Facility Allocation</h3>
-                <p>When producing items that need multiple raw materials from the same facility (e.g., lavender + rose for dried_flowers), aniimax calculates the optimal way to split your facilities to minimize production time.</p>
+
+                <h3>How It Decides</h3>
+                <p>Every owned facility is dedicated to its own best item for the chosen target, all running simultaneously. Different facility types don't compete for the same time slot, so using more of them always finishes faster. The reported rate is the fastest achievable given your current facility counts and levels.</p>
             </div>
         </div>
     </div>
@@ -481,6 +352,7 @@
             if (e.key === 'Escape') {
                 closeHelp();
                 closeMath();
+                closeFacilities();
             }
         });
     </script>

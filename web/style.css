@@ -215,12 +215,48 @@ p {
     cursor: pointer;
 }
 
+/* Radio Group (currency selector) */
+.radio-group {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.radio-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.radio-group input[type="radio"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+
 /* Facilities Grid */
+.facilities-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.facility-category-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--border);
+}
+
 .facilities-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
-    margin-bottom: 1.5rem;
 }
 
 .facility-card {
@@ -290,8 +326,15 @@ p {
     visibility: visible;
 }
 
+.facility-tiers {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .facility-inputs {
     display: flex;
+    align-items: flex-end;
     gap: 0.75rem;
 }
 
@@ -306,6 +349,41 @@ p {
 .facility-inputs input {
     padding: 0.4rem;
     font-size: 0.85rem;
+}
+
+/* One owned tier's remove button, sitting inline at the end of its Count/Level row. */
+.tier-remove-btn {
+    cursor: pointer;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 0.4rem 0.6rem;
+}
+
+.tier-remove-btn:hover {
+    color: var(--text);
+    border-color: var(--text);
+}
+
+/* Adds one more owned tier (e.g. "+ Add level") below a facility's tier rows. */
+.add-tier-btn {
+    cursor: pointer;
+    background: none;
+    border: none;
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.75rem;
+    text-decoration: underline;
+    padding: 0;
+    margin-top: 0.5rem;
+    align-self: flex-start;
+}
+
+.add-tier-btn:hover {
+    opacity: 0.7;
 }
 
 /* Modules Grid */
@@ -361,6 +439,26 @@ p {
     cursor: not-allowed;
 }
 
+/* Progress bar shown while find_plan runs in the worker (see worker.js); fill width is driven by
+   the solver's own real trial-solve count (see `trialCountToPercent` in app.js), not a decorative
+   animation, so it actually reflects work happening. */
+.progress-bar-container {
+    width: 100%;
+    height: 4px;
+    margin-top: 0.6rem;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--text);
+    border-radius: 2px;
+    transition: width 0.15s ease-out;
+}
+
 /* Error Message */
 .error-message {
     border: 1px solid var(--error);
@@ -401,6 +499,32 @@ p {
     font-size: 1.1rem;
     font-weight: bold;
     color: var(--success);
+}
+
+.rate-unit-select {
+    margin-top: 0.5rem;
+    padding: 0.2rem 0.4rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.rate-unit-select:focus {
+    outline: none;
+    border-color: var(--text);
+}
+
+/* Byproduct bonus rows, appended to the bottom of the Product Breakdown table */
+#product-breakdown-table tbody tr.byproduct-row {
+    color: var(--warning);
+    font-style: italic;
+}
+
+#product-breakdown-table tbody tr.byproduct-row td {
+    border-top: 1px dashed var(--warning);
 }
 
 /* Production Steps */
@@ -599,6 +723,86 @@ tbody tr:first-child td {
     font-weight: bold;
 }
 
+/* Facility plan tables (one per category, see renderFacilityPlan in app.js): status reflects
+   role (producing/idle/not needed), not row position, overriding the generic "highlight first
+   row" rule above so it doesn't imply the first facility listed is special. */
+.facility-plan-table tbody tr:first-child td {
+    color: inherit;
+    font-weight: normal;
+}
+
+.facility-plan-table tbody tr.status-not_needed td,
+.facility-plan-table tbody tr.status-nothing_available td,
+.facility-plan-table tbody tr.status-idle td {
+    color: var(--text-muted);
+}
+
+/* Environment building layout diagram (see renderEnvironmentDiagram in app.js): a simple SVG
+   showing the solver's own chosen facility placements around one building instance, next to that
+   instance's table. */
+.env-unit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.env-unit-table {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+.env-diagram {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+}
+
+.env-diagram svg {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.env-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+    max-width: 150px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.env-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.env-legend-swatch {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 2px;
+}
+
+/* Recipe reference tables (facility recipe modal): one table per facility, listed row order
+   reflects level/name sort, not importance, same override as the facility-plan table above. */
+.recipe-table tbody tr:first-child td {
+    color: inherit;
+    font-weight: normal;
+}
+
+.facility-recipe-table {
+    margin-bottom: 1.5rem;
+}
+
+.facility-recipe-table h4 {
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
 /* Footer */
 footer {
     text-align: center;
@@ -695,6 +899,10 @@ footer {
     max-width: 600px;
     width: 100%;
     margin: 2rem auto;
+}
+
+.modal-content.wide {
+    max-width: 1100px;
 }
 
 .modal-header {

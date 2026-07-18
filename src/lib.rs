@@ -3,7 +3,7 @@
 //! A command-line tool and library for optimizing production paths in Aniimo Homeland.
 //!
 //! This crate provides functionality to calculate the most efficient way to produce
-//! a target amount of in-game currency (coins or coupons) based on:
+//! a target amount of in-game currency (coins or Bud Tickets) based on:
 //!
 //! - Available production items and their recipes
 //! - Production times and yields
@@ -33,18 +33,16 @@
 //! // Load production data
 //! let items = load_all_data(Path::new("data")).unwrap();
 //!
-//! // Define facility counts and levels: (count, level)
-//! let counts = FacilityCounts {
-//!     farmland: (4, 3),        // 4 farmlands at level 3
-//!     woodland: (2, 2),
-//!     mineral_pile: (1, 1),
-//!     carousel_mill: (2, 2),
-//!     jukebox_dryer: (1, 1),
-//!     crafting_table: (1, 1),
-//!     dance_pad_polisher: (1, 1),
-//!     aniipod_maker: (1, 1),
-//!     nimbus_bed: (1, 1),      // Produces fertilizer for level 4+ farmland and level 3+ woodland
-//! };
+//! // Define facility counts and levels: (name, count, level)
+//! let counts = FacilityCounts::from_pairs(&[
+//!     ("Farmland", 4, 3),        // 4 farmlands at level 3
+//!     ("Woodland", 2, 2),
+//!     ("Mineral Pile", 1, 1),
+//!     ("Carousel Mill", 2, 2),
+//!     ("Jukebox Dryer", 1, 1),
+//!     ("Crafting Table", 1, 1),
+//!     ("Nimbus Bed", 1, 1),      // Produces Wool and Petals
+//! ]);
 //!
 //! // Define module levels (0 = not unlocked)
 //! let modules = ModuleLevels::default();
@@ -68,6 +66,7 @@
 //! 2. **Energy Optimization**: Finds the most energy-efficient production path,
 //!    useful when energy is a limited resource.
 
+pub mod coverage;
 pub mod data;
 pub mod display;
 pub mod models;

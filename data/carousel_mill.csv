@@ -1,5 +1,5 @@
-name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement
-wheatmeal, wheat, 120, 150, 60, 8360, 1,
-super_wheatmeal, wheat, 120, 210, 60, 8360, 1, kitchen_module:2
-rice_processed, rice, 6, 75, 120, 1056, 1,
-tofu, soybean, 5, 156, 798, 1635, 2, 
+name, raw_materials, required_amount, sell_value, workload, energy, facility_level, module_requirement
+wheatmeal, wheat, 30, 60, 18, 12340, 1,
+rice_processed, rice, 30, 225, 23, 12600, 2,
+tofu, soybean, 8, 555, 23, 12960, 3,
+coconut_oil, coconut, 5, 780, 23, 12960, 3,

@@ -1,6 +1,8 @@
 # Aniimax
 
-A command-line tool, Rust library, and **web application** for optimizing production paths in Aniimo Homeland. Calculate the fastest or most energy-efficient way to produce your target amount of Homeland currency.
+A command-line tool, Rust library, and **web application** for optimizing production paths in Aniimo Homeland. Calculate the fastest way to produce your target amount of Homeland currency, and see what every facility you own should be doing at once.
+
+Supports the current beta with the full facility roster, Bud Tickets, and a joint LP-based facility-allocation engine for the web app (the CLI uses a simpler greedy approach; see [How the Optimization Works](#how-the-optimization-works) for the difference).
 
 > **Note:** This project is a work in progress. Not all in-game items are included yet, and production times are assumed to match the values displayed in-game.
 
@@ -10,18 +12,21 @@ A command-line tool, Rust library, and **web application** for optimizing produc
 
 ## Features
 
-- **Time Optimization**: Find the fastest production path to reach your currency goal
-- **Energy Optimization**: Maximize profit per energy unit when energy is limited
-- **Energy Self-Sufficient Mode**: Produce items to consume for energy instead of buying
-- **Parallel Production**: Account for multiple facilities running simultaneously
-- **Cross-Facility Parallel Mode**: Run different facility types at the same time (e.g., Farmland→Carousel Mill + Woodland→Jukebox Dryer)
-- **Multi-Level Production Chains**: Supports complex chains like caramel_nut_chips (Woodland → Jukebox Dryer → Jukebox Dryer)
-- **Optimal Facility Allocation**: Calculates how to split facilities when producing multiple materials (e.g., lavender + rose for dried_flowers)
-- **Startup Time Tracking**: Shows first-batch delay vs steady-state production time
-- **Multi-Currency Support**: Optimize for either coins or coupons
-- **Per-Facility Level Filtering**: Set different levels for each facility type
+**Web app**
+- **Live Production Plan**: Set your facilities and currency to get the best achievable rate and what every facility should produce; no target amount needed
+- **Goal Timing**: Add a target amount afterward to see how long it'll take; updates instantly as you type, no re-solving
+- **Joint Facility Allocation**: Solves for every item and every facility at once, so shared resources (e.g. two recipes both wanting the same Farmland soybean supply) are split correctly instead of double-counted
+- **Whole-Unit Realism**: Growers are rounded to whole plots, processors are dedicated to one recipe each, matching how the game actually works, never a fractional or time-shared facility
+- **Multi-Currency Support**: Optimize for Coins or Bud Tickets
+- **Recipe Reference Page**: Every recipe in the game data, browsable by facility, independent of what you own
 - **Item Upgrade Modules**: Support for module-unlocked items (ecological, kitchen, mineral, crafting)
-- **Web Interface**: Use directly in your browser with WebAssembly
+
+**CLI / library**
+- **Time or Energy Optimization**: Fastest path, or best profit per energy unit
+- **Energy Self-Sufficient Mode**: Produce items to consume for energy instead of buying
+- **Cross-Facility Parallel Mode**: Run independent, non-conflicting production chains simultaneously
+- **Optimal Facility Allocation**: Binary-search-based splitting when one recipe needs multiple materials from the same facility (e.g. lavender + rose for dried_flowers)
+- **Startup Time Tracking**: Shows first-batch delay vs steady-state production time
 
 ## Installation
 
@@ -47,8 +52,8 @@ The binary will be available at `target/release/aniimax`.
 # Make 10000 coins as fast as possible
 cargo run --release -- --target 10000 --currency coins
 
-# Make 500 coupons
-cargo run --release -- --target 500 --currency coupons
+# Make 500 Bud Tickets
+cargo run --release -- --target 500 --currency bud_tickets
 ```
 
 ### With Facility Counts and Levels
@@ -75,15 +80,11 @@ cargo run --release -- --target 5000 --currency coins \
 
 ### Energy Optimization
 
-Optimize for energy efficiency instead of speed:
-
-```bash
-cargo run --release -- --target 5000 --currency coins --optimize-energy
-```
+Pure profit-per-energy ranking exists at the library level (`find_best_production_path(&efficiencies, target, true, 0.0, &counts)`) but isn't currently wired up to a CLI flag; the CLI always ranks by time.
 
 ### With Energy Cost
 
-Factor in energy costs when optimizing for time:
+Factor in energy costs when ranking by time (nudges the time-based ranking by the energy cost penalty, and prints per-item energy recommendations at the end):
 
 ```bash
 cargo run --release -- --target 2000 --currency coins --energy-cost 10
@@ -94,9 +95,8 @@ cargo run --release -- --target 2000 --currency coins --energy-cost 10
 ```
 Options:
   -t, --target <TARGET>              Target amount of currency to produce
-  -c, --currency <CURRENCY>          Currency type (coins or coupons) [default: coins]
+  -c, --currency <CURRENCY>          Currency type (coins or bud_tickets) [default: coins]
   -e, --energy-cost <ENERGY_COST>    Energy cost per minute [default: 0.0]
-      --optimize-energy              Optimize for energy efficiency instead of time
       --energy-self-sufficient       Produce items to consume for energy
       --parallel                     Run different facility types simultaneously
 
@@ -107,8 +107,7 @@ Options:
       --carousel-mill <N>            Number of Carousel Mill machines [default: 1]
       --jukebox-dryer <N>            Number of Jukebox Dryer machines [default: 1]
       --crafting-table <N>           Number of Crafting Table slots [default: 1]
-      --dance-pad-polisher <N>       Number of Dance Pad Polisher machines [default: 1]
-      --aniipod-maker <N>            Number of Aniipod Maker machines [default: 1]
+      --nimbus-bed <N>               Number of Nimbus Bed slots (produces Wool/Petals) [default: 0]
 
   Facility levels:
       --farmland-level <N>           Farmland facility level [default: 1]
@@ -117,8 +116,7 @@ Options:
       --carousel-mill-level <N>      Carousel Mill facility level [default: 1]
       --jukebox-dryer-level <N>      Jukebox Dryer facility level [default: 1]
       --crafting-table-level <N>     Crafting Table facility level [default: 1]
-      --dance-pad-polisher-level <N> Dance Pad Polisher facility level [default: 1]
-      --aniipod-maker-level <N>      Aniipod Maker facility level [default: 1]
+      --nimbus-bed-level <N>         Nimbus Bed facility level [default: 1]
 
   Item upgrade modules:
       --ecological-module <N>        Ecological Module level (unlocks high-speed crops) [default: 0]
@@ -130,6 +128,8 @@ Options:
   -V, --version                      Print version
 ```
 
+> **CLI facility coverage:** the CLI currently only exposes the 7 facilities listed above. Any facility not listed here (Claw Game Cooker, Bouncy Brew Keg, Phonolfactory Table, Joy Wheel Loom, and the newer Aniimo-material facilities) defaults to 1 owned at level 1 when computing efficiencies. For full coverage of every current facility, use the [web app](https://ae-bii.github.io/aniimax/) instead.
+
 ## Example Output
 
 ```
@@ -139,7 +139,7 @@ Aniimax - Aniimo Production Optimizer
 Configuration:
   Target:          5000 coins
   Energy Cost:     0/min
-  Optimize for:    Time
+  Mode:            Time Optimization
 
 Facilities (count x level):
   Farmland:           4 x Lv.3
@@ -148,8 +148,7 @@ Facilities (count x level):
   Carousel Mill:      2 x Lv.2
   Jukebox Dryer:      1 x Lv.1
   Crafting Table:     1 x Lv.1
-  Dance Pad Polisher: 1 x Lv.1
-  Aniipod Maker:      1 x Lv.1
+  Nimbus Bed:         0 x Lv.1
 
 Loaded 13 production items.
 
@@ -181,7 +180,40 @@ wheat                      6.6667       0.1236           2s
 
 ## How the Optimization Works
 
-Aniimax uses a greedy algorithm to find efficient production paths. Here's how it works:
+The web app and the CLI/library use two different approaches to the same underlying problem.
+
+### Web App: Joint Facility Allocation
+
+The web app (`find_plan`, backed by `find_production_plan`) solves a harder version of the problem than "what's the single best item": it solves for what *every* owned facility should be doing at once, including facilities that multiple recipes want to share.
+
+**1. Profit per item.** For every item, net profit per batch, plus its utilization (batches/sec needed) at every facility touched anywhere in its ingredient chain, not just its own facility, but every intermediate processing step too.
+
+```math
+\text{profit}_{\text{batch}} = (\text{yield} \times \text{sell\_price}) - \text{raw\_cost}
+```
+
+**2. One linear program across everything.** Picking each item's rate independently would double-count facilities that two recipes both want (e.g. soy sauce and tofu both drawing from the same Farmland soybean supply). So every candidate item and every owned facility go into a single linear program instead, solved exactly with the [`microlp`](https://crates.io/crates/microlp) crate:
+
+```math
+\max \sum_i \text{profit}_{\text{batch},i} \cdot x_i \quad \text{s.t.} \quad \sum_i \text{utilization}_{i,f} \cdot x_i \leq \text{capacity}_f \ \ \forall f
+```
+
+**3. Rounding to whole units.** The LP's solution is continuous (e.g. "62% of Farmland grows soybean"), which isn't achievable in-game; plots and machines can't be fractionally split. The result is rounded differently depending on facility type:
+
+- **Growers** (Farmland, Woodland, Mineral Pile, ...): each plot commits to one crop for a full cycle, so fractional shares are converted to whole counts via the largest-remainder method (the same apportionment technique used to allocate parliament seats).
+- **Processors** (Carousel Mill, Claw Game Cooker, ...): a machine can't time-share between two recipes either; a player sets it to run one recipe continuously. When more recipes want a processor than it has units, the most profitable candidates each get one dedicated unit and the rest are excluded, then the LP re-solves so their freed-up supply finds a real next-best use instead of sitting idle.
+
+**4. Time to reach a goal.** Once the plan is settled, each item contributes nothing until its own lead time has passed, then its steady rate. The time to reach a target amount is found with a binary search rather than solved for directly, since accumulated amount is monotonic in time:
+
+```math
+\text{amount}(t) = \sum_i \text{rate}_i \cdot \max(0,\ t - \text{lead}_i)
+```
+
+See the "math" button in the web app's header for this same explanation in context, or [`optimizer.rs`](src/optimizer.rs) (`find_production_plan`, `solve_facility_allocation`, `time_to_reach_goal`) for the implementation.
+
+### CLI / Library: Greedy Path Selection
+
+The CLI and library functions (`find_best_production_path`, `find_parallel_production_path`) use a greedy algorithm instead of the web app's joint solve, ranking items independently rather than solving for shared facilities at once. Here's how it works:
 
 ### 1. Efficiency Calculation
 
@@ -428,6 +460,8 @@ Adding more farms increases the gathering rate until it matches or exceeds the p
 
 ### Computational Complexity
 
+The table below describes the CLI/library's greedy functions above, not the web app's linear program (LP solve time depends on the solver and isn't a simple closed form, but is fast in practice, well under a second for the current item count).
+
 Let $n$ = number of production items, $m$ = maximum chain depth, $f$ = facilities per chain, $k$ = selected parallel chains, $F$ = facility count, $M$ = number of materials in a recipe.
 
 | Operation | Complexity | Description |
@@ -456,17 +490,16 @@ fn main() {
     // Load production data
     let items = load_all_data(Path::new("data")).unwrap();
 
-    // Define facility counts and levels: (count, level)
-    let counts = FacilityCounts {
-        farmland: (4, 3),        // 4 farmlands at level 3
-        woodland: (2, 2),        // 2 woodlands at level 2
-        mineral_pile: (1, 1),
-        carousel_mill: (2, 2),   // 2 carousel mills at level 2
-        jukebox_dryer: (1, 1),
-        crafting_table: (1, 1),
-        dance_pad_polisher: (1, 1),
-        aniipod_maker: (1, 1),
-    };
+    // Define facility counts and levels as (name, count, level) triples. Any facility not
+    // listed here defaults to count=1, level=1.
+    let counts = FacilityCounts::from_pairs(&[
+        ("Farmland", 4, 3),        // 4 farmlands at level 3
+        ("Woodland", 2, 2),        // 2 woodlands at level 2
+        ("Mineral Pile", 1, 1),
+        ("Carousel Mill", 2, 2),   // 2 carousel mills at level 2
+        ("Jukebox Dryer", 1, 1),
+        ("Crafting Table", 1, 1),
+    ]);
 
     // Define item upgrade module levels (0 = not unlocked)
     let modules = ModuleLevels {
@@ -520,7 +553,7 @@ cargo doc --open
 
 ### Deploying to GitHub Pages
 
-The web app is automatically deployed to GitHub Pages on every push to the main branch. You can also manually deploy by copying the contents of the `web/` directory to your gh-pages branch.
+Deployment (`.github/workflows/deploy.yml`) runs on pushing a version tag (`v*`) or via manual workflow dispatch, not on every push to main. Tag a release (`git tag v0.14.1 && git push --tags`) or trigger the workflow manually to deploy. You can also deploy by hand by copying the contents of the `web/` directory (including a freshly built `web/pkg/`) to your gh-pages branch.
 
 ## Data Format
 
@@ -528,12 +561,16 @@ Production data is stored in CSV files in the `data/` directory:
 
 - `farmland.csv` - Crops (wheat, potatoes, etc.)
 - `woodland.csv` - Trees (chestnut, willow)
-- `mineral_pile.csv` - Mining (rock)
-- `carousel_mill.csv` - Grain processing
-- `jukebox_dryer.csv` - Food processing
+- `mineral_pile.csv` - Mining (rock, quartz, gem)
+- `nimbus_bed.csv` - Wool and Petals (requires a matching Aniimo Family)
+- `grass_blossom_mat.csv`, `starfall_hammock.csv`, `tidewhisper_sandcastle.csv`, `dewy_house.csv` - newer Aniimo-material facilities (levels/values still being confirmed)
+- `carousel_mill.csv` - Grain/tofu processing
+- `jukebox_dryer.csv` - Food drying
 - `crafting_table.csv` - Crafting recipes
-- `dance_pad_polisher.csv` - Special items
-- `aniipod_maker.csv` - Aniipod production
+- `phonolfactory_table.csv` - Incense, soap, perfume
+- `bouncy_brew_keg.csv` - Drinks and sauces
+- `claw_game_cooker.csv` - Candy and prepared food
+- `joy_wheel_loom.csv` - Fabric and thread
 
 ### Adding New Items
 
@@ -543,22 +580,23 @@ To add new production items, edit the appropriate CSV file. The format varies by
 
 ```
 src/
-  lib.rs          - Library root with module exports
-  main.rs         - CLI entry point
-  models.rs       - Data structures
-  data.rs         - CSV loading functions
-  optimizer.rs    - Optimization algorithms
-  display.rs      - Output formatting
-  wasm.rs         - WebAssembly bindings
+  lib.rs             - Library root with module exports
+  main.rs            - CLI entry point
+  models.rs          - Data structures
+  data.rs            - CSV loading functions
+  optimizer.rs       - Optimization algorithms (both the web app's LP solve and the CLI's greedy path)
+  display.rs         - CLI output formatting
+  wasm.rs            - WebAssembly bindings
 data/
-  *.csv           - Production data files
+  *.csv              - Production data files
 web/
-  index.html      - Web app entry point
-  style.css      - Styling
-  app.js          - JavaScript application
-  pkg/            - Built WASM module (generated)
+  index.html         - Optimizer page (facility plan, goal timing, math/help/facilities modals)
+  facility-config.js - Shared facility list/categories
+  app.js             - Page logic, including the facility recipe reference modal
+  style.css          - Styling
+  pkg/               - Built WASM module (generated)
 tests/
-  *.rs            - Integration tests
+  *.rs               - Integration tests
 ```
 
 ## Contributing
@@ -594,7 +632,7 @@ The easiest way to contribute is by adding missing items or correcting existing 
 
 ```bash
 # Clone your fork
-git clone https://github.com/ae-bii/aniimax.git
+git clone https://github.com/<your-username>/aniimax.git
 cd aniimax
 
 # Build and test

@@ -1,0 +1,4 @@
+name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
+pearl, coins, 441, 2700, 2, , 1, , Cool
+quick_pearl, coins, 441, 2700, 3, , 1, , Cool
+love_bubble, coins, 441, 2700, 2, , 1, , Freeze

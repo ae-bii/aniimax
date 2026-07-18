@@ -1,0 +1,3 @@
+name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
+scales, coins, 28, 2250, 12, , 1, ,
+quick_scales, coins, 28, 2250, 18, , 1, mineral_detector:2, Adequate

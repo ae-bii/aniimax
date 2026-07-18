@@ -1,4 +1,22 @@
-name, raw_materials, required_amount, sell_value, production_time, facility_level, module_requirement
-wood_sculpture, willow, 5, 345, 108, 1,
-advanced_wood_sculpture, willow, 5, 431, 108, 1, crafting_module:1
-bamboo_ware, bamboo, 8, 1792, 84, 2, 
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+shell_ornament, shell, 12, 177, coins, 18, 1,
+wood_sculpture, willow, 12, 141, coins, 18, 1,
+premium_wood_sculpture, willow, 12, 42, bud_tickets, 18, 1, crafting_module:1
+bamboo_ware, bamboo, 4, 344, coins, 23, 2,
+wind_chime, cotton_thread;shell, 1;12, 585, coins, 45, 2,
+pottery, clay;scales, 10;12, 916, coins, 45, 2,
+advanced_wind_chime, cotton_thread;shell, 1;12, 176, bud_tickets, 45, 2, crafting_module:2
+pearl_necklace, pearl, 2, 1197, coins, 27, 3,
+bubble_bracelet, love_bubble, 2, 1197, coins, 27, 3,
+porcelain, clay;quartz, 10;4, 1854, coins, 54, 3,
+woven_toy, palm_rope;bamboo, 1;4, 1633, coins, 54, 3,
+bracelet, cotton_thread;palm_rope, 1;1, 1622, coins, 54, 3,
+dye, lavender;rose, 5;6, 2523, coins, 54, 3,
+premium_woven_toy, palm_rope;bamboo, 1;4, 490, bud_tickets, 54, 3, crafting_module:3
+dream_catcher, cotton_thread;dried_flowers;rubber, 1;1;2, 6306, coins, 108, 4,
+gemstone_dust, gem, 2, 1938, coins, 27, 4,
+advanced_dream_catcher, cotton_thread;dried_flowers;rubber, 1;1;2, 1892, bud_tickets, 108, 4, crafting_module:4
+flowers_in_a_bottle, porcelain;dried_flowers;rose_freshener, 1;1;1, 11834, coins, 162, 5,
+bouquet, cotton_fabric;dried_flowers, 1;1, 5721, coins, 81, 5,
+starwish_lantern, star;gemstone_dust;scales, 2;1;12, 5295, coins, 81, 5,
+doll, wool_fabric;dye;cotton, 1;1;6, 6758, coins, 108, 5,

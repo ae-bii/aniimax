@@ -1,13 +1,11 @@
-name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement
-potato_chips, potatoes, 2, 44, 108, 910, 1,
-dried_strawberry, strawberry, 3, 437, 156, 1560, 2,
-dried_bean_curd, tofu, 1, 1117, 156, 2030, 2,
-premium_dried_strawberry, strawberry, 3, 546, 156, 23540, 2, kitchen_module:3
-dried_lemon_slices, lemon, 6, 2016, 224, 2270, 3,
-dried_flowers, lavender;rose, 3;3, 1971, 480, , 3,
-shredded_coconut, coconut, 4, 1458, 480, 2220, 3,
-nuts, walnut;chestnut, 3;3, 3312, 480, , 4,
-herbs, ginseng, 2, 3570, 480, 56970, 4,
-high_grade_herbs, ginseng, 2, 4463, 960, 56970, 4, kitchen_module:4
-dried_grapes, grape, 8, 2652, 288, 3225, 4,
-caramel_nut_chips, nuts;maple_syrup, 1;1, 5943, 480, 4080, 4,
+name, raw_materials, required_amount, sell_value, sell_currency, workload, energy, facility_level, module_requirement
+potato_chips, potatoes, 30, 195, coins, 18, 13710, 1,
+dried_strawberry, strawberry, 5, 480, coins, 23, 12520, 2,
+dried_lemon_slices, lemon, 5, 345, coins, 23, 12520, 2,
+dried_bean_curd, tofu, 1, 870, coins, 27, 13800, 3,
+dried_flowers, lavender;rose, 5;6, 2523, coins, 54, , 3,
+shredded_coconut, coconut, 5, 900, coins, 27, 13800, 3,
+nuts, walnut;chestnut, 3;6, 2778, coins, 54, 30090, 4,
+herbs, ginseng, 2, 2040, coins, 27, 15040, 4,
+dried_grapes, grape, 5, 2040, coins, 27, 15040, 4,
+caramel_nut_chips, nuts;maple_syrup, 1;6, 4896, coins, 81, 45130, 4,

@@ -1,0 +1,20 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, energy, facility_level, module_requirement
+malt_sugar, wheat, 75, 150, coins, 23, 12600, 1,
+rock_candy, sugarcane, 15, 210, coins, 23, 12600, 1,
+sugar_roasted_chestnuts, chestnut, 6, 303, coins, 23, , 1,
+flower_bread, wheatmeal;petals, 3;6, 540, coins, 45, , 1,
+advanced_flower_bread, wheatmeal;petals, 3;6, 162, bud_tickets, 45, , 1, kitchen_module:2
+strawberry_candy, malt_sugar;strawberry, 1;5, 900, coins, 45, 25920, 2,
+tanghulu, rock_candy;strawberry, 1;5, 960, coins, 45, 25920, 2,
+maple_candy, maple_syrup, 6, 783, coins, 23, 12960, 2,
+maple_candy_star, maple_syrup;star, 1;2, 1719, coins, 45, 25920, 2,
+strawberry_cream_puff, coconut_oil;dried_strawberry, 1;1, 1650, coins, 45, 25920, 2,
+tofu_cake, tofu;rock_candy, 1;1, 1155, coins, 45, 25920, 2,
+soy_sauce_tofu, soy_sauce;tofu, 1;1, 1425, coins, 45, 25920, 2,
+soy_sauce_fried_rice, soy_sauce;rice_processed, 1;1, 1095, coins, 45, 25920, 2,
+creamy_potato_bisque, wheat_tea;potatoes, 1;30, 735, coins, 45, 25920, 2,
+advanced_soy_sauce_tofu, soy_sauce;tofu, 1;1, 428, bud_tickets, 45, , 2, kitchen_module:3
+coconut_cookie, wheatmeal;shredded_coconut, 3;1, 2100, coins, 54, 30090, 3,
+grape_candy, malt_sugar;grape, 1;5, 2700, coins, 54, 30090, 3,
+jello, grape;wheatmeal;shredded_coconut, 5;3;1, 4140, coins, 81, 45130, 3,
+pumpkin_rice_cake, pumpkin;rice_processed, 1;1, 2775, coins, 54, , 3,

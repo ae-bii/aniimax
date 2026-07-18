@@ -92,7 +92,9 @@ pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             energy: row.energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
-            requires_fertilizer: row.facility_level >= 4, // Farmland level 4+ requires fertilizer
+            workload: None,
+            byproduct: None,
+            environment: row.environment,
         });
     }
     Ok(items)
@@ -141,7 +143,11 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
-            requires_fertilizer: row.facility_level >= 3, // Woodland level 3+ requires fertilizer
+            workload: None,
+            byproduct: row
+                .byproduct_yield
+                .map(|amt| ("Wood Blocks".to_string(), amt)),
+            environment: row.environment,
         });
     }
     Ok(items)
@@ -160,8 +166,19 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, sell_currency, sell_value, production_time, yield, facility_level, module_requirement`
-pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+/// Expected columns: `name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement`
+///
+/// `workload` is converted into an estimated production time via
+/// [`crate::models::WORKLOAD_RATE_ESTIMATE`]; see that constant's docs for the
+/// (currently single-data-point) calibration this is based on.
+///
+/// Shared by any "raw material, no cost, Aniimo-family/workload-driven" facility; currently
+/// Mineral Pile and Grass Blossom Mat, since both follow the same CSV shape.
+pub fn load_workload_raw_material(
+    path: &Path,
+    facility_name: &str,
+    byproduct_name: &str,
+) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut rdr = ReaderBuilder::new()
         .trim(csv::Trim::All)
@@ -172,21 +189,64 @@ pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
         let row: MineralRow = result?;
         items.push(ProductionItem {
             name: row.name,
-            facility: "Mineral Pile".to_string(),
+            facility: facility_name.to_string(),
             raw_materials: None,
             required_amount: None,
             cost: None,
             sell_currency: row.sell_currency,
             sell_value: row.sell_value,
-            production_time: row.production_time,
+            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
-            requires_fertilizer: false,
+            workload: Some(row.workload),
+            byproduct: row
+                .byproduct_yield
+                .map(|amt| (byproduct_name.to_string(), amt)),
+            environment: row.environment,
         });
     }
     Ok(items)
+}
+
+/// Loads Mineral Pile data (thin wrapper over [`load_workload_raw_material`]).
+pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    load_workload_raw_material(path, "Mineral Pile", "Mineral Sand")
+}
+
+/// Loads Grass Blossom Mat data (thin wrapper over [`load_workload_raw_material`]).
+///
+/// Facility level and byproduct are not yet confirmed for this facility. `byproduct_name` is a
+/// placeholder ("Mineral Sand") that will only take effect if `byproduct_yield` is ever
+/// populated in the CSV.
+pub fn load_grass_blossom_mat(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    load_workload_raw_material(path, "Grass Blossom Mat", "Mineral Sand")
+}
+
+/// Loads Tidewhisper Sandcastle data (thin wrapper over [`load_workload_raw_material`]).
+///
+/// Facility level guessed as 1 (unconfirmed). Every item here requires a growing environment
+/// (pearl/quick_pearl: Cool, love_bubble: Freeze); tracked via `environment` and capacity-gated
+/// by owned environment buildings, see `crate::coverage`.
+pub fn load_tidewhisper_sandcastle(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    load_workload_raw_material(path, "Tidewhisper Sandcastle", "Mineral Sand")
+}
+
+/// Loads Starfall Hammock data (thin wrapper over [`load_workload_raw_material`]).
+///
+/// Facility level guessed as 1 (unconfirmed). Requires a "Cool" growing environment; tracked via
+/// `environment` and capacity-gated by owned environment buildings, see `crate::coverage`.
+pub fn load_starfall_hammock(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    load_workload_raw_material(path, "Starfall Hammock", "Mineral Sand")
+}
+
+/// Loads Dewy House data (thin wrapper over [`load_workload_raw_material`]).
+///
+/// Facility level guessed as 1 (unconfirmed). Requires a "Warm" growing environment; tracked via
+/// `environment` and capacity-gated by owned environment buildings, see `crate::coverage`.
+pub fn load_dewy_house(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    load_workload_raw_material(path, "Dewy House", "Mineral Sand")
 }
 
 /// Loads processing facility data that includes energy tracking.
@@ -203,7 +263,7 @@ pub fn load_mineral_pile(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, energy, facility_level, module_requirement`
+/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time OR workload, energy, facility_level, module_requirement`
 pub fn load_processing_with_energy(
     path: &Path,
     facility_name: &str,
@@ -218,20 +278,27 @@ pub fn load_processing_with_energy(
         let row: ProcessingRowWithEnergy = result?;
         let raw_mats = parse_raw_materials(&row.raw_materials);
         let req_amounts = parse_required_amounts(&row.required_amount);
+        let production_time = row
+            .workload
+            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
+            .or(row.production_time)
+            .expect("row must have either workload or production_time");
         items.push(ProductionItem {
             name: row.name,
             facility: facility_name.to_string(),
             raw_materials: Some(raw_mats),
             required_amount: Some(req_amounts),
             cost: None,
-            sell_currency: "coins".to_string(),
+            sell_currency: row.sell_currency.unwrap_or_else(|| "coins".to_string()),
             sell_value: row.sell_value,
-            production_time: row.production_time,
+            production_time,
             yield_amount: 1,
             energy: row.energy,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
-            requires_fertilizer: false,
+            workload: row.workload,
+            byproduct: None,
+            environment: None,
         });
     }
     Ok(items)
@@ -251,7 +318,7 @@ pub fn load_processing_with_energy(
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, raw_materials, required_amount, sell_value, production_time, facility_level, module_requirement`
+/// Expected columns: `name, raw_materials, required_amount, sell_value, sell_currency (optional, default coins), production_time OR workload, facility_level, module_requirement`
 pub fn load_processing_no_energy(
     path: &Path,
     facility_name: &str,
@@ -266,20 +333,27 @@ pub fn load_processing_no_energy(
         let row: ProcessingRowNoEnergy = result?;
         let raw_mats = parse_raw_materials(&row.raw_materials);
         let req_amounts = parse_required_amounts(&row.required_amount);
+        let production_time = row
+            .workload
+            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
+            .or(row.production_time)
+            .expect("row must have either workload or production_time");
         items.push(ProductionItem {
             name: row.name,
             facility: facility_name.to_string(),
             raw_materials: Some(raw_mats),
             required_amount: Some(req_amounts),
             cost: None,
-            sell_currency: "coins".to_string(),
+            sell_currency: row.sell_currency.unwrap_or_else(|| "coins".to_string()),
             sell_value: row.sell_value,
-            production_time: row.production_time,
+            production_time,
             yield_amount: 1,
             energy: None,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
-            requires_fertilizer: false,
+            workload: row.workload,
+            byproduct: None,
+            environment: None,
         });
     }
     Ok(items)
@@ -298,7 +372,10 @@ pub fn load_processing_no_energy(
 ///
 /// # CSV Format
 ///
-/// Expected columns: `name, sell_value, production_time, yield`
+/// Expected columns: `name, sell_value, workload, yield`
+///
+/// `workload` is converted into an estimated production time via
+/// [`crate::models::WORKLOAD_RATE_ESTIMATE`].
 pub fn load_nimbus_bed(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
     let file = File::open(path)?;
     let mut rdr = ReaderBuilder::new()
@@ -316,12 +393,14 @@ pub fn load_nimbus_bed(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error
             cost: None,
             sell_currency: "coins".to_string(),
             sell_value: row.sell_value,
-            production_time: row.production_time,
+            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: 1,
             module_requirement: None,
-            requires_fertilizer: false,
+            workload: Some(row.workload),
+            byproduct: None,
+            environment: None,
         });
     }
     Ok(items)
@@ -330,8 +409,13 @@ pub fn load_nimbus_bed(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error
 /// Loads all production data from the data directory.
 ///
 /// This function loads data from all facility types:
-/// - Raw materials: Farmland, Woodland, Mineral Pile, Nimbus Bed
-/// - Processing: Carousel Mill, Jukebox Dryer, Crafting Table, Dance Pad Polisher, Aniipod Maker
+/// - Raw materials: Farmland, Woodland, Mineral Pile, Nimbus Bed, Grass Blossom Mat,
+///   Tidewhisper Sandcastle, Starfall Hammock, Dewy House
+/// - Processing: Carousel Mill, Jukebox Dryer, Claw Game Cooker, Crafting Table,
+///   Phonolfactory Table, Bouncy Brew Keg, Joy Wheel Loom
+///
+/// (Dance Pad Polisher and Aniipod Maker are excluded: they don't produce coins/Bud Tickets, so
+/// they're out of scope for this optimizer.)
 ///
 /// # Arguments
 ///
@@ -359,6 +443,16 @@ pub fn load_all_data(data_dir: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
     all_items.extend(load_woodland(&data_dir.join("woodland.csv"))?);
     all_items.extend(load_mineral_pile(&data_dir.join("mineral_pile.csv"))?);
     all_items.extend(load_nimbus_bed(&data_dir.join("nimbus_bed.csv"))?);
+    all_items.extend(load_grass_blossom_mat(
+        &data_dir.join("grass_blossom_mat.csv"),
+    )?);
+    all_items.extend(load_tidewhisper_sandcastle(
+        &data_dir.join("tidewhisper_sandcastle.csv"),
+    )?);
+    all_items.extend(load_starfall_hammock(
+        &data_dir.join("starfall_hammock.csv"),
+    )?);
+    all_items.extend(load_dewy_house(&data_dir.join("dewy_house.csv"))?);
 
     // Load processing facilities
     all_items.extend(load_processing_with_energy(
@@ -369,17 +463,25 @@ pub fn load_all_data(data_dir: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
         &data_dir.join("jukebox_dryer.csv"),
         "Jukebox Dryer",
     )?);
+    all_items.extend(load_processing_with_energy(
+        &data_dir.join("claw_game_cooker.csv"),
+        "Claw Game Cooker",
+    )?);
     all_items.extend(load_processing_no_energy(
         &data_dir.join("crafting_table.csv"),
         "Crafting Table",
     )?);
     all_items.extend(load_processing_no_energy(
-        &data_dir.join("dance_pad_polisher.csv"),
-        "Dance Pad Polisher",
+        &data_dir.join("phonolfactory_table.csv"),
+        "Phonolfactory Table",
     )?);
     all_items.extend(load_processing_no_energy(
-        &data_dir.join("aniipod_maker.csv"),
-        "Aniipod Maker",
+        &data_dir.join("bouncy_brew_keg.csv"),
+        "Bouncy Brew Keg",
+    )?);
+    all_items.extend(load_processing_no_energy(
+        &data_dir.join("joy_wheel_loom.csv"),
+        "Joy Wheel Loom",
     )?);
 
     Ok(all_items)

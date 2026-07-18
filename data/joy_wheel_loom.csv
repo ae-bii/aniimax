@@ -1,0 +1,7 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+cotton_thread, cotton, 6, 213, coins, 23, 1,
+woolen_yarn, wool, 4, 287, coins, 23, 1,
+palm_rope, palm, 4, 779, coins, 23, 2,
+cotton_fabric, cotton_thread, 1, 723, coins, 27, 3,
+wool_fabric, woolen_yarn, 1, 797, coins, 27, 3,
+palm_fabric, palm_rope, 1, 1604, coins, 27, 4,

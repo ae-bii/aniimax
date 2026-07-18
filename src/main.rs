@@ -23,7 +23,7 @@ struct Args {
     #[arg(short, long)]
     target: f64,
 
-    /// Currency type to optimize for (coins or coupons)
+    /// Currency type to optimize for (coins or bud_tickets)
     #[arg(short, long, default_value = "coins")]
     currency: String,
 
@@ -93,26 +93,8 @@ struct Args {
     #[arg(long, default_value = "1")]
     crafting_table_level: u32,
 
-    // ========== Dance Pad Polisher ==========
-    /// Number of Dance Pad Polisher machines available
-    #[arg(long, default_value = "1")]
-    dance_pad_polisher: u32,
-
-    /// Dance Pad Polisher facility level
-    #[arg(long, default_value = "1")]
-    dance_pad_polisher_level: u32,
-
-    // ========== Aniipod Maker ==========
-    /// Number of Aniipod Maker machines available
-    #[arg(long, default_value = "1")]
-    aniipod_maker: u32,
-
-    /// Aniipod Maker facility level
-    #[arg(long, default_value = "1")]
-    aniipod_maker_level: u32,
-
     // ========== Nimbus Bed ==========
-    /// Number of Nimbus Bed slots available (produces fertilizer for level 4+ Farmland and level 3+ Woodland)
+    /// Number of Nimbus Bed slots available (produces Wool and Petals)
     #[arg(long, default_value = "0")]
     nimbus_bed: u32,
 
@@ -149,17 +131,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Build facility counts from args (count, level) tuples
-    let facility_counts = FacilityCounts {
-        farmland: (args.farmland, args.farmland_level),
-        woodland: (args.woodland, args.woodland_level),
-        mineral_pile: (args.mineral_pile, args.mineral_pile_level),
-        carousel_mill: (args.carousel_mill, args.carousel_mill_level),
-        jukebox_dryer: (args.jukebox_dryer, args.jukebox_dryer_level),
-        crafting_table: (args.crafting_table, args.crafting_table_level),
-        dance_pad_polisher: (args.dance_pad_polisher, args.dance_pad_polisher_level),
-        aniipod_maker: (args.aniipod_maker, args.aniipod_maker_level),
-        nimbus_bed: (args.nimbus_bed, args.nimbus_bed_level),
-    };
+    let facility_counts = FacilityCounts::from_pairs(&[
+        ("Farmland", args.farmland, args.farmland_level),
+        ("Woodland", args.woodland, args.woodland_level),
+        ("Mineral Pile", args.mineral_pile, args.mineral_pile_level),
+        ("Carousel Mill", args.carousel_mill, args.carousel_mill_level),
+        ("Jukebox Dryer", args.jukebox_dryer, args.jukebox_dryer_level),
+        ("Crafting Table", args.crafting_table, args.crafting_table_level),
+        ("Nimbus Bed", args.nimbus_bed, args.nimbus_bed_level),
+    ]);
 
     // Build module levels from args
     let module_levels = ModuleLevels {
@@ -194,8 +174,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  Carousel Mill:      {} x Lv.{}", args.carousel_mill, args.carousel_mill_level);
     println!("  Jukebox Dryer:      {} x Lv.{}", args.jukebox_dryer, args.jukebox_dryer_level);
     println!("  Crafting Table:     {} x Lv.{}", args.crafting_table, args.crafting_table_level);
-    println!("  Dance Pad Polisher: {} x Lv.{}", args.dance_pad_polisher, args.dance_pad_polisher_level);
-    println!("  Aniipod Maker:      {} x Lv.{}", args.aniipod_maker, args.aniipod_maker_level);
     println!("  Nimbus Bed:         {} x Lv.{}", args.nimbus_bed, args.nimbus_bed_level);
 
     println!();

@@ -1,0 +1,11 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+soy_sauce, soybean, 8, 480, coins, 23, 1,
+sweet_rice_drink, rice_processed, 1, 345, coins, 23, 1,
+strawberry_jam, strawberry, 5, 480, coins, 23, 1,
+wheat_tea, wheat, 75, 195, coins, 23, 1,
+tequila_highball, agave, 4, 1259, coins, 27, 2,
+fermented_rice_drink, sweet_rice_drink, 1, 660, coins, 27, 2,
+potato_kvass, rock_candy;potatoes, 1;30, 990, coins, 54, 2,
+advanced_potato_kvass, rock_candy;potatoes, 1;30, 297, bud_tickets, 54, 2, kitchen_module:4
+grape_juice, grape;wheat_tea, 5;1, 3375, coins, 54, 3,
+tequila_soda, grape_candy;tequila_highball, 1;1, 6434, coins, 81, 3,

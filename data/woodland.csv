@@ -1,15 +1,13 @@
-name, cost, sell_currency, sell_value, production_time, yield, energy, facility_level, module_requirement
-chestnut, 16, coins, 90, 2700, 4, 10560, 1,
-willow, 1, coupons, 53, 1350, 3, NULL, 1,
-high_speed_willow, 1, coupons, 53, 1350, 5, NULL, 1, ecological_module:2
-palm, 36, coins, 180, 4950, 4, NULL, 2,
-bamboo, 40, coupons, 160, 5400, 5, NULL, 2,
-high_speed_bamboo, 40, coupons, 160, 5400, 9, NULL, 2, ecological_module:3
-rubber, 42, coupons, 213, 5850, 4, NULL, 2,
-high_speed_rubber, 42, coupons, 213, 5850, 7, NULL, 2, ecological_module:4
-lemon, 56, coins, 224, 6300, 5, 17270, 3,
-coconut, 72, coins, 243, 8100, 6, 17960, 3,
-maple_syrup, 65, coins, 650, 7200, 2, 32060, 3,
-walnut, 96, coins, 646, 9000, 3, 28790, 4,
-pine, 229, coupons, 4590, 21600, 1, , 4,
-high_speed_pine, 229, coupons, 4590, 21600, 2, , 4, ecological_module:5
+name, cost, sell_currency, sell_value, production_time, yield, byproduct_yield, energy, facility_level, module_requirement, environment
+willow, 1, coins, 8, 375, 2, 1, , 1, ,
+chestnut, 8, coins, 38, 1125, 3, 8, 1750, 2, ,
+bamboo, 15, coins, 56, 2250, 4, 15, , 2, ,
+lemon, 15, coins, 45, 2250, 5, 15, 2100, 2, ,
+quick_lemon, 15, coins, 45, 2250, 8, 15, 2100, 2, ecological_module:2,
+palm, 39, coins, 146, 2250, 4, 39, , 3, , Warm
+coconut, 39, coins, 117, 2250, 5, 39, 2160, 3, , Warm
+maple_syrup, 39, coins, 98, 2250, 6, 39, 1800, 3, , Warm
+quick_coconut, 39, coins, 117, 2250, 8, 39, 2160, 3, ecological_module:3, Scorching
+rubber, 102, coins, 765, 2250, 2, 102, , 4, , Scorching
+walnut, 102, coins, 510, 2250, 3, 102, 4180, 4, , Cool
+pine, 102, coins, 1530, 2250, 1, 102, , 4, , Adequate

@@ -1,19 +1,17 @@
-//! Tests for data models and structures.
+﻿//! Tests for data models and structures.
 
 use aniimax::models::{FacilityCounts, ProductionItem};
 
 fn default_facility_counts() -> FacilityCounts {
-    FacilityCounts {
-        farmland: (4, 3),
-        woodland: (2, 2),
-        mineral_pile: (1, 1),
-        carousel_mill: (2, 2),
-        jukebox_dryer: (1, 1),
-        crafting_table: (1, 1),
-        dance_pad_polisher: (1, 1),
-        aniipod_maker: (1, 1),
-        nimbus_bed: (1, 1),
-    }
+    FacilityCounts::from_pairs(&[
+        ("Farmland", 4, 3),
+        ("Woodland", 2, 2),
+        ("Mineral Pile", 1, 1),
+        ("Carousel Mill", 2, 2),
+        ("Jukebox Dryer", 1, 1),
+        ("Crafting Table", 1, 1),
+        ("Nimbus Bed", 1, 1),
+    ])
 }
 
 #[test]
@@ -58,6 +56,54 @@ fn test_facility_counts_can_produce() {
 }
 
 #[test]
+fn test_facility_counts_add_tier_sums_count_and_takes_max_level() {
+    let mut counts = FacilityCounts::new();
+    counts.add_tier("Farmland", 5, 3);
+    counts.add_tier("Farmland", 4, 5);
+
+    assert_eq!(counts.get_count("Farmland"), 9, "get_count should sum every tier regardless of level");
+    assert_eq!(counts.get_level("Farmland"), 5, "get_level should report the highest owned tier");
+}
+
+#[test]
+fn test_facility_counts_capacity_at_level_respects_tiers() {
+    let mut counts = FacilityCounts::new();
+    counts.add_tier("Farmland", 5, 3);
+    counts.add_tier("Farmland", 4, 5);
+
+    // A higher-level tier can always run a lower-level recipe too, so every level <= 3 sees the
+    // full 9; level 4-5 recipes can only use the 4 units actually upgraded that far.
+    assert_eq!(counts.capacity_at_level("Farmland", 1), 9);
+    assert_eq!(counts.capacity_at_level("Farmland", 3), 9);
+    assert_eq!(counts.capacity_at_level("Farmland", 4), 4);
+    assert_eq!(counts.capacity_at_level("Farmland", 5), 4);
+    assert_eq!(counts.capacity_at_level("Farmland", 6), 0);
+
+    assert!(counts.can_produce("Farmland", 5));
+    assert!(!counts.can_produce("Farmland", 6));
+}
+
+#[test]
+fn test_facility_counts_set_replaces_tiers_while_add_tier_accumulates() {
+    let mut counts = FacilityCounts::new();
+    counts.add_tier("Farmland", 5, 3);
+    counts.set("Farmland", 2, 4); // replaces the tier(s) set above, not additive
+
+    assert_eq!(counts.get_count("Farmland"), 2);
+    assert_eq!(counts.get_level("Farmland"), 4);
+    assert_eq!(counts.tiers("Farmland"), vec![(2, 4)]);
+}
+
+#[test]
+fn test_facility_counts_set_tiers_replaces_wholesale() {
+    let mut counts = FacilityCounts::new();
+    counts.set_tiers("Farmland", vec![(5, 3), (4, 5)]);
+
+    assert_eq!(counts.get_count("Farmland"), 9);
+    assert_eq!(counts.tiers("Farmland"), vec![(5, 3), (4, 5)]);
+}
+
+#[test]
 fn test_production_item_creation() {
     let item = ProductionItem {
         name: "wheat".to_string(),
@@ -72,7 +118,9 @@ fn test_production_item_creation() {
         energy: Some(809.0),
         facility_level: 1,
         module_requirement: None,
-        requires_fertilizer: false,
+        workload: None,
+        byproduct: None,
+        environment: None,
     };
 
     assert_eq!(item.name, "wheat");
@@ -97,7 +145,9 @@ fn test_processed_item_creation() {
         energy: Some(3000.0),
         facility_level: 1,
         module_requirement: None,
-        requires_fertilizer: false,
+        workload: None,
+        byproduct: None,
+        environment: None,
     };
 
     assert_eq!(item.name, "wheatmeal");

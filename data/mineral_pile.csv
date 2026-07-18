@@ -1,11 +1,7 @@
-name, sell_currency, sell_value, production_time, yield, facility_level, module_requirement
-rock, coupons, 8, 120, 4, 1,
-high_speed_rock, coupons, 8, 120, 6, 1, mineral_detector:1
-copper, coupons, 14, 240, 5, 2,
-high_speed_copper, coupons, 14, 120, 7, 2, mineral_detector:2
-iron, coupons, 51, 600, 5, 3,
-high_speed_iron, coupons, 51, 120, 7, 3, mineral_detector:3
-quartz, coupons, 260, 900, 2, 4,
-high_speed_quartz, coupons, 260, 240, 3, 4, mineral_detector:4
-gem, coins, 1632, 2700, 1, 5,
-high_speed_gem, coins, 1632, 600, 2, 5, mineral_detector:5
+name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
+shell, coins, 11, 300, 2, 2, 1, ,
+quick_shell, coins, 11, 300, 3, 3, 1, mineral_detector:1,
+clay, coins, 34, 2250, 10, 24, 2, ,
+quartz, coins, 221, 2700, 4, 63, 3, ,
+quick_quartz, coins, 221, 2700, 6, 63, 3, mineral_detector:3,
+gem, coins, 714, 2700, 2, 102, 4, ,

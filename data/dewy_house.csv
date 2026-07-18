@@ -1,0 +1,2 @@
+name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
+aromathyst, coins, 357, 2700, 4, , 1, , Warm
