@@ -127,6 +127,17 @@
                     </div>
                 </div>
 
+                <details class="explain skip-recipes" id="skip-recipes">
+                    <summary>Recipes to skip<span class="skip-count" id="skip-count"></span></summary>
+                    <p class="hint small">Plans won't use these, e.g. recipes behind unlocks you don't have yet. You can also skip one straight from a plan with its ✕.</p>
+                    <div class="skip-add">
+                        <input type="text" id="skip-input" list="skip-options" placeholder="Search recipes" autocomplete="off" aria-label="Recipe to skip">
+                        <button type="button" id="skip-add-btn" class="skip-add-btn">Skip</button>
+                    </div>
+                    <datalist id="skip-options"></datalist>
+                    <div class="skip-chips" id="skip-chips"></div>
+                </details>
+
                 <button id="optimize-btn" class="optimize-btn">
                     <span class="btn-text">Find the best plan</span>
                     <span class="btn-loading" style="display: none;">Solving...</span>
@@ -183,6 +194,7 @@
                         </div>
                         <p class="plan-proof" id="plan-explored-hint"></p>
                         <p class="plan-unverified" id="plan-unverified" style="display: none;"></p>
+                        <p class="plan-skipped" id="plan-skipped" style="display: none;"></p>
                     </div>
 
                     <div class="card production-steps" id="profit-card" style="display: none;">
@@ -312,7 +324,7 @@
                     <li><strong>What you own.</strong> For every facility and level \(L\), the units on recipes needing level \(L\) or higher add up to at most what you own at that level. A higher-level plot can run a lower-level recipe.</li>
                     <li><strong>Growing environments.</strong> Plots of a crop needing Cool, Warm, Freeze, Scorching or Adequate must be covered by a Heat Furnace, Cooling Unit or Sunlamp set to that mode (see below).</li>
                 </ul>
-                <p>HiGHS either proves the plan is the best possible, which the results say, or stops after 30 seconds and reports how far from the best it could be. Every plan is then re-checked on its own before it's shown.</p>
+                <p>HiGHS proves the plan is the best possible. On the rare setup where that takes longer than 30 seconds, it stops with the best plan so far and the results say how far from the best it could be. Every plan is then re-checked on its own before it's shown.</p>
 
                 <h3>Time per batch</h3>
                 <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo working it: 108 workload takes 108s at ability level 1, 36s at level 2 and 27s at level 3. The facility's personality makes it 20% faster.</p>
@@ -352,6 +364,7 @@
             <div class="modal-body">
                 <h3>1. Tell it what you've built</h3>
                 <p><strong>Simple</strong>: pick your RV level, and the calculator assumes you've built and upgraded everything that level allows. <strong>Advanced</strong>: set the count and level of every facility and upgrade module yourself. "Customize in Advanced" copies the Simple setup over as a starting point.</p>
+                <p>Under <strong>Recipes to skip</strong>, add anything you can't make yet, such as recipes behind unlocks you don't have. Plans won't use them. The ✕ next to a product in a plan skips it and plans again.</p>
 
                 <h3>2. Pick a strategy</h3>
                 <p><strong>Level up</strong> gets everything your next RV level costs as soon as possible: its coins, a Woodworking Bench item and a Chimney Kiln item. Under "What you already have", enter what you've got; Wood Blocks, Mineral Sand and lower tiers count too, since the Bench and Kiln process them up. The plan still earns as many coins as it can on the way. Level-up costs are known from RV 7 on. In Advanced you can pick which RV level to plan for.</p>
@@ -367,7 +380,7 @@
                 <ul>
                     <li><strong>Aniimo team</strong>: which Aniimo to keep on your homeland, for the fastest setup (Best) or the least you can get by with (Minimum). Open it for the full list.</li>
                     <li><strong>Level-up</strong>: how soon you'll have everything the level-up costs, and how fast each cost comes in. The slowest one is in bold. Surplus is what's left over when it's ready, such as extra coins or ore.</li>
-                    <li><strong>Your rate</strong>: coins per second, hour or day. "Proven best plan" means no other plan does better, for the game data we have.</li>
+                    <li><strong>Your rate</strong>: coins per second, hour or day.</li>
                     <li><strong>Profit by product</strong>: with Level up, what each product earns per hour and by the time the level-up is ready.</li>
                     <li><strong>What each facility should do</strong>: what to set each facility to, all running at once. Recipes tagged "unverified" haven't been checked in game yet.</li>
                     <li><strong>Set a goal</strong>: with Most coins, how long a target amount takes and what gets made along the way.</li>

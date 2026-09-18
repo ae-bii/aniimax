@@ -1339,19 +1339,6 @@ footer {
     color: var(--text-muted);
 }
 
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.2rem 0.7rem;
-    margin-right: 0.5rem;
-    border-radius: 999px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    background: color-mix(in srgb, var(--success) 16%, transparent);
-    color: var(--success);
-}
-
 .plan-unverified {
     margin: 0.6rem 0 0;
     font-size: 0.8rem;
@@ -1911,4 +1898,113 @@ details.explain p {
 .recipe-table td:nth-child(5),
 .recipe-table td:nth-child(6) {
     white-space: nowrap;
+}
+
+/* Recipes to skip */
+.skip-recipes {
+    margin: 0 0 1.25rem;
+}
+
+.skip-count {
+    color: var(--text-muted);
+}
+
+.skip-add {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+    max-width: 28rem;
+}
+
+.skip-add input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.7rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+}
+
+.skip-add input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.skip-add-btn {
+    padding: 0.5rem 1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.skip-add-btn:hover {
+    border-color: var(--accent);
+}
+
+.skip-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+.skip-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.3rem 0.25rem 0.65rem;
+    background: var(--surface-2);
+    border-radius: 999px;
+    font-size: 0.82rem;
+}
+
+.skip-chip-facility {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.skip-chip button,
+.skip-row {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.skip-chip button:hover,
+.skip-row:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+.skip-row {
+    margin-left: 0.3rem;
+    vertical-align: middle;
+    opacity: 0.55;
+}
+
+tr:hover .skip-row,
+.skip-row:focus-visible {
+    opacity: 1;
+}
+
+.plan-skipped {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
 }

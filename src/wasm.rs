@@ -699,6 +699,9 @@ pub struct JsPlanInput {
     /// planner then finds the soonest level-up, earning as much as it leaves room for.
     #[serde(default)]
     pub level_up: Option<crate::exact::LevelUp>,
+    /// Recipes the plan may not use, for comparing against a plan someone suggests. Not on the page.
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 impl JsPlanInput {
@@ -1398,6 +1401,7 @@ impl PreparedInput {
             crafting_module: input.modules.crafting_module,
         };
         let mut items = get_embedded_items();
+        items.retain(|item| !input.exclude.contains(&item.name));
         let setup = input.aniimo.as_deref().and_then(aniimo_setup_from);
         let requirements = embedded_aniimo_requirements();
         match setup {
