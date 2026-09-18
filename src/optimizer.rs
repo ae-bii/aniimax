@@ -709,10 +709,10 @@ fn calculate_item_requirements(
 }
 
 /// Maps a byproduct-target pseudo-currency name to the resource it names, or `None` if `target`
-/// is an ordinary sellable currency (`"coins"`/`"bud_tickets"`). Wood Blocks/Mineral Sand only
+/// is an ordinary sellable currency (`"coins"`). Wood Blocks/Mineral Sand only
 /// ever come as a side effect of growing/mining (`ProductionItem::byproduct`), never as something
 /// directly sold, so they don't correspond to any `item.sell_currency`; targeting one means
-/// "maximize how much of this resource Woodland/Mineral Pile produces," not "maximize profit."
+/// "maximize how much of this resource Woodland/Mine produces," not "maximize profit."
 pub fn byproduct_resource_name(target: &str) -> Option<&'static str> {
     match target {
         "wood_blocks" => Some("Wood Blocks"),
@@ -732,7 +732,7 @@ pub fn byproduct_resource_name(target: &str) -> Option<&'static str> {
 /// # Arguments
 ///
 /// * `items` - All available production items
-/// * `target_currency` - What to optimize for: a sellable currency (`"coins"`/`"bud_tickets"`) or
+/// * `target_currency` - What to optimize for: a sellable currency (`"coins"`) or
 ///   a byproduct pseudo-currency (`"wood_blocks"`/`"mineral_sand"`; see
 ///   [`byproduct_resource_name`])
 /// * `facility_counts` - Configuration for each facility (count and level)
@@ -766,7 +766,7 @@ pub fn byproduct_resource_name(target: &str) -> Option<&'static str> {
 /// let counts = FacilityCounts::from_pairs(&[
 ///     ("Farmland", 4, 3),        // 4 farmlands at level 3
 ///     ("Woodland", 1, 2),        // 1 woodland at level 2
-///     ("Mineral Pile", 1, 1),    // 1 mineral pile at level 1
+///     ("Mine", 1, 1),            // 1 mine at level 1
 ///     ("Carousel Mill", 2, 2),   // 2 carousel mills at level 2
 ///     ("Jukebox Dryer", 1, 1),
 ///     ("Crafting Table", 1, 1),
@@ -1127,7 +1127,7 @@ pub fn calculate_efficiencies(
 /// let counts = FacilityCounts::from_pairs(&[
 ///     ("Farmland", 4, 3),        // 4 farmlands at level 3
 ///     ("Woodland", 1, 2),        // 1 woodland at level 2
-///     ("Mineral Pile", 1, 1),    // 1 mineral pile at level 1
+///     ("Mine", 1, 1),            // 1 mine at level 1
 ///     ("Carousel Mill", 2, 2),   // 2 carousel mills at level 2
 ///     ("Jukebox Dryer", 1, 1),
 ///     ("Crafting Table", 1, 1),
@@ -1878,7 +1878,7 @@ pub fn find_self_sufficient_path(
 /// `ProductionEfficiency::startup_time`, which this does NOT reuse; that field divides
 /// processing time by facility count, which is right for steady-state throughput but wrong for
 /// "time until the first batch exists", the thing this function needs).
-fn item_lead_time(name: &str, item_map: &HashMap<&str, &ProductionItem>, depth: u32) -> f64 {
+pub(crate) fn item_lead_time(name: &str, item_map: &HashMap<&str, &ProductionItem>, depth: u32) -> f64 {
     if depth > 8 {
         return 0.0; // guard against unexpected circular references
     }
@@ -1895,6 +1895,23 @@ fn item_lead_time(name: &str, item_map: &HashMap<&str, &ProductionItem>, depth: 
             max_ingredient_lead + item.production_time
         }
     }
+}
+
+/// Finds the item in `root`'s ingredient tree (possibly `root` itself) that directly consumes
+/// `target`. A recipe ingredient `X` also matches a `target` of `quick_X`, since the quick variant
+/// is what gets grown in its place. Returns `None` if `target` isn't anywhere in the tree.
+///
+/// Used for the plan's "Used for ..." text: each row names only its next step (quick_wheat says
+/// "wheatmeal", not "premium_bread"), and the wheatmeal row names premium_bread in turn.
+fn direct_consumer(root: &str, target: &str, item_map: &HashMap<&str, &ProductionItem>, depth: u32) -> Option<String> {
+    if depth > 8 {
+        return None; // guard against unexpected circular references
+    }
+    let raw_mats = item_map.get(root)?.raw_materials.as_ref()?;
+    if raw_mats.iter().any(|m| m == target || target.strip_prefix("quick_") == Some(m.as_str())) {
+        return Some(root.to_string());
+    }
+    raw_mats.iter().find_map(|m| direct_consumer(m, target, item_map, depth + 1))
 }
 
 /// Solves for the provably-optimal simultaneous allocation of every owned facility's capacity
@@ -1973,14 +1990,67 @@ fn compute_coverage_weights(
 /// fast) `crate::coverage::solve_building_packing` call per building type, never mixed with the
 /// continuous item-rate LP in the same `Problem` (see `solve_facility_allocation`'s doc comment
 /// for why that combination hangs in practice).
+///
+/// Results are memoized per thread (see [`PACKING_CACHE`]): the exclusion passes in
+/// `find_production_plan` re-solve the same coverage weights many times over (excluding one recipe
+/// rarely changes any facility type's per-plot weight), and each packing solve is by far the most
+/// expensive step of a trial.
 fn solve_environment_coverage(
     weights: &HashMap<(&'static str, &'static str), f64>,
     facility_counts: &FacilityCounts,
-) -> (
+) -> EnvironmentCoverage {
+    let key = packing_cache_key(weights, facility_counts);
+    if let Some(hit) = PACKING_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let solved = solve_environment_coverage_uncached(weights, facility_counts);
+    PACKING_CACHE.with(|cache| cache.borrow_mut().insert(key, solved.clone()));
+    solved
+}
+
+/// `(mode_counts, placements, layouts)`; see [`solve_environment_coverage`].
+type EnvironmentCoverage = (
     HashMap<(&'static str, &'static str), u32>,
     HashMap<&'static str, Vec<(crate::coverage::Placement, u32)>>,
     HashMap<&'static str, Vec<Vec<crate::coverage::Placement>>>,
-) {
+);
+
+/// Everything a packing solve depends on: each `(facility type, mode)` weight (as exact bits, so
+/// only truly identical inputs share an entry) and the owned counts of every environment building
+/// and environment-gated facility type.
+type PackingCacheKey = (Vec<(&'static str, &'static str, u64)>, Vec<u32>);
+
+thread_local! {
+    /// Memoized [`solve_environment_coverage`] results. Cleared at the start of every
+    /// `find_production_plan_with_progress` call so it never grows past one plan's worth of
+    /// distinct inputs.
+    static PACKING_CACHE: std::cell::RefCell<HashMap<PackingCacheKey, EnvironmentCoverage>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+fn packing_cache_key(
+    weights: &HashMap<(&'static str, &'static str), f64>,
+    facility_counts: &FacilityCounts,
+) -> PackingCacheKey {
+    let mut weight_bits: Vec<(&'static str, &'static str, u64)> =
+        weights.iter().map(|(&(facility, mode), w)| (facility, mode, w.to_bits())).collect();
+    weight_bits.sort_unstable();
+    let owned: Vec<u32> = ENVIRONMENT_BUILDINGS
+        .iter()
+        .map(|&(building, _)| facility_counts.get_count(building))
+        .chain(
+            crate::coverage::ENVIRONMENT_GATED_FACILITIES
+                .iter()
+                .map(|&(facility, _)| facility_counts.get_count(facility)),
+        )
+        .collect();
+    (weight_bits, owned)
+}
+
+fn solve_environment_coverage_uncached(
+    weights: &HashMap<(&'static str, &'static str), f64>,
+    facility_counts: &FacilityCounts,
+) -> EnvironmentCoverage {
     let mut mode_counts = HashMap::new();
     let mut placements: HashMap<&'static str, Vec<(crate::coverage::Placement, u32)>> = HashMap::new();
     let mut layouts: HashMap<&'static str, Vec<Vec<crate::coverage::Placement>>> = HashMap::new();
@@ -2037,7 +2107,7 @@ fn solve_environment_coverage(
 ///
 /// # Environment coverage: real 2D geometric packing (`crate::coverage`)
 ///
-/// Farmland/Woodland/Starfall Hammock/Tidewhisper Sandcastle/Grass Blossom Mat/Dewy House crops
+/// Farmland/Woodland/Starfall Hammock/Tidewhisper Sandcastle/Floral Windmill/Dewy House crops
 /// can need a growing environment (`ProductionItem::environment`, e.g. "Cool", "Adequate") that
 /// only exists where an owned environment building (Heat Furnace/Cooling Unit/Sunlamp) covers it.
 /// A building's coverage is real 2D area, not a small set of fixed presets, so how many of each
@@ -2059,7 +2129,57 @@ fn solve_environment_coverage(
 /// `find_production_plan`'s doc comment) to force the LP to hit at least that total byproduct
 /// rate, guaranteeing it before letting profit maximization use whatever facility capacity is
 /// left over. Pass an empty slice for the normal (profit-only) case.
+///
+/// Memoized per thread (see [`ALLOCATION_CACHE`]): the exclusion passes in
+/// `find_production_plan` solve the same candidate set against the same coverage many times.
 fn solve_facility_allocation<'a>(
+    item_map: &HashMap<&str, &ProductionItem>,
+    effs: &'a [ProductionEfficiency],
+    facility_counts: &FacilityCounts,
+    coverage_bounds: &HashMap<(String, String), u32>,
+    byproduct_floors: &[(&str, f64)],
+) -> HashMap<&'a str, f64> {
+    let key = allocation_cache_key(effs, coverage_bounds, byproduct_floors);
+    if let Some(rates) = ALLOCATION_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        let by_name: HashMap<&str, &'a str> = effs.iter().map(|e| (e.item.name.as_str(), e.item.name.as_str())).collect();
+        return rates.iter().filter_map(|(name, rate)| by_name.get(name.as_str()).map(|&n| (n, *rate))).collect();
+    }
+    let solved = solve_facility_allocation_uncached(item_map, effs, facility_counts, coverage_bounds, byproduct_floors);
+    let rates: Vec<(String, f64)> = solved.iter().map(|(&name, &rate)| (name.to_string(), rate)).collect();
+    ALLOCATION_CACHE.with(|cache| cache.borrow_mut().insert(key, rates));
+    solved
+}
+
+/// Everything one facility-allocation LP depends on within a single plan: each candidate's name
+/// and per-batch value (the byproduct-floor pre-solve prices the same items by byproduct instead
+/// of coins, so the name alone isn't enough), the coverage bounds, and the byproduct floors. Item
+/// data and facility counts are fixed for the length of one `find_production_plan` call, which is
+/// as long as the cache lives.
+type AllocationCacheKey = (Vec<(String, u64)>, Vec<(String, String, u32)>, Vec<(String, u64)>);
+
+thread_local! {
+    /// Memoized [`solve_facility_allocation`] results, as `(item name, rate)` pairs. Cleared at the
+    /// start of every `find_production_plan_with_progress` call.
+    static ALLOCATION_CACHE: std::cell::RefCell<HashMap<AllocationCacheKey, Vec<(String, f64)>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+fn allocation_cache_key(
+    effs: &[ProductionEfficiency],
+    coverage_bounds: &HashMap<(String, String), u32>,
+    byproduct_floors: &[(&str, f64)],
+) -> AllocationCacheKey {
+    let mut candidates: Vec<(String, u64)> =
+        effs.iter().map(|e| (e.item.name.clone(), e.batch_value.to_bits())).collect();
+    candidates.sort_unstable();
+    let mut bounds: Vec<(String, String, u32)> =
+        coverage_bounds.iter().map(|((f, m), &n)| (f.clone(), m.clone(), n)).collect();
+    bounds.sort_unstable();
+    let floors: Vec<(String, u64)> = byproduct_floors.iter().map(|(r, f)| (r.to_string(), f.to_bits())).collect();
+    (candidates, bounds, floors)
+}
+
+fn solve_facility_allocation_uncached<'a>(
     item_map: &HashMap<&str, &ProductionItem>,
     effs: &'a [ProductionEfficiency],
     facility_counts: &FacilityCounts,
@@ -2232,15 +2352,23 @@ fn solve_facility_allocation<'a>(
         if terms.is_empty() {
             continue; // nothing can contribute to this resource, nothing to constrain
         }
-        problem.add_constraint(&terms, ComparisonOp::Ge, floor);
+        // The floor is normally the exact maximum a separate solve reached, so a hair of slack
+        // keeps floating-point noise from turning "exactly the maximum" into "infeasible".
+        problem.add_constraint(&terms, ComparisonOp::Ge, floor * (1.0 - 1e-6));
     }
 
     // Every variable is bounded by at least its own facility's constraint (facility_demand always
     // includes the item's own facility; see `accumulate_demand`), and every constraint's RHS is
-    // a non-negative facility count, so this should always be feasible and bounded. Degrade to
-    // "nothing selected" rather than panic if that assumption is ever wrong.
+    // a non-negative facility count, so this is always feasible and bounded without floors. A
+    // byproduct floor this candidate set can't reach (e.g. after an exclusion pass removed the
+    // item that carried it) falls back to the unfloored solve: prioritizing byproducts must never
+    // turn a feasible plan into no plan at all. Degrade to "nothing selected" rather than panic if
+    // even that fails.
     let Ok(solution) = problem.solve() else {
-        return HashMap::new();
+        if byproduct_floors.is_empty() {
+            return HashMap::new();
+        }
+        return solve_facility_allocation(item_map, effs, facility_counts, coverage_bounds, &[]);
     };
 
     item_vars
@@ -2299,7 +2427,7 @@ fn apportion_counts(fractions: &[f64], total: u32, round_up: bool) -> Vec<u32> {
     counts
 }
 
-/// A GROWER facility (Farmland, Woodland, Mineral Pile, ...) has every plot committed to one crop
+/// A GROWER facility (Farmland, Woodland, Mine, ...) has every plot committed to one crop
 /// for its whole cycle; it structurally never hosts a processed item (see the data loaders in
 /// `data.rs`: `load_farmland`/`load_woodland`/`load_workload_raw_material`/`load_nimbus_bed`
 /// always set `raw_materials: None`; `load_processing_*` always set it to `Some`). A PROCESSOR
@@ -2310,18 +2438,27 @@ fn is_grower_facility(items: &[ProductionItem], name: &str) -> bool {
     !items.iter().any(|it| it.facility == name && it.raw_materials.is_some())
 }
 
-/// Apportions every grower facility's continuous LP shares into authoritative whole-unit counts
-/// (see `apportion_counts`), one facility at a time. Keyed by owned `String` triples `(facility,
-/// chain name, item name)` rather than borrowing from `allocation`/`eff_by_name`, since this needs
-/// to be called against a *trial* candidate set that may get discarded (see
-/// `find_production_plan`'s stranded-chain exclusion loop) as well as the final settled one.
+/// Whole units of every gatherer after rounding the continuous solve (see
+/// `build_grower_assignment`).
+struct GrowerAssignment {
+    /// Whole units growing or mining each item, keyed by `(facility, item)`.
+    units: std::collections::BTreeMap<(String, String), u32>,
+    /// Units' worth of each item each chain can draw on, keyed by `(facility, chain, item)`: its
+    /// continuous demand, scaled down when the item's whole units can't cover every chain using it.
+    by_chain: HashMap<(String, String, String), f64>,
+}
+
+/// Apportions every grower facility's continuous LP shares into whole units (see
+/// `apportion_counts`), one facility at a time. A unit grows or mines one item, and any chain can
+/// use any unit's harvest of that item, so shares are pooled by item first: two chains each wanting
+/// half a Well's water share one Well rather than rounding each half separately (which would hand
+/// the Well to one of them and strand the other). Keyed by owned `String`s rather than borrowing
+/// from `allocation`/`eff_by_name`, since this is called against *trial* candidate sets that may
+/// get discarded (see `find_production_plan`'s exclusion loops) as well as the final settled one.
 ///
-/// The key includes the specific ITEM alongside the chain because one chain can draw several
-/// distinct items from the same facility (e.g. caramel_nut_chips needs walnut, chestnut, AND
-/// maple_syrup, all grown on Woodland); each is its own share of the facility's plots, competing
-/// fairly via the same `apportion_counts` call as any other two chains sharing one facility. A
-/// chain that hosts only one item at a facility (the common case) just gets one share, same as
-/// before.
+/// One chain can draw several distinct items from the same facility (e.g. caramel_nut_chips needs
+/// walnut, chestnut, AND maple_syrup, all grown on Woodland); each item is its own share of the
+/// facility's units.
 ///
 /// `environment_assignment` (see `build_environment_assignment`, which must be computed BEFORE
 /// this) caps each environment-gated item's demand on the grower pool at what it can actually use
@@ -2338,7 +2475,7 @@ fn build_grower_assignment(
     eff_by_name: &HashMap<&str, &ProductionEfficiency>,
     facility_counts: &FacilityCounts,
     environment_assignment: &HashMap<(String, String, String), u32>,
-) -> HashMap<(String, String, String), u32> {
+) -> GrowerAssignment {
     let mut grower_shares: HashMap<&str, Vec<(&str, &str, f64)>> = HashMap::new();
     for (&name, &rate) in allocation {
         let eff = eff_by_name[name];
@@ -2363,15 +2500,34 @@ fn build_grower_assignment(
         }
     }
 
-    let mut grower_assignment: HashMap<(String, String, String), u32> = HashMap::new();
+    let mut assignment = GrowerAssignment { units: std::collections::BTreeMap::new(), by_chain: HashMap::new() };
     for (&facility, shares) in &grower_shares {
-        let fractions: Vec<f64> = shares.iter().map(|(_, _, f)| *f).collect();
-        let counts = apportion_counts(&fractions, facility_counts.get_count(facility), false);
-        for (&(chain_name, item_name, _), &count) in shares.iter().zip(&counts) {
-            grower_assignment.insert((facility.to_string(), chain_name.to_string(), item_name.to_string()), count);
+        // Per-item totals, sorted so rounding ties go the same way every run, not by `HashMap`
+        // order.
+        let mut item_shares: std::collections::BTreeMap<&str, f64> = std::collections::BTreeMap::new();
+        for &(_, item_name, fraction) in shares {
+            *item_shares.entry(item_name).or_default() += fraction;
+        }
+        let fractions: Vec<f64> = item_shares.values().copied().collect();
+        let capacity = facility_counts.get_count(facility);
+        let counts = apportion_counts(&fractions, capacity, false);
+        let mut item_units: HashMap<&str, (u32, f64)> = HashMap::new();
+        for ((&item_name, &fraction), &count) in item_shares.iter().zip(&counts) {
+            item_units.insert(item_name, (count, fraction * capacity as f64));
+            if count > 0 {
+                assignment.units.insert((facility.to_string(), item_name.to_string()), count);
+            }
+        }
+        for &(chain_name, item_name, fraction) in shares {
+            let (count, demand) = item_units[item_name];
+            let wanted = fraction * capacity as f64;
+            let scale = if demand > 0.0 { (count as f64 / demand).min(1.0) } else { 0.0 };
+            assignment
+                .by_chain
+                .insert((facility.to_string(), chain_name.to_string(), item_name.to_string()), wanted * scale);
         }
     }
-    grower_assignment
+    assignment
 }
 
 /// Caps an item's continuous LP rate by what its grower facilities can ACTUALLY supply once
@@ -2390,7 +2546,7 @@ fn final_rate_for(
     item_map: &HashMap<&str, &ProductionItem>,
     eff: &ProductionEfficiency,
     continuous_rate: f64,
-    grower_assignment: &HashMap<(String, String, String), u32>,
+    grower_assignment: &GrowerAssignment,
     environment_assignment: &HashMap<(String, String, String), u32>,
 ) -> f64 {
     eff.facility_demand
@@ -2406,10 +2562,11 @@ fn final_rate_for(
             // same or different facilities (e.g. caramel_nut_chips needs walnut, chestnut, AND
             // maple_syrup; if any one of those is short, the whole chain is bottlenecked by it).
             let assigned = grower_assignment
+                .by_chain
                 .get(&(facility.clone(), eff.item.name.clone(), item_name.clone()))
                 .copied()
-                .unwrap_or(0);
-            let mut bound = bound.min(assigned as f64 / utilization);
+                .unwrap_or(0.0);
+            let mut bound = bound.min(assigned / utilization);
 
             // Every grower facility whose hosted crop needs an environment is capacity-gated now
             // (see `crate::coverage`); so this simplifies to just checking the crop itself.
@@ -2436,7 +2593,7 @@ fn total_final_value(
     item_map: &HashMap<&str, &ProductionItem>,
     allocation: &HashMap<&str, f64>,
     eff_by_name: &HashMap<&str, &ProductionEfficiency>,
-    grower_assignment: &HashMap<(String, String, String), u32>,
+    grower_assignment: &GrowerAssignment,
     environment_assignment: &HashMap<(String, String, String), u32>,
 ) -> f64 {
     allocation
@@ -2516,7 +2673,9 @@ fn build_environment_assignment(
     }
 
     let mut environment_assignment: HashMap<(String, String, String), u32> = HashMap::new();
-    for (&(facility_type, env), shares) in &pool_shares {
+    for (&(facility_type, env), shares) in &mut pool_shares {
+        // Sorted so rounding ties go the same way every run, not by `HashMap` order.
+        shares.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
         let fractions: Vec<f64> = shares.iter().map(|(_, _, f)| *f).collect();
         let total = coverage[&(facility_type, env)];
         let demand_sum: f64 = fractions.iter().sum();
@@ -2532,6 +2691,266 @@ fn build_environment_assignment(
     }
 
     environment_assignment
+}
+
+/// How many whole units `units` of capacity takes (a unit is set to one recipe and left running,
+/// so any use at all takes a whole one).
+fn whole_units(units: f64) -> u32 {
+    if units <= 1e-9 {
+        0
+    } else {
+        (units - 1e-9).ceil() as u32
+    }
+}
+
+/// The whole processor units each hosted item gets from a settled plan, keyed by `(facility,
+/// item)`: every contributor rounded up to whole units, most valuable first, never past what's
+/// owned.
+fn dedicated_processor_units(
+    usage: &HashMap<&str, Vec<(&ProductionEfficiency, &str, f64, f64)>>,
+    facility_counts: &FacilityCounts,
+) -> HashMap<(String, String), u32> {
+    let mut units: HashMap<(String, String), u32> = HashMap::new();
+    for (&facility, contributors) in usage {
+        let mut contributors = contributors.clone();
+        contributors.sort_by(|a, b| {
+            b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.1.cmp(b.1))
+        });
+        let mut remaining = facility_counts.get_count(facility);
+        for (_, item_name, units_needed, _) in contributors {
+            let give = whole_units(units_needed).min(remaining);
+            remaining -= give;
+            if give > 0 {
+                *units.entry((facility.to_string(), item_name.to_string())).or_default() += give;
+            }
+        }
+    }
+    units
+}
+
+/// Whole units of each gatherer (Farmland, Mine, Well, ...) growing or mining each item, keyed by
+/// `(facility, item)`, from `grower_assignment`. An environment-gated item keeps no more units than
+/// it has coverage for. Units the rounding left idle grow the facility's most valuable item to sell
+/// directly, if it has one that needs no environment.
+fn pool_grower_units(
+    items: &[ProductionItem],
+    effs: &[ProductionEfficiency],
+    facility_counts: &FacilityCounts,
+    item_map: &HashMap<&str, &ProductionItem>,
+    grower_assignment: &GrowerAssignment,
+    environment_assignment: &HashMap<(String, String, String), u32>,
+) -> std::collections::BTreeMap<(String, String), u32> {
+    let mut units = grower_assignment.units.clone();
+    let mut covered: HashMap<(&str, &str), u32> = HashMap::new();
+    for ((facility, _, item_name), &count) in environment_assignment {
+        *covered.entry((facility.as_str(), item_name.as_str())).or_default() += count;
+    }
+    for ((facility, item_name), count) in units.iter_mut() {
+        if item_map.get(item_name.as_str()).is_some_and(|item| item.environment.is_some()) {
+            *count = (*count).min(covered.get(&(facility.as_str(), item_name.as_str())).copied().unwrap_or(0));
+        }
+    }
+
+    let mut facilities: Vec<&str> = items.iter().map(|i| i.facility.as_str()).collect::<HashSet<&str>>().into_iter().collect();
+    facilities.sort_unstable();
+    for facility in facilities {
+        let owned = facility_counts.get_count(facility);
+        if owned == 0 || !is_grower_facility(items, facility) {
+            continue;
+        }
+        let used: u32 = units.iter().filter(|((f, _), _)| f == facility).map(|(_, c)| c).sum();
+        let idle = owned.saturating_sub(used);
+        if idle == 0 {
+            continue;
+        }
+        let per_unit_value = |eff: &ProductionEfficiency| -> Option<f64> {
+            let [(f, item_name, utilization)] = eff.facility_demand.as_slice() else { return None };
+            let sells_itself = f == facility && *item_name == eff.item.name && eff.item.facility == facility;
+            let usable = eff.item.environment.is_none()
+                && eff.item.raw_materials.is_none()
+                && facility_counts.capacity_at_level(facility, eff.item.facility_level) >= owned;
+            (sells_itself && usable && *utilization > 0.0 && eff.batch_value > 0.0)
+                .then(|| eff.batch_value / utilization)
+        };
+        let best = effs
+            .iter()
+            .filter_map(|eff| per_unit_value(eff).map(|value| (eff, value)))
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| b.0.item.name.cmp(&a.0.item.name)));
+        if let Some((eff, _)) = best {
+            *units.entry((facility.to_string(), eff.item.name.clone())).or_default() += idle;
+        }
+    }
+    units.retain(|_, count| *count > 0);
+    units
+}
+
+/// Re-solves every rate within the plan's whole units. The continuous solve and its rounding
+/// decide how many units of each gatherer produce each item and which processor units run which
+/// recipe; but a unit rounded up (or shared by two chains) produces its full output, not the
+/// fraction the continuous solve needed. This maximizes the same objective as
+/// `solve_facility_allocation` over every candidate, with each `(facility, item)` capped at its
+/// whole units, so that output goes to whichever chains can use it or sells directly.
+///
+/// Spare processor units (owned but running nothing) can take new recipes, as long as every new
+/// recipe still gets whole units; a chain that would crowd them is dropped and the rest re-solved.
+/// The settled plan's own rates always fit these caps, so this never does worse than it.
+fn fill_whole_units<'a>(
+    items: &[ProductionItem],
+    item_map: &HashMap<&str, &ProductionItem>,
+    effs: &'a [ProductionEfficiency],
+    facility_counts: &FacilityCounts,
+    grower_units: &std::collections::BTreeMap<(String, String), u32>,
+    processor_units: &HashMap<(String, String), u32>,
+) -> HashMap<&'a str, f64> {
+    use std::collections::BTreeMap;
+    let item_level = |name: &str| item_map.get(name).map_or(1, |item| item.facility_level);
+    let mut spare: BTreeMap<&str, u32> = BTreeMap::new();
+    for item in items {
+        let facility = item.facility.as_str();
+        if spare.contains_key(facility) || is_grower_facility(items, facility) {
+            continue;
+        }
+        let claimed: u32 = processor_units.iter().filter(|((f, _), _)| f == facility).map(|(_, c)| c).sum();
+        spare.insert(facility, facility_counts.get_count(facility).saturating_sub(claimed));
+    }
+    let is_new_host = |facility: &str, item_name: &str| {
+        !is_grower_facility(items, facility) && !processor_units.contains_key(&(facility.to_string(), item_name.to_string()))
+    };
+
+    let solve = |banned: &HashSet<&str>, allow_new: bool| -> Option<Vec<(&'a ProductionEfficiency, f64)>> {
+        let mut problem = Problem::new(OptimizationDirection::Maximize);
+        let mut vars: Vec<(&'a ProductionEfficiency, microlp::Variable)> = Vec::new();
+        let mut capped: BTreeMap<(&str, &str), Vec<(microlp::Variable, f64)>> = BTreeMap::new();
+        let mut new_hosts: BTreeMap<&str, Vec<(microlp::Variable, f64)>> = BTreeMap::new();
+        'effs: for eff in effs {
+            if eff.batch_value <= 0.0
+                || banned.contains(eff.item.name.as_str())
+                || facility_counts.get_count(&eff.item.facility) == 0
+            {
+                continue;
+            }
+            for (facility, item_name, utilization) in &eff.facility_demand {
+                if *utilization <= 0.0 {
+                    continue;
+                }
+                let servable = if is_grower_facility(items, facility) {
+                    grower_units.contains_key(&(facility.clone(), item_name.clone()))
+                } else if is_new_host(facility, item_name) {
+                    allow_new
+                        && spare.get(facility.as_str()).copied().unwrap_or(0) > 0
+                        && facility_counts.capacity_at_level(facility, item_level(item_name))
+                            >= facility_counts.get_count(facility)
+                } else {
+                    true
+                };
+                if !servable {
+                    continue 'effs;
+                }
+            }
+            let var = problem.add_var(eff.batch_value, (0.0, f64::INFINITY));
+            vars.push((eff, var));
+            for (facility, item_name, utilization) in &eff.facility_demand {
+                if *utilization <= 0.0 {
+                    continue;
+                }
+                // A chain can list the same row twice (two items made at one spare processor);
+                // the solver needs one term per variable, so those add up.
+                let terms = if is_new_host(facility, item_name) {
+                    new_hosts.entry(facility.as_str()).or_default()
+                } else {
+                    capped.entry((facility.as_str(), item_name.as_str())).or_default()
+                };
+                match terms.last_mut() {
+                    Some((last, coefficient)) if *last == var => *coefficient += utilization,
+                    _ => terms.push((var, *utilization)),
+                }
+            }
+        }
+        for ((facility, item_name), terms) in &capped {
+            let key = (facility.to_string(), item_name.to_string());
+            let cap = grower_units.get(&key).or_else(|| processor_units.get(&key)).copied().unwrap_or(0);
+            problem.add_constraint(terms, ComparisonOp::Le, cap as f64);
+        }
+        for (facility, terms) in &new_hosts {
+            problem.add_constraint(terms, ComparisonOp::Le, spare.get(facility).copied().unwrap_or(0) as f64);
+        }
+        let solution = problem.solve().ok()?;
+        Some(vars.into_iter().map(|(eff, var)| (eff, solution[var])).filter(|(_, rate)| *rate > 1e-9).collect())
+    };
+
+    let to_map = |rates: Vec<(&'a ProductionEfficiency, f64)>| -> HashMap<&'a str, f64> {
+        rates.into_iter().map(|(eff, rate)| (eff.item.name.as_str(), rate)).collect()
+    };
+    let mut banned: HashSet<&str> = HashSet::new();
+    for _ in 0..32 {
+        let Some(rates) = solve(&banned, true) else { break };
+        // Whole units each new recipe on a spare processor needs.
+        let mut new_units: BTreeMap<(&str, &str), f64> = BTreeMap::new();
+        for (eff, rate) in &rates {
+            for (facility, item_name, utilization) in &eff.facility_demand {
+                if *utilization > 0.0 && is_new_host(facility, item_name) {
+                    *new_units.entry((facility.as_str(), item_name.as_str())).or_default() += utilization * rate;
+                }
+            }
+        }
+        let mut needed: BTreeMap<&str, u32> = BTreeMap::new();
+        for ((facility, _), units) in &new_units {
+            *needed.entry(facility).or_default() += whole_units(*units);
+        }
+        let crowded: Vec<&str> = needed
+            .iter()
+            .filter(|(facility, n)| **n > spare.get(**facility).copied().unwrap_or(0))
+            .map(|(facility, _)| *facility)
+            .collect();
+        if crowded.is_empty() {
+            return to_map(rates);
+        }
+        let victim = rates
+            .iter()
+            .filter(|(eff, _)| {
+                eff.facility_demand.iter().any(|(f, i, u)| *u > 0.0 && crowded.contains(&f.as_str()) && is_new_host(f, i))
+            })
+            .min_by(|a, b| {
+                (a.0.batch_value * a.1)
+                    .partial_cmp(&(b.0.batch_value * b.1))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.item.name.cmp(&b.0.item.name))
+            })
+            .map(|(eff, _)| eff.item.name.as_str());
+        match victim {
+            Some(name) => {
+                banned.insert(name);
+            }
+            None => break,
+        }
+    }
+    solve(&HashSet::new(), false).map(to_map).unwrap_or_default()
+}
+
+/// Processor facility -> each `(chain, hosted item, units of capacity needed, rate_per_second)`
+/// under the plan's final rates; see `build_processor_usage` for what "units needed" means.
+fn processor_usage_from_rates<'a>(
+    items: &[ProductionItem],
+    rates: &HashMap<&'a str, f64>,
+    eff_by_name: &HashMap<&'a str, &'a ProductionEfficiency>,
+    facility_counts: &FacilityCounts,
+) -> HashMap<&'a str, Vec<(&'a ProductionEfficiency, &'a str, f64, f64)>> {
+    let mut usage: HashMap<&str, Vec<(&ProductionEfficiency, &str, f64, f64)>> = HashMap::new();
+    for (&name, &rate) in rates {
+        let eff = eff_by_name[name];
+        let rate_per_second = eff.batch_value * rate;
+        for (facility, item_name, utilization) in &eff.facility_demand {
+            if is_grower_facility(items, facility) || facility_counts.get_count(facility) == 0 {
+                continue;
+            }
+            let units_needed = utilization * rate;
+            if units_needed < 1e-6 {
+                continue;
+            }
+            usage.entry(facility.as_str()).or_default().push((eff, item_name.as_str(), units_needed, rate_per_second));
+        }
+    }
+    usage
 }
 
 /// For every PROCESSOR facility touched by any candidate item with a positive final rate, the
@@ -2555,7 +2974,7 @@ fn build_processor_usage<'a>(
     allocation: &HashMap<&'a str, f64>,
     eff_by_name: &HashMap<&'a str, &'a ProductionEfficiency>,
     facility_counts: &FacilityCounts,
-    grower_assignment: &HashMap<(String, String, String), u32>,
+    grower_assignment: &GrowerAssignment,
     environment_assignment: &HashMap<(String, String, String), u32>,
 ) -> HashMap<&'a str, Vec<(&'a ProductionEfficiency, &'a str, f64, f64)>> {
     let mut usage: HashMap<&str, Vec<(&ProductionEfficiency, &str, f64, f64)>> = HashMap::new();
@@ -2775,7 +3194,11 @@ fn solve_environment_and_facility_allocation(
                 }
                 let mut sorted: Vec<(&str, usize, f64)> =
                     hops_per_chain.into_iter().map(|(name, (hops, rate))| (name, hops, rate)).collect();
-                sorted.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                // Name breaks ties so equal-rate chains don't fall back on `HashMap` order, which
+                // Rust randomizes per run and would make the same input give different plans.
+                sorted.sort_by(|a, b| {
+                    b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.0.cmp(b.0))
+                });
                 let mut remaining = owned;
                 for (chain_name, hops, _rate) in sorted {
                     if hops <= remaining {
@@ -2823,8 +3246,8 @@ fn solve_environment_and_facility_allocation(
                 &trial_environment,
             );
             let mut items_per_facility: HashMap<&str, HashSet<&str>> = HashMap::new();
-            for ((facility, _chain_name, item_name), &count) in &trial_growers {
-                if count == 0 {
+            for ((facility, _chain_name, item_name), &count) in &trial_growers.by_chain {
+                if count <= 1e-9 {
                     continue;
                 }
                 items_per_facility.entry(facility.as_str()).or_default().insert(item_name.as_str());
@@ -2832,8 +3255,9 @@ fn solve_environment_and_facility_allocation(
             let contested_facilities: HashSet<&str> =
                 items_per_facility.into_iter().filter(|(_, items)| items.len() > 1).map(|(f, _)| f).collect();
             let mut sharing_candidates: Vec<&str> = trial_growers
+                .by_chain
                 .iter()
-                .filter(|((facility, _, _), &count)| count > 0 && contested_facilities.contains(facility.as_str()))
+                .filter(|((facility, _, _), &count)| count > 1e-9 && contested_facilities.contains(facility.as_str()))
                 .map(|((_, chain_name, _), _)| chain_name.as_str())
                 .collect::<HashSet<&str>>()
                 .into_iter()
@@ -2994,7 +3418,7 @@ fn try_environment_exclusion_set(
 }
 
 /// Solves for the provably-optimal simultaneous use of every owned facility for one target,
-/// a currency (`"coins"`/`"bud_tickets"`) or byproduct pseudo-currency (`"wood_blocks"`/
+/// a currency (`"coins"`) or byproduct pseudo-currency (`"wood_blocks"`/
 /// `"mineral_sand"`; see `byproduct_resource_name`), matching `calculate_efficiencies`'
 /// `target_currency`. Target-independent: no goal amount is needed to know the best achievable
 /// rate and facility plan. Pass the result to `time_to_reach_goal` to find out how long a
@@ -3033,6 +3457,8 @@ pub fn find_production_plan_with_progress(
     prioritize_byproducts: bool,
     on_progress: Option<&dyn Fn(u32)>,
 ) -> Option<ProductionPlan> {
+    PACKING_CACHE.with(|cache| cache.borrow_mut().clear());
+    ALLOCATION_CACHE.with(|cache| cache.borrow_mut().clear());
     let item_map: HashMap<&str, &ProductionItem> =
         items.iter().map(|i| (i.name.as_str(), i)).collect();
 
@@ -3407,11 +3833,22 @@ pub fn find_production_plan_with_progress(
             budget_remaining -= cost;
             bounded_groups.push(group);
         }
-        for group in bounded_groups {
+        // A second cap, on LP solves rather than subsets: each subset re-runs the whole pipeline,
+        // whose own cost grows with how many recipes are in play, so at late-game RV levels the
+        // subset budget alone let one round spend ~17,000 LP solves (tens of seconds). Counting
+        // solves keeps it deterministic (no wall clock); since groups run smallest-first and
+        // subsets fewest-exclusions-first, what the cap cuts is the largest, least likely
+        // combinations. Measured on RV 9-20 setups: 3-7x faster, within ~1% of the uncapped plan.
+        const MAX_DEDICATED_SEARCH_TRIALS: u32 = 3000;
+        let dedicated_search_start = trial_count;
+        'groups: for group in bounded_groups {
             let n = group.len();
             let mut masks: Vec<u32> = (1..(1u32 << n)).collect();
             masks.sort_by_key(|mask| mask.count_ones());
             for mask in masks {
+                if trial_count - dedicated_search_start >= MAX_DEDICATED_SEARCH_TRIALS {
+                    break 'groups;
+                }
                 let to_exclude: Vec<&str> =
                     (0..n).filter(|&i| mask & (1 << i) != 0).map(|i| group[i].as_str()).collect();
                 let Some((
@@ -3566,18 +4003,34 @@ pub fn find_production_plan_with_progress(
         &environment_assignment,
     );
     let is_grower = |name: &str| is_grower_facility(items, name);
-    let final_rate = |name: &str, continuous_rate: f64| -> f64 {
-        final_rate_for(items, &item_map, eff_by_name[name], continuous_rate, &grower_assignment, &environment_assignment)
-    };
 
-    // One income stream per item the LP actually chose to produce.
+    // Final fill (see `fill_whole_units`): the rounding above settles how many whole units of each
+    // gatherer grow or mine which item and which processor units run which recipe; this re-solves
+    // every rate within those whole units, so their full output gets used or sold instead of just
+    // the fraction the continuous solve happened to need.
+    let processor_units = dedicated_processor_units(
+        &build_processor_usage(
+            items,
+            &item_map,
+            &allocation,
+            &eff_by_name,
+            facility_counts,
+            &grower_assignment,
+            &environment_assignment,
+        ),
+        facility_counts,
+    );
+    let grower_units =
+        pool_grower_units(items, &effs, facility_counts, &item_map, &grower_assignment, &environment_assignment);
+    let final_rates = fill_whole_units(items, &item_map, &effs, facility_counts, &grower_units, &processor_units);
+    trial_count += 1;
+    report_progress(trial_count, on_progress);
+    let fill_by_name: HashMap<&str, &ProductionEfficiency> = effs.iter().map(|e| (e.item.name.as_str(), e)).collect();
+
+    // One income stream per item the plan produces.
     let mut income_streams: Vec<PlanProduct> = Vec::new();
-    for (&name, &continuous_rate) in &allocation {
-        let rate = final_rate(name, continuous_rate);
-        if rate <= 0.0 {
-            continue; // fully squeezed out by grower rounding; no income from this item after all
-        }
-        let eff = eff_by_name[name];
+    for (&name, &rate) in &final_rates {
+        let eff = fill_by_name[name];
         // The frontend recomputes each row's "worth" as floor(total_units) * sell_value, so
         // sell_value must mean "value earned per ITEM unit" in both modes: the coin price for a
         // currency target, or the byproduct amount per item unit (batch_value / yield_amount,
@@ -3597,23 +4050,10 @@ pub fn find_production_plan_with_progress(
             total_value: 0.0,
         });
     }
+    income_streams.sort_by(|a, b| a.item_name.cmp(&b.item_name));
 
-    // Facility -> every item using it, its fraction of capacity, and its rate_per_second, one
-    // structure that naturally supports any number of contributors per facility. Only
-    // meaningfully used for PROCESSOR facilities below; grower facilities are reported straight
-    // from `grower_assignment` instead. By this point the exclusion loop above already guarantees
-    // no processor facility has more contributors than owned units (see `build_processor_usage`'s
-    // doc comment), so `coin_items` below never needs to fall back to describing an unexecutable
-    // fractional time-share.
-    let facility_usage = build_processor_usage(
-        items,
-        &item_map,
-        &allocation,
-        &eff_by_name,
-        facility_counts,
-        &grower_assignment,
-        &environment_assignment,
-    );
+    // Processor facility -> each (chain, hosted item, units of capacity needed, rate_per_second).
+    let facility_usage = processor_usage_from_rates(items, &final_rates, &fill_by_name, facility_counts);
 
     let rate_per_second = income_streams.iter().map(|p| p.rate_per_second).sum();
 
@@ -3630,74 +4070,71 @@ pub fn find_production_plan_with_progress(
     facility_names.sort_unstable();
 
     // Wood Blocks/Mineral Sand produced as a side effect; purely informational (see doc comment
-    // on `ProductionPlan::byproduct_rates`). A byproduct only ever comes from a raw item being
-    // GROWN (every processed item's `byproduct` is always `None`; see the data loaders), so this
-    // only ever applies to grower facilities, credited from `grower_assignment`'s exact plot
-    // counts rather than a fractional rate: a plot assigned to grow something produces its full
-    // byproduct yield regardless of whether the downstream recipe it feeds ends up using all of
-    // what it grows (the residual-imprecision case noted in `final_rate`'s doc comment); the
-    // byproduct comes from growing, not from what happens to the harvest afterward. Kept as a rate
-    // + lead time here (not yet multiplied by any duration, since no goal is known at this point)
-    //; `time_to_reach_goal` turns these into totals once a plan's duration is known.
+    // on `ProductionPlan::byproduct_rates`). A byproduct comes from growing or mining, so it's
+    // credited from the whole units assigned to each item, whether or not every harvest ends up
+    // used. Kept as a rate + lead time here; `time_to_reach_goal` turns these into totals once a
+    // plan's duration is known.
     //
     // Skipped entirely when `currency` itself targets a byproduct: every candidate in that mode
-    // already produces exactly that resource (the filter in `calculate_efficiencies` guarantees
-    // it), so it's already the plan's PRIMARY income stream above; crediting it again here would
-    // double-count the exact same total as a "bonus."
+    // already produces exactly that resource, so it's already the plan's PRIMARY income stream
+    // above; crediting it again here would double-count it.
     let mut byproduct_rates: Vec<(String, f64, f64)> = Vec::new();
     if byproduct_resource_name(currency).is_none() {
-        let mut credit_byproduct = |item: &ProductionItem, fraction: f64| {
-            let Some((ref resource, amount)) = item.byproduct else {
-                return;
-            };
-            let facility_count = facility_counts.get_count(&item.facility) as f64;
-            let rate = fraction * amount as f64 * facility_count / item.production_time;
-            if rate <= 0.0 {
-                return;
+        for ((facility, item_name), &count) in &grower_units {
+            let Some(&item) = item_map.get(item_name.as_str()) else { continue };
+            let Some((ref resource, amount)) = item.byproduct else { continue };
+            let rate = count as f64 * amount as f64 / item.production_time;
+            if count == 0 || rate <= 0.0 || facility_counts.get_count(facility) == 0 {
+                continue;
             }
             let lead = item_lead_time(&item.name, &item_map, 0);
             byproduct_rates.push((resource.clone(), rate, lead));
-        };
-        for ((facility, _chain_name, item_name), &count) in &grower_assignment {
-            if count == 0 {
-                continue;
-            }
-            // The key itself now names the specific item grown here; no more need to re-derive
-            // it via a `facility_demand` lookup (see this map's doc comment on
-            // `build_grower_assignment`).
-            if let Some(&raw_item) = item_map.get(item_name.as_str()) {
-                let fraction = count as f64 / facility_counts.get_count(facility) as f64;
-                credit_byproduct(raw_item, fraction);
-            }
         }
     }
+
+    // "Sells directly", "Used for X", "Used for X, Y; the rest sells directly": what an item made
+    // at `facility` goes to, across every chain drawing on it.
+    let uses_of = |facility: &str, item_name: &str| -> Option<String> {
+        let mut sells = false;
+        let mut uses: Vec<String> = Vec::new();
+        let mut names: Vec<&&str> = final_rates.keys().collect();
+        names.sort_unstable();
+        for &&chain in &names {
+            let eff = fill_by_name[chain];
+            if !eff.facility_demand.iter().any(|(f, i, u)| f == facility && i == item_name && *u > 0.0) {
+                continue;
+            }
+            if chain == item_name && eff.item.facility == facility {
+                sells = true;
+            } else {
+                let consumer =
+                    direct_consumer(chain, item_name, &item_map, 0).unwrap_or_else(|| chain.to_string());
+                if !uses.contains(&consumer) {
+                    uses.push(consumer);
+                }
+            }
+        }
+        match (uses.is_empty(), sells) {
+            (true, true) => Some("Sells directly".to_string()),
+            (true, false) => None,
+            (false, false) => Some(format!("Used for {}", uses.join(", "))),
+            (false, true) => Some(format!("Used for {}; the rest sells directly", uses.join(", "))),
+        }
+    };
 
     let coin_items: Vec<PlanStep> = facility_names
         .iter()
         .flat_map(|&name| -> Vec<PlanStep> {
             if is_grower(name) {
-                // Authoritative: `grower_assignment` was fixed BEFORE any rate capping, as the
-                // whole-unit plot assignment everything else was derived from; not re-derived
-                // here from a fractional view, so it stays exactly consistent with Total Time and
-                // the Product Breakdown even in the rare case (see `final_rate`'s doc comment)
-                // where a chain can't fully use every plot assigned to it due to a bottleneck at
-                // one of its OTHER grower facilities.
+                // One row per item grown or mined here, from the whole units assigned to it; every
+                // chain drawing on that item shares the same units.
                 let total_owned = facility_counts.get_count(name);
-                // `grower_assignment`'s key now names the specific item alongside the chain (see
-                // `build_grower_assignment`'s doc comment); a single chain can host MULTIPLE
-                // distinct items here (e.g. caramel_nut_chips needs walnut, chestnut, AND
-                // maple_syrup, all grown on Woodland), each getting its own row below, and a
-                // single item can equally be shared by multiple different chains (e.g. wheat sold
-                // directly and wheat used for bread); both cases just fall out of iterating every
-                // matching (chain, item) triple rather than assuming one item per chain.
-                let mut assigned: Vec<(&str, &ProductionEfficiency, u32)> = grower_assignment
+                let mut assigned: Vec<(&str, u32)> = grower_units
                     .iter()
-                    .filter(|((facility, _, _), &count)| facility.as_str() == name && count > 0)
-                    .filter_map(|((_, chain_name, item_name), &count)| {
-                        eff_by_name.get(chain_name.as_str()).map(|&eff| (item_name.as_str(), eff, count))
-                    })
+                    .filter(|((facility, _), &count)| facility.as_str() == name && count > 0)
+                    .map(|((_, item_name), &count)| (item_name.as_str(), count))
                     .collect();
-                assigned.sort_by_key(|a| std::cmp::Reverse(a.2));
+                assigned.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
 
                 if assigned.is_empty() {
                     return vec![PlanStep {
@@ -3709,40 +4146,30 @@ pub fn find_production_plan_with_progress(
                         is_grower: true,
                         cycle_time: None,
                         environment: None,
+                        busy_units: None,
                     }];
                 }
 
-                let reason_for = |eff: &ProductionEfficiency| -> String {
-                    if eff.item.facility == name {
-                        "Sells directly".to_string()
-                    } else {
-                        format!("Used for {}", eff.item.name)
-                    }
-                };
-
-                let idle = total_owned.saturating_sub(assigned.iter().map(|(_, _, c)| c).sum());
-                let mut steps: Vec<PlanStep> = assigned
-                    .iter()
-                    .map(|(item_name, eff, count)| {
-                        let reason = reason_for(eff);
-                        // The item is the actual crop grown here (e.g. "rose"), which may be a
-                        // different item than `eff.item` (e.g. rose_incense) when this grower
-                        // feeds a further-processed chain; so its own production_time (not
-                        // `eff.item.production_time`) is what one planting cycle actually takes.
-                        let cycle_time = item_map.get(*item_name).map(|item| item.production_time);
-                        let environment = item_map.get(*item_name).and_then(|item| item.environment.clone());
-                        PlanStep {
-                            item_name: Some(item_name.to_string()),
-                            facility: name.to_string(),
-                            facility_count: *count,
-                            status: PlanStepStatus::Producing,
-                            reason,
-                            is_grower: true,
-                            cycle_time,
-                            environment,
-                        }
-                    })
-                    .collect();
+                let mut idle = total_owned.saturating_sub(assigned.iter().map(|(_, c)| c).sum());
+                let mut steps: Vec<PlanStep> = Vec::new();
+                for (item_name, count) in assigned {
+                    let Some(reason) = uses_of(name, item_name) else {
+                        idle += count;
+                        continue;
+                    };
+                    let item = item_map.get(item_name);
+                    steps.push(PlanStep {
+                        item_name: Some(item_name.to_string()),
+                        facility: name.to_string(),
+                        facility_count: count,
+                        status: PlanStepStatus::Producing,
+                        reason,
+                        is_grower: true,
+                        cycle_time: item.map(|item| item.production_time),
+                        environment: item.and_then(|item| item.environment.clone()),
+                        busy_units: None,
+                    });
+                }
                 if idle > 0 {
                     steps.push(PlanStep {
                         item_name: None,
@@ -3753,24 +4180,29 @@ pub fn find_production_plan_with_progress(
                         is_grower: true,
                         cycle_time: None,
                         environment: None,
+                        busy_units: None,
                     });
                 }
                 return steps;
             }
 
-            // Processor facility: a physically dedicated unit's achievable rate can only be >=
-            // its share of a jointly-run one (its ceiling is a whole unit's worth of throughput,
-            // not a fraction of it), so whole-unit dedication never changes any rate/total
-            // computed above; it's a pure relabeling of which unit does what. The exclusion loop
-            // in `find_production_plan` already guarantees no processor facility has more
-            // contributors than owned units by this point (a processor can only ever be "set and
-            // left" on one recipe; see `build_processor_usage`'s doc comment), so this always
-            // resolves to whole-unit dedication, never a time-share percentage.
-            let mut contributors: Vec<(&ProductionEfficiency, &str, f64, f64)> =
-                facility_usage.get(name).cloned().unwrap_or_default();
-            contributors.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+            // Processor facility: a player sets each unit to one recipe and leaves it running, so
+            // every chain needing the same hosted item shares the units making it. One row per
+            // hosted item, most valuable first; `fill_whole_units` already kept the whole units
+            // this needs within what's owned.
+            let mut hosted: Vec<(&str, f64, f64)> = Vec::new();
+            for (_, item_name, units_needed, rate) in facility_usage.get(name).cloned().unwrap_or_default() {
+                match hosted.iter_mut().find(|(i, _, _)| *i == item_name) {
+                    Some(entry) => {
+                        entry.1 += units_needed;
+                        entry.2 += rate;
+                    }
+                    None => hosted.push((item_name, units_needed, rate)),
+                }
+            }
+            hosted.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.0.cmp(b.0)));
 
-            if contributors.is_empty() {
+            if hosted.is_empty() {
                 return vec![PlanStep {
                     item_name: None,
                     facility: name.to_string(),
@@ -3780,75 +4212,39 @@ pub fn find_production_plan_with_progress(
                     is_grower: false,
                     cycle_time: None,
                     environment: None,
+                    busy_units: None,
                 }];
             }
 
-            // A player sets each physical unit to run ONE recipe and leaves it running; they
-            // don't cycle a single unit between recipes (see `build_processor_usage`'s doc
-            // comment); so a chain needing an intermediate made at the SAME facility type as its
-            // own final item (e.g. wool_fabric also needing woolen_yarn made at Joy Wheel Loom
-            // first) needs a separate dedicated unit per hop, each its own row here: the hop
-            // whose item IS the chain's own final product says "Sells directly"; every other hop
-            // (an intermediate that chain also needs made here) says "Used for X", exactly like a
-            // grower facility's own ingredient rows.
-            let reason_for = |eff: &ProductionEfficiency, item_name: &str| -> String {
-                if item_name == eff.item.name {
-                    "Sells directly".to_string()
-                } else {
-                    format!("Used for {}", eff.item.name)
-                }
-            };
-
             let owned = facility_counts.get_count(name);
-
-            // A dedicated unit only ever needs to cover a contributor's own need, so rounding UP
-            // to the next whole unit (never down) guarantees it's never under-supplied relative to
-            // the continuous LP's solution. Ceiling every contributor independently and summing
-            // can still occasionally overshoot `owned` by a little (e.g. several small
-            // contributors each just over a whole-unit boundary), even though the exclusion loop
-            // in `find_production_plan` already resolved genuine distinct-recipe contention; so
-            // rather than assume it never happens, allocate greedily in `contributors`' existing
-            // most-profitable-first order and cap each grant at whatever's left, guaranteeing the
-            // total never exceeds `owned` by construction instead of asserting it and risking a
-            // panic on a rare rounding edge case.
-            let mut needed: Vec<u32> = Vec::with_capacity(contributors.len());
             let mut remaining = owned;
-            for (_, _, units_needed, _) in &contributors {
-                let want = units_needed.ceil() as u32;
-                let give = want.min(remaining);
-                needed.push(give);
-                remaining -= give;
+            let mut steps: Vec<PlanStep> = Vec::new();
+            for (item_name, units_needed, _) in hosted {
+                let count = (whole_units(units_needed)).min(remaining);
+                remaining -= count;
+                steps.push(PlanStep {
+                    item_name: Some(item_name.to_string()),
+                    facility: name.to_string(),
+                    facility_count: count,
+                    status: PlanStepStatus::Producing,
+                    reason: uses_of(name, item_name).unwrap_or_else(|| "Sells directly".to_string()),
+                    is_grower: false,
+                    cycle_time: None,
+                    environment: None,
+                    busy_units: Some(units_needed.min(count as f64)),
+                });
             }
-            let total_needed: u32 = needed.iter().sum();
-
-            let mut steps: Vec<PlanStep> = contributors
-                .iter()
-                .zip(&needed)
-                .map(|((eff, item_name, _, _), &count)| {
-                    let reason = reason_for(eff, item_name);
-                    PlanStep {
-                        item_name: Some(item_name.to_string()),
-                        facility: name.to_string(),
-                        facility_count: count,
-                        status: PlanStepStatus::Producing,
-                        reason,
-                        is_grower: false,
-                        cycle_time: None,
-                        environment: None,
-                    }
-                })
-                .collect();
-            let idle = owned.saturating_sub(total_needed);
-            if idle > 0 {
+            if remaining > 0 {
                 steps.push(PlanStep {
                     item_name: None,
                     facility: name.to_string(),
-                    facility_count: idle,
+                    facility_count: remaining,
                     status: PlanStepStatus::Idle,
                     reason: "No further profitable use found".to_string(),
                     is_grower: false,
                     cycle_time: None,
                     environment: None,
+                    busy_units: None,
                 });
             }
             steps
@@ -3987,8 +4383,8 @@ pub fn time_to_reach_goal(plan: &ProductionPlan, target: f64, current: f64) -> O
     // duration; one seed per planting, ceiling (not floor) because a seed is already spent
     // starting a cycle that might still be in progress when `total_time` is reached, even though
     // that cycle's output isn't counted as a completed unit yet (see `SeedRequirement`'s doc
-    // comment). Seeds only exist for Farmland and Woodland plots; Mineral Pile is mined (no
-    // seed), and the Aniimo-dispatch facilities (Nimbus Bed, Grass Blossom Mat, Starfall Hammock,
+    // comment). Seeds only exist for Farmland and Woodland plots; Mine is mined (no
+    // seed), and the Aniimo-dispatch facilities (Nimbus Bed, Floral Windmill, Starfall Hammock,
     // Tidewhisper Sandcastle, Dewy House) are harvested via family dispatch, not planted either.
     // Processor rows are skipped too: they aren't planted, so they never need seeds.
     let mut seed_requirements: Vec<SeedRequirement> = plan

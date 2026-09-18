@@ -3,7 +3,7 @@
 //! A command-line tool and library for optimizing production paths in Aniimo Homeland.
 //!
 //! This crate provides functionality to calculate the most efficient way to produce
-//! a target amount of in-game currency (coins or Bud Tickets) based on:
+//! a target amount of in-game currency (coins) based on:
 //!
 //! - Available production items and their recipes
 //! - Production times and yields
@@ -37,7 +37,7 @@
 //! let counts = FacilityCounts::from_pairs(&[
 //!     ("Farmland", 4, 3),        // 4 farmlands at level 3
 //!     ("Woodland", 2, 2),
-//!     ("Mineral Pile", 1, 1),
+//!     ("Mine", 1, 1),
 //!     ("Carousel Mill", 2, 2),
 //!     ("Jukebox Dryer", 1, 1),
 //!     ("Crafting Table", 1, 1),
@@ -69,6 +69,7 @@
 pub mod coverage;
 pub mod data;
 pub mod display;
+pub mod exact;
 pub mod models;
 pub mod optimizer;
 pub mod wasm;

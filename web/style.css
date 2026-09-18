@@ -9,34 +9,47 @@
 }
 
 :root {
-    --bg: #0a0a0a;
-    --text: #f5f5f5;
-    --text-muted: #999999;
-    --border: #333333;
-    --success: #66bb6a;
-    --error: #ef5350;
-    --warning: #ffb74d;
+    --bg: #0e1013;
+    --surface: #16191e;
+    --surface-2: #1e2229;
+    --text: #e9eaec;
+    --text-muted: #9aa0a8;
+    --border: #2a2f37;
+    --accent: #6cc5a4;
+    --on-accent: #0e1013;
+    --success: #6cc5a4;
+    --error: #ef6b68;
+    --warning: #f0b35a;
+    --radius: 12px;
+    --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "Courier New", Courier, monospace;
 }
 
 .light {
-    --bg: #fdfcf8;
-    --text: #000000;
-    --text-muted: #666666;
-    --border: #e0e0e0;
-    --success: #2e7d32;
+    --bg: #f5f4ef;
+    --surface: #ffffff;
+    --surface-2: #f0eee8;
+    --text: #1d1f22;
+    --text-muted: #666a70;
+    --border: #e2dfd7;
+    --accent: #2e7d65;
+    --on-accent: #ffffff;
+    --success: #2e7d65;
     --error: #c62828;
-    --warning: #f57c00;
+    --warning: #b8660b;
 }
 
 body {
-    font-family: "Courier New", Courier, monospace;
+    accent-color: var(--accent);
+    font-family: var(--font-body);
     background-color: var(--bg);
     color: var(--text);
-    line-height: 1.6;
-    max-width: 800px;
-    margin: 3rem auto;
-    padding: 0 1.5rem;
+    line-height: 1.55;
+    max-width: 880px;
+    margin: 2.5rem auto;
+    padding: 0 1rem;
     transition: background-color 0.3s, color 0.3s;
+    font-variant-numeric: tabular-nums;
 }
 
 a {
@@ -57,8 +70,10 @@ header {
 }
 
 header h1 {
+    font-family: var(--font-mono);
     font-size: 2rem;
     font-weight: normal;
+    letter-spacing: -0.02em;
 }
 
 .header-buttons {
@@ -73,6 +88,7 @@ header h1 {
     color: inherit;
     font-family: inherit;
     font-size: 0.9rem;
+    line-height: normal;
     text-decoration: underline;
 }
 
@@ -349,6 +365,20 @@ p {
 .facility-inputs input {
     padding: 0.4rem;
     font-size: 0.85rem;
+}
+
+/* Simple / advanced input mode switch. */
+.mode-switch {
+    display: flex;
+    gap: 1.5rem;
+    margin: 1rem 0;
+}
+
+.mode-switch label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
 }
 
 /* One owned tier's remove button, sitting inline at the end of its Count/Level row. */
@@ -760,16 +790,46 @@ tbody tr:first-child td {
 
 .env-diagram svg {
     display: block;
+    width: 280px;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 10px;
+}
+
+.env-grid line {
+    stroke: currentColor;
+    stroke-opacity: 0.2;
+    stroke-width: 0.035;
+}
+
+.env-grid line.quarter {
+    stroke-opacity: 0.05;
+    stroke-width: 0.02;
+}
+
+.env-plot text {
+    fill: #111;
+    font-family: var(--font-body);
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+}
+
+.env-plot:hover rect {
+    fill-opacity: 1;
+    stroke: currentColor;
 }
 
 .env-legend {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.4rem;
-    max-width: 150px;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+    max-width: 280px;
     font-size: 0.7rem;
     color: var(--text-muted);
 }
@@ -782,9 +842,20 @@ tbody tr:first-child td {
 
 .env-legend-swatch {
     display: inline-block;
-    width: 0.6rem;
-    height: 0.6rem;
-    border-radius: 2px;
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 3px;
+}
+
+.env-legend-swatch.coverage {
+    border: 1px dashed;
+}
+
+.env-note {
+    max-width: 280px;
+    margin: 0.4rem 0 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
 }
 
 /* Recipe reference tables (facility recipe modal): one table per facility, listed row order
@@ -1017,4 +1088,827 @@ footer {
 .math-table th {
     background: rgba(128, 128, 128, 0.1);
     font-weight: bold;
+}
+
+/* ========================================
+   Cards, tabs and badges
+   ======================================== */
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.card h2 {
+    margin: 0 0 0.75rem;
+    padding: 0;
+    border: none;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.card h3 {
+    font-weight: 600;
+    margin-top: 1.25rem;
+}
+
+.card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.card-head h2 {
+    margin: 0;
+}
+
+.card-lead {
+    color: var(--text-muted);
+    margin-bottom: 1.25rem;
+}
+
+.toggle-button.small {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.subtitle {
+    margin-top: -1.5rem;
+}
+
+.disclaimer {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-style: normal;
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+    margin-bottom: 1.5rem;
+}
+
+.disclaimer-icon {
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+
+/* Segmented tabs built from radio labels. */
+.tabs {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    margin-bottom: 1.25rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.tabs label {
+    position: relative;
+    padding: 0.4rem 1.1rem;
+    border-radius: 7px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.tabs label:hover {
+    color: var(--text);
+}
+
+.tabs input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.tabs label:has(input:checked) {
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.tabs label:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.tabs.compact {
+    margin-bottom: 0;
+}
+
+.tabs.compact label {
+    padding: 0.3rem 0.85rem;
+    font-size: 0.85rem;
+}
+
+/* Inputs */
+.input-field input,
+.input-field select {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+}
+
+.input-field input:focus,
+.input-field select:focus {
+    border-color: var(--accent);
+}
+
+#simple-config .input-field {
+    max-width: 16rem;
+}
+
+/* Simple mode: what the RV level assumes, as a grid of chips. */
+.assume-title {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 1rem 0 0.5rem;
+}
+
+.chip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 0.4rem;
+}
+
+.chip {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 0.82rem;
+}
+
+.chip-count {
+    font-weight: 600;
+}
+
+.chip-level {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.assume-notes {
+    margin: 0.75rem 0 0.25rem;
+    padding-left: 1.1rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+/* Options and the main button */
+.option-row {
+    gap: 0.4rem;
+    margin: 1.5rem 0 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+.optimize-btn {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: none;
+    border-radius: 10px;
+    padding: 0.8rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.progress-bar-container {
+    position: relative;
+}
+
+/* The exact planner doesn't report progress, so the bar just shows it's working. */
+.progress-bar-fill.indeterminate {
+    position: absolute;
+    width: 35%;
+    background: var(--accent);
+    animation: progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+    from { left: -35%; }
+    to { left: 100%; }
+}
+
+/* Results: the rate */
+.rate-card .summary-label {
+    margin-bottom: 0.1rem;
+}
+
+.rate-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.rate-card .summary-value {
+    display: inline;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+}
+
+.rate-unit-select {
+    margin-top: 0;
+    border-radius: 6px;
+    background: var(--surface-2);
+}
+
+.plan-proof {
+    margin: 0.75rem 0 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.7rem;
+    margin-right: 0.5rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
+}
+
+.plan-unverified {
+    margin: 0.6rem 0 0;
+    font-size: 0.8rem;
+    color: var(--warning);
+}
+
+.tag {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    white-space: nowrap;
+    vertical-align: 1px;
+}
+
+.tag.unverified {
+    border: 1px solid var(--warning);
+    color: var(--warning);
+}
+
+/* Collapsible explanations */
+details.explain {
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+details.explain summary {
+    cursor: pointer;
+    width: fit-content;
+    user-select: none;
+}
+
+details.explain summary:hover {
+    color: var(--text);
+}
+
+details.explain p {
+    margin: 0.5rem 0 0;
+    font-size: 0.82rem;
+}
+
+/* Tables */
+.card table {
+    font-size: 0.85rem;
+}
+
+.card th,
+.card td {
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.55rem 0.6rem;
+}
+
+.card th {
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.7rem;
+}
+
+.card tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.card tbody tr:first-child td {
+    color: inherit;
+    font-weight: normal;
+}
+
+.facility-category-title {
+    font-weight: 600;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.facility-card,
+.module-card {
+    background: var(--surface-2);
+    border: none;
+    border-radius: 10px;
+}
+
+.summary-item {
+    border-radius: 10px;
+    background: var(--surface-2);
+    border: none;
+}
+
+#goal-section .summary-value {
+    color: var(--text);
+}
+
+.error-message {
+    border-color: var(--error);
+}
+
+/* Inputs inside the Advanced tab's facility and module cards. */
+.facility-card .input-field input,
+.module-card .input-field input {
+    background: var(--surface);
+}
+
+@media (max-width: 600px) {
+    .card {
+        padding: 1rem;
+    }
+
+    /* Plan tables become one labelled block per row on narrow screens. */
+    .facility-plan-table thead {
+        display: none;
+    }
+
+    .facility-plan-table tr {
+        display: block;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .facility-plan-table tbody tr:last-child {
+        border-bottom: none;
+    }
+
+    .card .facility-plan-table td {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.15rem 0;
+        border: none;
+        text-align: right;
+    }
+
+    .facility-plan-table td::before {
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        text-align: left;
+        white-space: nowrap;
+    }
+
+    .rate-card .summary-value {
+        font-size: 1.6rem;
+    }
+
+    .chip-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+}
+
+/* Aniimo team card: collapsed to a one-line summary until opened. */
+.collapse-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.collapse-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+}
+
+.collapse-toggle .chevron {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+    transform: rotate(-45deg);
+    transition: transform 0.15s;
+}
+
+.collapse-toggle[aria-expanded="true"] .chevron {
+    transform: rotate(45deg);
+}
+
+.collapse-toggle:hover h2 {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.aniimo-card .card-head {
+    margin-bottom: 0.35rem;
+}
+
+.collapsed-summary {
+    margin: 0 0 0 1.05rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+#aniimo-body {
+    margin-top: 1rem;
+}
+
+/* Aniimo abilities in their in-game colors. */
+.ability {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    background: var(--ability);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.ability.dark {
+    color: #1d1f22;
+}
+
+/* How many of each ability a plan needs, like the game's Abilities screen. */
+.ability-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+    gap: 1rem 0.35rem;
+    margin: 0.85rem 0 0;
+}
+
+@media (min-width: 720px) {
+    .ability-strip {
+        grid-template-columns: repeat(13, minmax(0, 1fr));
+        gap: 0.3rem;
+    }
+}
+
+.ability-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.4rem 0.2rem 0.35rem;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border-top: 3px solid var(--ability);
+}
+
+.ability-count {
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--ability);
+}
+
+.ability-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.ability-cell.zero {
+    opacity: 0.35;
+    border-top-color: var(--border);
+}
+
+.ability-cell.zero .ability-count {
+    color: var(--text-muted);
+}
+
+/* The facility plan's Aniimo column: one colored circle per ability, level inside. */
+.ability-dots {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    vertical-align: middle;
+}
+
+.ability-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--ability);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: help;
+}
+
+.ability-dot.dark {
+    color: #1d1f22;
+}
+
+/* A ring marks an Aniimo that has the facility's personality bonus. */
+.ability-dot.bonus {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ability);
+}
+
+/* The Aniimo behind each ability count, one circle each. */
+/* One column per ability: its box, then its Aniimo circles below it. */
+.ability-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+}
+
+.ability-col .ability-cell {
+    width: 100%;
+}
+
+.ability-stack {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.ability-kind {
+    position: relative;
+    display: inline-flex;
+}
+
+/* Beside the circle without shifting it, so circles line up in their column. */
+.ability-times {
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0.15rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.ability-dot.small {
+    width: 1.2rem;
+    height: 1.2rem;
+    font-size: 0.65rem;
+}
+
+.ability-dot.small.bonus {
+    box-shadow: 0 0 0 1.5px var(--surface-2), 0 0 0 2.75px var(--ability);
+}
+
+/* Strategy: level up or most coins. */
+.strategy {
+    margin: 1.5rem 0 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+.strategy h3 {
+    margin-bottom: 0.6rem;
+}
+
+#level-up-config .input-field {
+    max-width: 16rem;
+}
+
+#level-up-cost .chip-grid {
+    margin-bottom: 0.75rem;
+}
+
+.stock-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem 1rem;
+    margin-top: 0.6rem;
+}
+
+#level-up-config .stock-grid .input-field {
+    max-width: none;
+}
+
+.level-up-note {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin: 0.5rem 0 0;
+}
+
+/* Results: how soon the level-up is covered. */
+.level-up-card .summary-value {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+}
+
+.level-up-lines {
+    width: 100%;
+    margin-top: 0.75rem;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.level-up-lines th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0.3rem 0.5rem 0.3rem 0;
+}
+
+.level-up-lines td {
+    padding: 0.35rem 0.5rem 0.35rem 0;
+    border-top: 1px solid var(--border);
+}
+
+.level-up-lines .slowest td {
+    font-weight: 600;
+}
+
+.level-up-coins {
+    margin: 0.85rem 0 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.level-up-coins strong {
+    color: var(--text);
+}
+
+/* Popups use more of a phone's width. */
+@media (max-width: 600px) {
+    .modal {
+        padding: 0.5rem;
+    }
+
+    .modal-content {
+        margin: 0.5rem auto;
+    }
+
+    .modal-body {
+        padding: 1rem;
+    }
+
+    .math-block {
+        padding: 0.75rem 0.4rem;
+    }
+}
+
+/* Crop and tree jobs in the recipe list: "Sowing [Grass]". */
+.job-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.job {
+    white-space: nowrap;
+}
+
+.job-step {
+    display: inline-block;
+    min-width: 5.5rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.recipe-best {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* Recipe tables become one labelled block per recipe on phones. */
+@media (max-width: 600px) {
+    .recipe-table thead {
+        display: none;
+    }
+
+    .recipe-table tr {
+        display: block;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .recipe-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+        padding: 0.12rem 0;
+        border: none;
+        text-align: right;
+    }
+
+    .recipe-table td.recipe-name {
+        justify-content: flex-start;
+        gap: 0;
+        font-weight: 600;
+        text-align: left;
+        padding-bottom: 0.3rem;
+    }
+
+    /* The "not checked" tooltip hangs from the name cell, not the icon, so a long name can't
+       push it past the edge. */
+    .recipe-table td.recipe-name {
+        position: relative;
+    }
+
+    .recipe-table td.recipe-name .info-icon {
+        position: static;
+    }
+
+    .recipe-table td.recipe-name [data-tooltip]::after {
+        left: 0;
+        transform: none;
+    }
+
+    .recipe-table td.empty {
+        display: none;
+    }
+
+    .recipe-table td[data-label]::before {
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        text-align: left;
+        white-space: nowrap;
+    }
+
+    .recipe-table .job-list {
+        align-items: flex-end;
+    }
+
+    .recipe-table .recipe-best {
+        text-align: right;
+    }
+}
+
+/* Table header tooltips open downward (a scrolling table would clip them above), and the last
+   column's stays inside the table's right edge. */
+.table-wrapper th [data-tooltip]::after {
+    bottom: auto;
+    top: 100%;
+    margin-bottom: 0;
+    margin-top: 0.5rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.table-wrapper th:last-child [data-tooltip]::after {
+    left: auto;
+    right: 0;
+    transform: none;
+}
+
+/* Time and Sell stay on one line; Inputs wraps instead. */
+.recipe-table td:nth-child(5),
+.recipe-table td:nth-child(6) {
+    white-space: nowrap;
 }

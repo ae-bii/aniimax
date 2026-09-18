@@ -6,20 +6,20 @@
 //! - It radiates coverage as a square of side `2 * `[`COVERAGE_RADIUS`] centered on its own exact
 //!   center (not its corner).
 //! - A facility is covered only if its own footprint overlaps that coverage square by a real
-//!   area; a corner-only touch is not enough. Since every footprint is snapped to the
-//!   quarter-grid ([`GRID_STEP`]), any nonzero overlap between two quarter-grid-aligned rectangles
-//!   is automatically at least 0.25x0.25, so this rule falls out for free from only ever
-//!   generating candidate positions on that grid; no separate minimum-area check is needed.
+//!   area; a corner-only touch is not enough. Since every footprint snaps to quarter tiles
+//!   ([`GRID_STEP`]), any nonzero overlap between two quarter-tile-aligned rectangles is
+//!   automatically at least 0.25x0.25, so this rule falls out for free from only ever generating
+//!   candidate positions on that grid; no separate minimum-area check is needed.
 //! - Facilities can't overlap the building itself or each other.
 //! - Facility footprints: Farmland/Dewy House 2x2, Woodland 4x4, Starfall Hammock/Tidewhisper
-//!   Sandcastle/Grass Blossom Mat 5x5; see [`ENVIRONMENT_GATED_FACILITIES`].
+//!   Sandcastle/Floral Windmill 5x5; see [`ENVIRONMENT_GATED_FACILITIES`].
 //!
 //! ## Candidate generation is a bounded heuristic, not exhaustive
 //!
-//! Sweeping every quarter-grid position for every facility type would generate thousands of
+//! Sweeping every quarter-tile position for every facility type would generate thousands of
 //! candidates per type; intractable for the MILP branch & bound this feeds into (see
 //! `crate::optimizer::solve_facility_allocation`). Instead, [`candidate_positions`] finds the
-//! single best quarter-grid alignment for each facility type on its own, plus a handful of
+//! single best quarter-tile alignment for each facility type on its own, plus a handful of
 //! half-space variants (restricting that same search to one half of the region, split through the
 //! building's center) so the ILP has enough raw material to reconstruct mixed layouts when two or
 //! more types share one building's coverage. Candidate **generation** is this bounded, tuned
@@ -35,7 +35,8 @@ pub const BUILDING_SIZE: f64 = 2.0;
 /// Coverage radiates this far from the building's exact center in every direction, i.e. total
 /// coverage span is `2 * COVERAGE_RADIUS` (a 9x9 square).
 pub const COVERAGE_RADIUS: f64 = 4.5;
-/// Facilities snap to this fine grid; also the smallest possible nonzero coverage overlap.
+/// Facilities and buildings snap to quarter tiles in game (screenshots show Farmland offset by
+/// both a quarter and a half tile); also the smallest possible nonzero coverage overlap.
 pub const GRID_STEP: f64 = 0.25;
 
 /// Every facility type whose environment-gated items are capacity-bound by owned environment
@@ -45,7 +46,7 @@ pub const ENVIRONMENT_GATED_FACILITIES: &[(&str, f64)] = &[
     ("Woodland", 4.0),
     ("Starfall Hammock", 5.0),
     ("Tidewhisper Sandcastle", 5.0),
-    ("Grass Blossom Mat", 5.0),
+    ("Floral Windmill", 5.0),
     ("Dewy House", 2.0),
 ];
 
@@ -122,14 +123,18 @@ impl HalfSpace {
     }
 }
 
-/// Finds the single best quarter-grid alignment (offset) for tiling `size`-square facilities
+/// Finds the single best quarter-tile alignment (offset) for tiling `size`-square facilities
 /// around the fixed building/coverage geometry, optionally restricted to one `half`, and returns
 /// every valid position from that best alignment (valid = doesn't overlap the building, overlaps
-/// the coverage square by positive area).
-fn best_grid_positions(size: f64, half: Option<HalfSpace>) -> Vec<(f64, f64)> {
+/// the coverage square by positive area). Also returns, second, the alignment fitting the same
+/// number whose positions sit most evenly around the building (the same as the first if that one
+/// already does), for tidying layouts (see `compact_layout`); the first can pack better alongside
+/// other facility types, so it's the one offered to the packing.
+fn best_grid_positions(size: f64, half: Option<HalfSpace>) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
     let building = building_rect();
     let coverage = coverage_rect();
     let mut best: Vec<(f64, f64)> = Vec::new();
+    let mut centered: Vec<(f64, f64)> = Vec::new();
 
     let steps = (size / GRID_STEP).round() as i64;
     for oi in 0..steps {
@@ -167,11 +172,31 @@ fn best_grid_positions(size: f64, half: Option<HalfSpace>) -> Vec<(f64, f64)> {
             }
 
             if positions.len() > best.len() {
-                best = positions;
+                best = positions.clone();
+                centered = positions;
+            } else if positions.len() == best.len() && off_center(&positions, size) < off_center(&centered, size) - EPS {
+                centered = positions;
             }
         }
     }
-    best
+    (best, centered)
+}
+
+/// How far the middle of `positions`' bounding box (for `size`-square footprints) is from the
+/// building's center, summed over both axes; 0 for a set laid out evenly around the building.
+fn off_center(positions: &[(f64, f64)], size: f64) -> f64 {
+    if positions.is_empty() {
+        return f64::INFINITY;
+    }
+    let center = BUILDING_SIZE / 2.0;
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+    for &(x, y) in positions {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x + size);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y + size);
+    }
+    ((min_x + max_x) / 2.0 - center).abs() + ((min_y + max_y) / 2.0 - center).abs()
 }
 
 /// Every candidate position worth offering the packing solver for one facility type: its own
@@ -179,18 +204,21 @@ fn best_grid_positions(size: f64, half: Option<HalfSpace>) -> Vec<(f64, f64)> {
 /// reconstruct "Hybrid"-style splits when sharing coverage with another type); deduplicated.
 pub fn candidate_positions(size: f64) -> Vec<(f64, f64)> {
     let split = BUILDING_SIZE / 2.0; // the building's own center coordinate on each axis
-    let mut all: Vec<(f64, f64)> = best_grid_positions(size, None);
+    let mut all: Vec<(f64, f64)> = best_grid_positions(size, None).0;
+    let mut add = |positions: Vec<(f64, f64)>| {
+        for pos in positions {
+            if !all.contains(&pos) {
+                all.push(pos);
+            }
+        }
+    };
     for half in [
         HalfSpace::Left(split),
         HalfSpace::Right(split),
         HalfSpace::Bottom(split),
         HalfSpace::Top(split),
     ] {
-        for pos in best_grid_positions(size, Some(half)) {
-            if !all.contains(&pos) {
-                all.push(pos);
-            }
-        }
+        add(best_grid_positions(size, Some(half)).0);
     }
     all
 }
@@ -220,7 +248,7 @@ pub struct PackingSolution {
 }
 
 /// Adds the non-overlap constraints for a set of placement variables, bounding how many can cover
-/// any single quarter-grid cell at once by `capacity`. This is a cell-based set-packing
+/// any single quarter-tile cell at once by `capacity`. This is a cell-based set-packing
 /// formulation (standard for "no two selected rectangles overlap"), not naive pairwise
 /// `var_i + var_j <= capacity` constraints; pairwise gives an extremely loose LP relaxation for
 /// this kind of problem, whereas bounding how many placements can cover each individual cell is
@@ -503,6 +531,165 @@ pub fn solve_building_packing<'a>(
     (mode_counts, result_placements, layouts)
 }
 
+/// One way a single environment building can cover facilities: how many of each facility type
+/// (in the order of the `types` it was computed for) fit in its coverage, and where they go.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoverageOption {
+    pub counts: Vec<u32>,
+    pub layout: Vec<Placement>,
+}
+
+/// The most facilities of `types[target]` one building's coverage can hold while also holding at
+/// least `minimums[t]` of every other type, with the layout; `None` if the minimums don't fit.
+/// Other types get a tiny weight so the layout is filled out rather than just meeting the minimums.
+fn most_with_minimums(types: &[&str], minimums: &[u32], target: usize) -> Option<CoverageOption> {
+    let mut problem = microlp::Problem::new(microlp::OptimizationDirection::Maximize);
+    let mut vars: Vec<(Placement, microlp::Variable)> = Vec::new();
+    let mut type_of: Vec<usize> = Vec::new();
+    for (t, &facility) in types.iter().enumerate() {
+        let size = facility_footprint(facility)?;
+        let weight = if t == target { 1.0 } else { 1e-3 };
+        for placement in candidate_placements(facility, size) {
+            vars.push((placement, problem.add_binary_var(weight)));
+            type_of.push(t);
+        }
+    }
+    add_cell_conflict_constraints(&mut problem, &vars, 1);
+    for (t, &minimum) in minimums.iter().enumerate() {
+        if t == target || minimum == 0 {
+            continue;
+        }
+        let terms: Vec<(microlp::Variable, f64)> =
+            vars.iter().zip(&type_of).filter(|(_, &ty)| ty == t).map(|((_, v), _)| (*v, 1.0)).collect();
+        problem.add_constraint(&terms, microlp::ComparisonOp::Ge, minimum as f64);
+    }
+    problem.set_time_limit(std::time::Duration::from_secs(5));
+    let solution = problem.solve().ok()?;
+    let chosen: Vec<usize> = (0..vars.len()).filter(|&i| solution[vars[i].1] > 0.5).collect();
+    if vars.iter().any(|(_, v)| (1e-6..=1.0 - 1e-6).contains(&solution[*v])) {
+        return None;
+    }
+    let mut counts = vec![0u32; types.len()];
+    for &i in &chosen {
+        counts[type_of[i]] += 1;
+    }
+    if counts.iter().zip(minimums).enumerate().any(|(t, (c, m))| t != target && c < m) {
+        return None;
+    }
+    let layout = compact_layout(chosen.into_iter().map(|i| vars[i].0.clone()).collect(), types);
+    Some(CoverageOption { counts, layout })
+}
+
+/// Distance from a placement's center to the building's center.
+fn distance_to_building(p: &Placement) -> f64 {
+    let center = BUILDING_SIZE / 2.0;
+    (p.x + p.size / 2.0 - center).hypot(p.y + p.size / 2.0 - center)
+}
+
+/// Pulls a layout in around the building without changing how many of each type it holds: moves
+/// the farthest placement to the closest free candidate spot of its type that's nearer, and
+/// repeats until nothing moves. Many layouts fit the same counts; this picks a compact, centered
+/// one to show.
+fn compact_layout(mut layout: Vec<Placement>, types: &[&str]) -> Vec<Placement> {
+    // The packing candidates plus each type's most centered grid, which the packing itself
+    // doesn't need (it never fits more) but gives plots somewhere tidier to move to.
+    let mut candidates: Vec<Placement> = Vec::new();
+    for &facility in types {
+        if let Some(size) = facility_footprint(facility) {
+            candidates.extend(candidate_placements(facility, size));
+            for (x, y) in best_grid_positions(size, None).1 {
+                candidates.push(Placement { facility: facility.to_string(), x, y, size });
+            }
+        }
+    }
+    candidates.sort_by(|a, b| distance_to_building(a).partial_cmp(&distance_to_building(b)).unwrap_or(std::cmp::Ordering::Equal));
+    loop {
+        layout.sort_by(|a, b| distance_to_building(b).partial_cmp(&distance_to_building(a)).unwrap_or(std::cmp::Ordering::Equal));
+        let mut moved = false;
+        for i in 0..layout.len() {
+            let current = distance_to_building(&layout[i]);
+            let spot = candidates.iter().find(|c| {
+                c.facility == layout[i].facility
+                    && distance_to_building(c) < current - EPS
+                    && layout.iter().enumerate().all(|(j, other)| j == i || !placements_overlap(c, other))
+            });
+            if let Some(spot) = spot {
+                layout[i] = spot.clone();
+                moved = true;
+                break;
+            }
+        }
+        if !moved {
+            return layout;
+        }
+    }
+}
+
+/// Tries every minimum count of `types[position]` from 0 up until it no longer fits, recursing into
+/// the next position; at the last type, records the most of it that fits. Returns whether the
+/// minimums fixed so far fit at all.
+fn walk_minimums(types: &[&str], minimums: &mut Vec<u32>, position: usize, found: &mut Vec<CoverageOption>) -> bool {
+    let last = types.len() - 1;
+    if position == last {
+        return match most_with_minimums(types, minimums, last) {
+            Some(option) => {
+                found.push(option);
+                true
+            }
+            None => false,
+        };
+    }
+    let mut minimum = 0;
+    loop {
+        minimums[position] = minimum;
+        if !walk_minimums(types, minimums, position + 1, found) {
+            break;
+        }
+        minimum += 1;
+    }
+    minimums[position] = 0;
+    minimum > 0
+}
+
+thread_local! {
+    static OPTION_CACHE: std::cell::RefCell<HashMap<Vec<String>, Vec<CoverageOption>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Every undominated way one environment building can cover a mix of `types` (e.g. "16 Farmland"
+/// or "2 Woodland and 8 Farmland"): no option covers at least as many of every type as another
+/// and more of one. The geometry never changes, so results are cached per type list.
+///
+/// Walks every combination of minimum counts for all but the last type and asks the packing ILP
+/// for the most of the last type that still fits, so types should be ordered largest footprint
+/// first (the last type has the most possible counts, and is the one never enumerated).
+pub fn single_building_options(types: &[&str]) -> Vec<CoverageOption> {
+    let key: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+    if let Some(hit) = OPTION_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let mut found: Vec<CoverageOption> = Vec::new();
+    if !types.is_empty() {
+        let mut minimums = vec![0u32; types.len()];
+        walk_minimums(types, &mut minimums, 0, &mut found);
+    }
+    let undominated: Vec<CoverageOption> = found
+        .iter()
+        .filter(|a| {
+            !found.iter().any(|b| b.counts != a.counts && b.counts.iter().zip(&a.counts).all(|(x, y)| x >= y))
+        })
+        .cloned()
+        .collect();
+    let mut unique: Vec<CoverageOption> = Vec::new();
+    for option in undominated {
+        if !unique.iter().any(|u| u.counts == option.counts) {
+            unique.push(option);
+        }
+    }
+    OPTION_CACHE.with(|cache| cache.borrow_mut().insert(key, unique.clone()));
+    unique
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,9 +727,10 @@ mod tests {
 
     #[test]
     fn multi_type_sharing_gives_a_sensible_non_zero_split() {
-        // Farmland + Starfall Hammock, both weighted so neither trivially dominates, one
-        // building: confirm both types can actually get placed (not one starving the other).
-        let solution = solve_packing(&[("Farmland", 1.0), ("Starfall Hammock", 1.0)], 1)
+        // Farmland + Starfall Hammock, one building, the Hammock worth twice a Farmland plot: a
+        // mix (31 Farmland + 1 Hammock = 33) beats Farmland alone (32), so both must get placed.
+        // (At equal weights the two tie, and either answer is right.)
+        let solution = solve_packing(&[("Farmland", 1.0), ("Starfall Hammock", 2.0)], 1)
             .expect("packing should be feasible");
         let farmland = solution.covered.iter().find(|(n, _)| n == "Farmland").map(|(_, c)| *c).unwrap_or(0);
         let hammock = solution.covered.iter().find(|(n, _)| n == "Starfall Hammock").map(|(_, c)| *c).unwrap_or(0);
@@ -613,7 +801,7 @@ mod tests {
 
     #[test]
     fn woodland_alone_matches_expected_max() {
-        let positions = best_grid_positions(4.0, None);
+        let positions = best_grid_positions(4.0, None).0;
         assert_eq!(positions.len(), 12, "Woodland's unrestricted best grid should be exactly 12");
     }
 
@@ -646,7 +834,7 @@ mod tests {
             let placements = candidate_placements(name, size);
             // Spot-check the unrestricted grid specifically (a subset of `placements`, but built
             // fresh here so this test doesn't depend on `candidate_positions`'s internal order).
-            let grid = best_grid_positions(size, None);
+            let grid = best_grid_positions(size, None).0;
             for i in 0..grid.len() {
                 for j in (i + 1)..grid.len() {
                     let a = Rect::new(grid[i].0, grid[i].1, size);

@@ -1,0 +1,5 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+coarse_sifted_ore, mineral_sand, 8, 0, none, 34, 1,
+sintered_ore_brick, coarse_sifted_ore, 8, 0, none, 34, 2,
+refined_ore, sintered_ore_brick, 8, 0, none, 41, 3,
+microcrystalline_ore_plate, refined_ore, 4, 0, none, 41, 4,

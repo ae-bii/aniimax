@@ -1,0 +1,168 @@
+name, facility, ability, min_level
+soy_sauce_fried_rice, Blazing Stove, Fire, 2
+creamy_potato_soup, Blazing Stove, Fire, 2
+cherry_blossom_rice_ball, Blazing Stove, Fire, 2
+premium_potato_soup, Blazing Stove, Fire, 2
+tanghulu, Blazing Stove, Fire, 2
+soy_sauce_tofu, Blazing Stove, Fire, 2
+sugar_roasted_chestnuts, Blazing Stove, Fire, 2
+steamed_vermicelli_roll, Blazing Stove, Fire, 3
+ginseng_chestnut_cake, Blazing Stove, Fire, 3
+walnut_cake, Blazing Stove, Fire, 3
+jello, Blazing Stove, Fire, 3
+strawberry_candy, Blazing Stove, Fire, 3
+rich_grape_compote, Blazing Stove, Fire, 3
+premium_jello, Blazing Stove, Fire, 3
+strawberry_cream_puff, Blazing Stove, Fire, 3
+cranberry_chocolate, Blazing Stove, Fire, 3
+wheat_tea, Bouncy Brew Keg, Water, 2
+toasted_rice_green_tea, Bouncy Brew Keg, Water, 2
+potato_kvass, Bouncy Brew Keg, Water, 2
+strawberry_juice, Bouncy Brew Keg, Water, 2
+apple_juice, Bouncy Brew Keg, Water, 2
+sugarcane_juice, Bouncy Brew Keg, Water, 2
+grape_juice, Bouncy Brew Keg, Water, 3
+ginseng_water, Bouncy Brew Keg, Water, 3
+grape_lemon_drink, Bouncy Brew Keg, Water, 3
+walnut_milk, Bouncy Brew Keg, Water, 3
+cranberry_juice, Bouncy Brew Keg, Water, 3
+coconut_cooler, Bouncy Brew Keg, Water, 3
+agave_drink, Bouncy Brew Keg, Water, 3
+hot_cocoa, Bouncy Brew Keg, Water, 3
+coconut_cocoa, Bouncy Brew Keg, Water, 3
+orange_flower_dew, Bouncy Brew Keg, Water, 3
+wheatmeal, Carousel Mill, Wind, 1
+milled_rice, Carousel Mill, Wind, 1
+tofu, Carousel Mill, Wind, 1
+lavender_powder, Carousel Mill, Wind, 2
+ginseng_powder, Carousel Mill, Wind, 3
+rice_drink, Carousel Mill, Wind, 3
+coconut_oil, Carousel Mill, Wind, 3
+refined_flour, Carousel Mill, Wind, 3
+cocoa_powder, Carousel Mill, Wind, 3
+coconut_milk, Carousel Mill, Wind, 3
+bread, Claw Game Cooker, Fire, 1
+premium_bread, Claw Game Cooker, Fire, 1
+roasted_soybeans, Claw Game Cooker, Fire, 1
+maple_candy_roasted_potatoes, Claw Game Cooker, Fire, 2
+apple_tart, Claw Game Cooker, Fire, 2
+rose_shortbread, Claw Game Cooker, Fire, 2
+apple_candy, Claw Game Cooker, Fire, 2
+lavender_cookies, Claw Game Cooker, Fire, 2
+caramel_nut_chips, Claw Game Cooker, Fire, 3
+grape_candy, Claw Game Cooker, Fire, 3
+maple_candy_star, Claw Game Cooker, Fire, 3
+coconut_cookie, Claw Game Cooker, Fire, 3
+flower_bread, Claw Game Cooker, Fire, 3
+berry_chocolate_coconut_pudding, Claw Game Cooker, Fire, 3
+premium_berry_chocolate_coconut_pudding, Claw Game Cooker, Fire, 3
+wood_sculpture, Crafting Table, Artisanship, 1
+bamboo_ware, Crafting Table, Artisanship, 1
+river_washed_stones, Crafting Table, Artisanship, 1
+premium_river_washed_stones, Crafting Table, Artisanship, 1
+rose_freshener, Crafting Table, Artisanship, 2
+pottery, Crafting Table, Artisanship, 2
+premium_rose_freshener, Crafting Table, Perfumery, 2
+shell_ornament, Crafting Table, Artisanship, 2
+bouquet, Crafting Table, Artisanship, 2
+lavender_sachet, Crafting Table, Artisanship, 2
+wind_chime, Crafting Table, Artisanship, 3
+star_wish_lantern, Crafting Table, Artisanship, 3
+dream_catcher, Crafting Table, Artisanship, 3
+advanced_wind_chime, Crafting Table, Artisanship, 3
+porcelain, Crafting Table, Artisanship, 3
+pearl_necklace, Crafting Table, Artisanship, 3
+woven_toy, Crafting Table, Artisanship, 3
+rubber_duck, Crafting Table, Artisanship, 3
+gemstone_dust, Crafting Table, Artisanship, 3
+dye, Crafting Table, Artisanship, 3
+flowers_in_a_bottle, Crafting Table, Artisanship, 3
+advanced_gemstone_dust, Crafting Table, Artisanship, 3
+doll, Crafting Table, Artisanship, 3
+aromathyst, Dewy House, Leisure, 2
+quick_aromathyst, Dewy House, Leisure, 3
+scales, Floral Windmill, Leisure, 3
+quick_scales, Floral Windmill, Leisure, 3
+cotton_thread, Joy Wheel Loom, Wind, 2
+woolen_yarn, Joy Wheel Loom, Wind, 2
+cotton_fabric, Joy Wheel Loom, Wind, 2
+palm_rope, Joy Wheel Loom, Wind, 3
+wool_fabric, Joy Wheel Loom, Wind, 3
+dyed_cotton_fabric, Joy Wheel Loom, Wind, 3
+potato_chips, Jukebox Dryer, Dark, 1
+dried_lemon_slices, Jukebox Dryer, Dark, 1
+dried_bean_curd, Jukebox Dryer, Dark, 2
+dried_cherry_blossom, Jukebox Dryer, Dark, 2
+dried_strawberries, Jukebox Dryer, Dark, 2
+dried_apple_slices, Jukebox Dryer, Dark, 2
+nuts, Jukebox Dryer, Dark, 3
+dried_ginseng, Jukebox Dryer, Dark, 3
+dried_grapes, Jukebox Dryer, Dark, 3
+shredded_coconut, Jukebox Dryer, Dark, 3
+dried_cranberries, Jukebox Dryer, Dark, 3
+dried_flowers, Jukebox Dryer, Dark, 3
+rock, Mine, Earth, 1
+clay, Mine, Earth, 2
+shell, Mine, Earth, 2
+copper_ore, Mine, Earth, 3
+quartz_ore, Mine, Earth, 3
+gem, Mine, Earth, 3
+wool, Nimbus Bed, Leisure, 2
+quick_wool, Nimbus Bed, Leisure, 3
+petals, Nimbus Bed, Leisure, 3
+bamboo_joss_stick, Phonolfactory Table, Perfumery, 2
+rose_incense, Phonolfactory Table, Perfumery, 2
+cherry_incense, Phonolfactory Table, Perfumery, 2
+lavender_incense, Phonolfactory Table, Perfumery, 2
+lemon_incense, Phonolfactory Table, Perfumery, 2
+advanced_lemon_incense, Phonolfactory Table, Perfumery, 2
+herbal_ginseng_aroma, Phonolfactory Table, Perfumery, 3
+soap, Phonolfactory Table, Perfumery, 3
+premium_soap, Phonolfactory Table, Perfumery, 3
+orange_flower_incense, Phonolfactory Table, Perfumery, 3
+mixed_perfume, Phonolfactory Table, Perfumery, 3
+lotion, Phonolfactory Table, Perfumery, 3
+premium_mixed_perfume, Phonolfactory Table, Perfumery, 3
+soy_sauce, Pickling Jar, Dark, 2
+salted_cherry_blossom, Pickling Jar, Dark, 2
+sweet_rice_drink, Pickling Jar, Dark, 2
+cider_vinegar, Pickling Jar, Dark, 2
+premium_sweet_rice_wine, Pickling Jar, Dark, 2
+rice_vinegar, Pickling Jar, Dark, 3
+salted_lemon, Pickling Jar, Dark, 3
+premium_salted_lemon, Pickling Jar, Dark, 3
+candied_strawberries, Pickling Jar, Dark, 3
+candied_orange_flower, Pickling Jar, Dark, 3
+plain_rice_porridge, Simmering Pot, Fire, 1
+rose_concentrate, Simmering Pot, Fire, 2
+rock_candy, Simmering Pot, Fire, 2
+strawberry_jam, Simmering Pot, Fire, 2
+maple_candy_apple_jam, Simmering Pot, Fire, 2
+grape_jam, Simmering Pot, Fire, 3
+ginseng_porridge, Simmering Pot, Fire, 3
+chestnut_puree, Simmering Pot, Fire, 3
+malt_sugar, Simmering Pot, Fire, 3
+maple_sugar_chunk, Simmering Pot, Fire, 3
+cranberry_jam, Simmering Pot, Fire, 3
+cocoa_spread, Simmering Pot, Fire, 3
+agave_syrup, Simmering Pot, Fire, 3
+star, Starfall Hammock, Leisure, 3
+sea_salt, Tidewhisper Sandcastle, Leisure, 1
+quick_sea_salt, Tidewhisper Sandcastle, Leisure, 2
+pearl, Tidewhisper Sandcastle, Leisure, 3
+well_water, Well, Water, 1
+quick_well_water, Well, Water, 1
+fresh_water, Well, Water, 2
+quick_fresh_water, Well, Water, 3
+deep_rock_spring_water, Well, Water, 3
+quick_deep_rock_spring_water, Well, Water, 3
+natural_mineral_spring_water, Well, Water, 3
+quick_natural_mineral_spring_water, Well, Water, 3
+rough_lumber, Woodworking Bench, Artisanship, 2
+standard_planks, Woodworking Bench, Artisanship, 2
+laminated_beams, Woodworking Bench, Artisanship, 2
+densified_timber_component, Woodworking Bench, Artisanship, 2
+coarse_sifted_ore, Chimney Kiln, Fire, 2
+sintered_ore_brick, Chimney Kiln, Fire, 2
+refined_ore, Chimney Kiln, Fire, 2
+microcrystalline_ore_plate, Chimney Kiln, Fire, 2

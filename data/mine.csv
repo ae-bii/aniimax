@@ -1,0 +1,7 @@
+name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
+rock, coins, 7, 900, 6, 3, 1, ,
+clay, coins, 22, 2250, 10, 16, 2, ,
+shell, coins, 76, 2250, 6, 32, 3, ,
+copper_ore, coins, 160, 2700, 5, 56, 4, ,
+quartz_ore, coins, 300, 2700, 4, 86, 5, ,
+gem, coins, 850, 2700, 2, 122, 6, ,

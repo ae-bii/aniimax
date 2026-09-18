@@ -1,0 +1,5 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+rough_lumber, wood_block, 8, 0, none, 34, 1,
+standard_planks, rough_lumber, 8, 0, none, 34, 2,
+laminated_beams, standard_planks, 8, 0, none, 41, 3,
+densified_timber_component, laminated_beams, 4, 0, none, 41, 4,

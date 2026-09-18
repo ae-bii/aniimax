@@ -2,9 +2,9 @@
 
 A command-line tool, Rust library, and **web application** for optimizing production paths in Aniimo Homeland. Calculate the fastest way to produce your target amount of Homeland currency, and see what every facility you own should be doing at once.
 
-Supports the current beta with the full facility roster, Bud Tickets, and a joint LP-based facility-allocation engine for the web app (the CLI uses a simpler greedy approach; see [How the Optimization Works](#how-the-optimization-works) for the difference).
+Updated for the full release, with a joint LP-based facility-allocation engine for the web app (the CLI uses a simpler greedy approach; see [How the Optimization Works](#how-the-optimization-works) for the difference). Game data is being re-verified against the release facility by facility; facilities whose data hasn't been confirmed yet are left out until it is, so the calculator never recommends numbers from an older version of the game.
 
-> **Note:** This project is a work in progress. Not all in-game items are included yet, and production times are assumed to match the values displayed in-game.
+> **Note:** Game data for the full release is still being filled in, so some facilities and items are missing.
 
 ## Try It Online
 
@@ -13,19 +13,23 @@ Supports the current beta with the full facility roster, Bud Tickets, and a join
 ## Features
 
 **Web app**
-- **Live Production Plan**: Set your facilities and currency to get the best achievable rate and what every facility should produce; no target amount needed
+- **Simple or Advanced Setup**: Simple mode only asks for your RV level and assumes everything that level allows is built and upgraded; advanced mode sets every facility's count and level (and can start from the simple-mode setup)
+- **Live Production Plan**: Set your facilities to get the best achievable rate and what every facility should produce; no target amount needed
 - **Goal Timing**: Add a target amount afterward to see how long it'll take; updates instantly as you type, no re-solving
+- **Proven Best Plans**: The web app solves the whole problem exactly (every recipe, whole plots and machines, and environment building layouts together) with the [HiGHS](https://highs.dev) solver, and says when a plan is proven to be the best possible for your facilities
 - **Joint Facility Allocation**: Solves for every item and every facility at once, so shared resources (e.g. two recipes both wanting the same Farmland soybean supply) are split correctly instead of double-counted
-- **Whole-Unit Realism**: Growers are rounded to whole plots, processors are dedicated to one recipe each, matching how the game actually works, never a fractional or time-shared facility
-- **Multi-Currency Support**: Optimize for Coins or Bud Tickets
+- **Whole-Unit Realism**: Growers are rounded to whole plots and processors are dedicated to one recipe each, matching how the game actually works; only the Woodworking Bench and Chimney Kiln take turns between tiers, since each tier is made from the one below
+- **Level-Up Strategy**: Plans the soonest next RV level-up (coins plus the Woodworking Bench and Chimney Kiln items it costs), counting what you already have, then earns as many coins as that pace allows; RV 7 to 20
+- **Byproduct Priority**: With the Most coins strategy, optionally guarantee the maximum Wood Blocks/Mineral Sand rate first, even at some cost to Coins
 - **Recipe Reference Page**: Every recipe in the game data, browsable by facility, independent of what you own
-- **Item Upgrade Modules**: Support for module-unlocked items (ecological, kitchen, mineral, crafting)
+- **Aniimo Recommendations**: Every plan is solved twice, for the Best Aniimo (level 3 with the facility's personality bonus everywhere) and the Minimum (the lowest ability level each recipe accepts), and lists the Aniimo team it needs: each ability, level and personality, and how many it takes to keep up with the work (Farmland and Woodland jobs included), checked against how many Aniimo your RV level allows; times follow measured in-game speeds (108 workload takes 108s at level 1, 36s at level 2, 27s at level 3; the personality bonus makes it 20% faster)
+- **Item Upgrade Modules**: Support for module-unlocked items (Ecological, Kitchen, Resource Detector, Crafting)
 
 **CLI / library**
 - **Time or Energy Optimization**: Fastest path, or best profit per energy unit
 - **Energy Self-Sufficient Mode**: Produce items to consume for energy instead of buying
 - **Cross-Facility Parallel Mode**: Run independent, non-conflicting production chains simultaneously
-- **Optimal Facility Allocation**: Binary-search-based splitting when one recipe needs multiple materials from the same facility (e.g. lavender + rose for dried_flowers)
+- **Optimal Facility Allocation**: Binary-search-based splitting when one recipe needs multiple materials from the same facility (e.g. rose + lavender for bouquet)
 - **Startup Time Tracking**: Shows first-batch delay vs steady-state production time
 
 ## Installation
@@ -52,8 +56,8 @@ The binary will be available at `target/release/aniimax`.
 # Make 10000 coins as fast as possible
 cargo run --release -- --target 10000 --currency coins
 
-# Make 500 Bud Tickets
-cargo run --release -- --target 500 --currency bud_tickets
+# Maximize Wood Blocks instead of coins
+cargo run --release -- --target 500 --currency wood_blocks
 ```
 
 ### With Facility Counts and Levels
@@ -95,7 +99,8 @@ cargo run --release -- --target 2000 --currency coins --energy-cost 10
 ```
 Options:
   -t, --target <TARGET>              Target amount of currency to produce
-  -c, --currency <CURRENCY>          Currency type (coins or bud_tickets) [default: coins]
+  -c, --currency <CURRENCY>          What to optimize for: coins, or a byproduct
+                                     (wood_blocks or mineral_sand) [default: coins]
   -e, --energy-cost <ENERGY_COST>    Energy cost per minute [default: 0.0]
       --energy-self-sufficient       Produce items to consume for energy
       --parallel                     Run different facility types simultaneously
@@ -103,32 +108,45 @@ Options:
   Facility counts:
       --farmland <N>                 Number of Farmland plots [default: 1]
       --woodland <N>                 Number of Woodland plots [default: 1]
-      --mineral-pile <N>             Number of Mineral Pile slots [default: 1]
+      --mine <N>                     Number of Mine slots [default: 1]
+      --well <N>                     Number of Wells [default: 0]
+      --tidewhisper-sandcastle <N>   Number of Tidewhisper Sandcastles [default: 0]
       --carousel-mill <N>            Number of Carousel Mill machines [default: 1]
+      --claw-game-cooker <N>         Number of Claw Game Cookers [default: 1]
       --jukebox-dryer <N>            Number of Jukebox Dryer machines [default: 1]
       --crafting-table <N>           Number of Crafting Table slots [default: 1]
-      --nimbus-bed <N>               Number of Nimbus Bed slots (produces Wool/Petals) [default: 0]
+      --simmering-pot <N>            Number of Simmering Pots [default: 0]
 
   Facility levels:
       --farmland-level <N>           Farmland facility level [default: 1]
       --woodland-level <N>           Woodland facility level [default: 1]
-      --mineral-pile-level <N>       Mineral Pile facility level [default: 1]
+      --mine-level <N>               Mine facility level [default: 1]
+      --well-level <N>               Well facility level [default: 1]
+      --tidewhisper-sandcastle-level <N>
+                                     Tidewhisper Sandcastle facility level [default: 1]
       --carousel-mill-level <N>      Carousel Mill facility level [default: 1]
+      --claw-game-cooker-level <N>   Claw Game Cooker facility level [default: 1]
       --jukebox-dryer-level <N>      Jukebox Dryer facility level [default: 1]
       --crafting-table-level <N>     Crafting Table facility level [default: 1]
-      --nimbus-bed-level <N>         Nimbus Bed facility level [default: 1]
+      --simmering-pot-level <N>      Simmering Pot facility level [default: 1]
+
+  Aniimo:
+      --aniimo-level <N>             Ability level (1-3) of the Aniimo working the Mine, Well,
+                                     Tidewhisper Sandcastle and processors [default: 1]
+      --personality-bonus            The working Aniimo has each facility's personality
+                                     bonus (+20% speed)
 
   Item upgrade modules:
-      --ecological-module <N>        Ecological Module level (unlocks high-speed crops) [default: 0]
-      --kitchen-module <N>           Kitchen Module level (unlocks super wheatmeal) [default: 0]
-      --mineral-detector <N>         Mineral Detector level (unlocks high-speed rock) [default: 0]
-      --crafting-module <N>          Crafting Module level (unlocks advanced crafts) [default: 0]
+      --ecological-module <N>        Ecological Module level (unlocks quick crops) [default: 0]
+      --kitchen-module <N>           Kitchen Module level (unlocks premium dishes) [default: 0]
+      --resource-detector <N>        Resource Detector level (unlocks quick gathered items) [default: 0]
+      --crafting-module <N>          Crafting Module level (unlocks premium crafts) [default: 0]
 
   -h, --help                         Print help
   -V, --version                      Print version
 ```
 
-> **CLI facility coverage:** the CLI currently only exposes the 7 facilities listed above. Any facility not listed here (Claw Game Cooker, Bouncy Brew Keg, Phonolfactory Table, Joy Wheel Loom, and the newer Aniimo-material facilities) defaults to 1 owned at level 1 when computing efficiencies. For full coverage of every current facility, use the [web app](https://ae-bii.github.io/aniimax/) instead.
+> **CLI coverage:** the CLI exposes the 10 facilities listed above; any facility without a flag counts as not owned. The CLI also doesn't model environment coverage, so it can recommend a crop that needs a Heat Furnace, Cooling Unit or Sunlamp you don't own. For full coverage, use the [web app](https://ae-bii.github.io/aniimax/) instead.
 
 ## Example Output
 
@@ -144,13 +162,24 @@ Configuration:
 Facilities (count x level):
   Farmland:           4 x Lv.3
   Woodland:           1 x Lv.1
-  Mineral Pile:       1 x Lv.1
+  Mine:               1 x Lv.1
+  Well:               0 x Lv.1
+  Tidewhisper:        0 x Lv.1
   Carousel Mill:      2 x Lv.2
+  Claw Game Cooker:   1 x Lv.1
   Jukebox Dryer:      1 x Lv.1
   Crafting Table:     1 x Lv.1
-  Nimbus Bed:         0 x Lv.1
+  Simmering Pot:      0 x Lv.1
 
-Loaded 13 production items.
+Item Modules:
+  Ecological Module:  Lv.0
+  Kitchen Module:     Lv.0
+  Resource Detector:  Lv.0
+  Crafting Module:    Lv.0
+
+Aniimo:             Lv.1 suitability
+
+Loaded 194 production items.
 
 +================================================================+
 |           ANIIMO PRODUCTION OPTIMIZATION RESULTS              |
@@ -158,33 +187,47 @@ Loaded 13 production items.
 
 [BEST PRODUCTION PATH]
 ----------------------------------------------------------------
-  Step 1: Produce 53 x rice_plant at Farmland (x4)
+  Step 1: Produce 396 x rice at Farmland (x4)
+  Step 2: Produce 22 x milled_rice at Carousel Mill (x2)
 
 [SUMMARY]
 ----------------------------------------------------------------
-  Total Profit:     5035 coins
-  Total Time:       13m 30s
-    - Startup:      14s (first batch)
-    - Steady-state: 13m 16s
-  Total Energy:     19557
-  Items Produced:   530
+  Total Profit:     5016 coins
+  Total Time:       4h 20m 27s
+    - Startup:      40m 27s (first batch)
+    - Steady-state: 3h 40m 0s
+  Items Produced:   22
 
 [ALL OPTIONS RANKED] (by time efficiency)
 ----------------------------------------------------------------
 Item                   Profit/sec Profit/energy    Time/unit
 ----------------------------------------------------------------
-rice_plant                 7.0370       0.2575          14s
-wheat                      6.6667       0.1236           2s
+milled_rice                0.3800          N/A      40m 27s
+tofu                       0.3633          N/A      40m 27s
 ...
 ```
 
 ## How the Optimization Works
 
-The web app and the CLI/library use two different approaches to the same underlying problem.
+The web app and the CLI/library use different approaches to the same underlying problem.
 
-### Web App: Joint Facility Allocation
+### Web App: Exact Planner
 
-The web app (`find_plan`, backed by `find_production_plan`) solves a harder version of the problem than "what's the single best item": it solves for what *every* owned facility should be doing at once, including facilities that multiple recipes want to share.
+The web app builds the whole problem as one mixed-integer program (`src/exact.rs`) and solves it with [HiGHS](https://highs.dev), compiled to WebAssembly and run in the page's worker (`web/vendor/highs`, MIT license):
+
+- **Recipes and units.** Every available recipe gets a rate (batches/sec) and a whole number of units set to it: plots for a crop, machines for a processed item. A unit makes one thing and is left running, so its rate is at most `units / time per batch`.
+- **Item balances.** Everything made covers what other recipes use plus what's sold. A quick variant makes the same item as the regular one, and any leftover sells.
+- **Facilities.** Each facility's units add up to at most what's owned, counting only units at a high enough level for each recipe.
+- **Growing environments.** Each Heat Furnace, Cooling Unit and Sunlamp runs one mode and one coverage mix, from every undominated way one building can cover Farmland, Woodland and the rest (worked out once by exact packing); a crop needing an environment needs its plots covered.
+- **Byproducts.** Wood Blocks and Mineral Sand balance like any other item, so the Woodworking Bench and Chimney Kiln can use them. Their recipes (level-up materials) take turns on the same unit instead of getting whole units each.
+- **Objective.** Coins/sec from everything sold, minus seed costs. With byproducts prioritized, the most of each byproduct is found first and the plan must keep making that much.
+- **Level-up.** The most level-ups per day ("pace") the plan could keep up: coins earned plus `pace x stock` must cover `pace x cost` for coins and every item, which stays linear. A second solve then finds the most coins at that pace, and a third puts spare Bench and Kiln time into more of what the level-up costs, so e.g. plentiful Mineral Sand ends up as ore rather than sitting raw.
+
+HiGHS either proves its plan optimal, which the page reports, or stops at a time limit and reports how far from optimal it could be. Before a plan is shown, the whole-unit counts are re-solved with `microlp` and every limit is re-checked independently (`check_plan`); if anything fails, the page falls back to the heuristic planner below.
+
+### Web App Fallback: Joint Facility Allocation
+
+The heuristic planner (`find_plan`, backed by `find_production_plan`) solves a harder version of the problem than "what's the single best item": it solves for what *every* owned facility should be doing at once, including facilities that multiple recipes want to share.
 
 **1. Profit per item.** For every item, net profit per batch, plus its utilization (batches/sec needed) at every facility touched anywhere in its ingredient chain, not just its own facility, but every intermediate processing step too.
 
@@ -192,7 +235,7 @@ The web app (`find_plan`, backed by `find_production_plan`) solves a harder vers
 \text{profit}_{\text{batch}} = (\text{yield} \times \text{sell\_price}) - \text{raw\_cost}
 ```
 
-**2. One linear program across everything.** Picking each item's rate independently would double-count facilities that two recipes both want (e.g. soy sauce and tofu both drawing from the same Farmland soybean supply). So every candidate item and every owned facility go into a single linear program instead, solved exactly with the [`microlp`](https://crates.io/crates/microlp) crate:
+**2. One linear program across everything.** Picking each item's rate independently would double-count facilities that two recipes both want (e.g. tofu and roasted soybeans both drawing from the same Farmland soybean supply). So every candidate item and every owned facility go into a single linear program instead, solved exactly with the [`microlp`](https://crates.io/crates/microlp) crate:
 
 ```math
 \max \sum_i \text{profit}_{\text{batch},i} \cdot x_i \quad \text{s.t.} \quad \sum_i \text{utilization}_{i,f} \cdot x_i \leq \text{capacity}_f \ \ \forall f
@@ -200,8 +243,9 @@ The web app (`find_plan`, backed by `find_production_plan`) solves a harder vers
 
 **3. Rounding to whole units.** The LP's solution is continuous (e.g. "62% of Farmland grows soybean"), which isn't achievable in-game; plots and machines can't be fractionally split. The result is rounded differently depending on facility type:
 
-- **Growers** (Farmland, Woodland, Mineral Pile, ...): each plot commits to one crop for a full cycle, so fractional shares are converted to whole counts via the largest-remainder method (the same apportionment technique used to allocate parliament seats).
+- **Growers** (Farmland, Woodland, Mine, ...): each plot commits to one crop for a full cycle, so fractional shares are converted to whole counts via the largest-remainder method (the same apportionment technique used to allocate parliament seats).
 - **Processors** (Carousel Mill, Claw Game Cooker, ...): a machine can't time-share between two recipes either; a player sets it to run one recipe continuously. When more recipes want a processor than it has units, the most profitable candidates each get one dedicated unit and the rest are excluded, then the LP re-solves so their freed-up supply finds a real next-best use instead of sitting idle.
+- **Filling the whole units**: once the counts are settled, the LP solves one last time with each item capped at its whole units. A plot or Well rounded up produces its full output, not the fraction the continuous solve needed, and every chain using the same item shares the same units, so the extra goes to whichever recipe can use it (a spare processor unit can take a new recipe) or sells directly. Units the rounding left idle grow the facility's most valuable crop to sell.
 
 **4. Time to reach a goal.** Once the plan is settled, each item contributes nothing until its own lead time has passed, then its steady rate. The time to reach a target amount is found with a binary search rather than solved for directly, since accumulated amount is monotonic in time:
 
@@ -213,7 +257,7 @@ See the "math" button in the web app's header for this same explanation in conte
 
 ### CLI / Library: Greedy Path Selection
 
-The CLI and library functions (`find_best_production_path`, `find_parallel_production_path`) use a greedy algorithm instead of the web app's joint solve, ranking items independently rather than solving for shared facilities at once. Here's how it works:
+The CLI and library functions (`find_best_production_path`, `find_parallel_production_path`) use a greedy algorithm instead of the web app's joint solve, ranking items independently rather than solving for shared facilities at once. Here's how it works. The worked examples use illustrative numbers from an earlier version of the game data; the mechanics they demonstrate are unchanged.
 
 ### 1. Efficiency Calculation
 
@@ -255,16 +299,16 @@ This means adding more farms speeds up processed item production (until processi
 \text{Profit/energy} = \frac{\text{profit}}{\text{energy\_consumed}}
 ```
 
-**High-Speed Variants:**
+**Quick Variants:**
 
-When calculating raw material requirements, the optimizer automatically uses high-speed variants (like `high_speed_wheat` instead of `wheat`) if you have the required module level. These variants produce more yield in the same time, making processed items more efficient.
+When calculating raw material requirements, the optimizer automatically uses a quick variant (like `quick_wheat` in place of `wheat`) if you have the required module level. Quick variants sell for the same price per unit but yield more, making processed items more efficient. The substitution is by name: a recipe calling for `X` is supplied by `quick_X` whenever it's unlocked.
 
 ### 2. Item Filtering
 
 Items are filtered based on your configuration:
 
 - **Facility levels**: Only items unlocked at your facility level are considered
-- **Module levels**: Upgraded items (like high-speed wheat) require the corresponding module at the right level
+- **Module levels**: Upgraded items (like quick wheat) require the corresponding module at the right level
 - **Raw material availability**: Processed items are only available if their raw materials can be produced
 
 ### 3. Path Selection
@@ -335,7 +379,7 @@ The total time includes a startup delay (the time to produce the first batch bef
 Without parallel mode (super_wheatmeal only):
 ```
 [BEST PRODUCTION PATH]
-  Step 1: Produce 57240 x high_speed_wheat at Farmland (x20)
+  Step 1: Produce 57240 x quick_wheat at Farmland (x20)
   Step 2: Produce 477 x super_wheatmeal at Carousel Mill (x5)
 
 [SUMMARY]
@@ -351,7 +395,7 @@ With parallel mode (multiple independent chains):
   All chains run simultaneously. Total time = longest chain.
 
   Chain 1: Farmland → Carousel Mill (88410 coins in 4h 30m 0s)
-    → 50640 x high_speed_wheat at Farmland (x20) (raw material)
+    → 50640 x quick_wheat at Farmland (x20) (raw material)
     → 422 x super_wheatmeal at Carousel Mill (x5)
 
   Chain 2: Woodland (12240 coins in 4h 30m 0s)
@@ -440,7 +484,7 @@ t_{\text{effective}} = \frac{810}{4} = 202.5 \text{ seconds}
 
 With 4 Farmlands and 2 Carousel Mills, producing super_wheatmeal (requires 120 wheat, sells for 210 coins):
 
-Using high_speed_wheat (yield 15, time 90s) with ecological_module:
+Using quick_wheat (yield 15, time 90s) with ecological_module:
 
 ```math
 \text{Gathering Rate} = \frac{4 \times 15}{90 \times 120} = 0.00556 \text{ batches/sec}
@@ -495,7 +539,7 @@ fn main() {
     let counts = FacilityCounts::from_pairs(&[
         ("Farmland", 4, 3),        // 4 farmlands at level 3
         ("Woodland", 2, 2),        // 2 woodlands at level 2
-        ("Mineral Pile", 1, 1),
+        ("Mine", 1, 1),
         ("Carousel Mill", 2, 2),   // 2 carousel mills at level 2
         ("Jukebox Dryer", 1, 1),
         ("Crafting Table", 1, 1),
@@ -503,10 +547,10 @@ fn main() {
 
     // Define item upgrade module levels (0 = not unlocked)
     let modules = ModuleLevels {
-        ecological_module: 1,    // Unlocks high-speed wheat
+        ecological_module: 1,    // Unlocks quick wheat
         kitchen_module: 0,
-        mineral_detector: 0,
-        crafting_module: 1,      // Unlocks advanced wood sculpture
+        resource_detector: 0,
+        crafting_module: 1,      // Unlocks premium river-washed stones
     };
 
     // Calculate efficiencies (per-facility levels and modules are used automatically)
@@ -559,18 +603,25 @@ Deployment (`.github/workflows/deploy.yml`) runs on pushing a version tag (`v*`)
 
 Production data is stored in CSV files in the `data/` directory:
 
-- `farmland.csv` - Crops (wheat, potatoes, etc.)
-- `woodland.csv` - Trees (chestnut, willow)
-- `mineral_pile.csv` - Mining (rock, quartz, gem)
-- `nimbus_bed.csv` - Wool and Petals (requires a matching Aniimo Family)
-- `grass_blossom_mat.csv`, `starfall_hammock.csv`, `tidewhisper_sandcastle.csv`, `dewy_house.csv` - newer Aniimo-material facilities (levels/values still being confirmed)
-- `carousel_mill.csv` - Grain/tofu processing
-- `jukebox_dryer.csv` - Food drying
+- `farmland.csv` - Crops (wheat, potato, rice, ...); also sets seed cost and growing environment
+- `woodland.csv` - Trees (willow wood, bamboo, cocoa, ...); also yields Wood Blocks
+- `mine.csv` - Mining (rock, clay, quartz ore, gem, ...); also yields Mineral Sand
+- `well.csv` - Water (well water, fresh water, spring waters)
+- `tidewhisper_sandcastle.csv` - Sea salt and pearl
+- `dewy_house.csv`, `nimbus_bed.csv`, `starfall_hammock.csv`, `floral_windmill.csv` - Aniimo materials (aromathyst, wool, petals, star, scales)
+- `carousel_mill.csv` - Grain and flour processing
 - `crafting_table.csv` - Crafting recipes
-- `phonolfactory_table.csv` - Incense, soap, perfume
-- `bouncy_brew_keg.csv` - Drinks and sauces
-- `claw_game_cooker.csv` - Candy and prepared food
-- `joy_wheel_loom.csv` - Fabric and thread
+- `claw_game_cooker.csv` - Baked goods, candy and desserts
+- `jukebox_dryer.csv` - Food drying
+- `simmering_pot.csv` - Porridge, jams, syrups and sugars
+- `phonolfactory_table.csv` - Incense, soap and perfume
+- `bouncy_brew_keg.csv` - Teas, juices and drinks
+- `blazing_stove.csv` - Cooked dishes and sweets
+- `pickling_jar.csv` - Sauces, vinegars and candied fruit
+- `joy_wheel_loom.csv` - Thread, yarn and fabric
+- `woodworking_bench.csv`, `chimney_kiln.csv` - RV level-up materials from Wood Blocks and Mineral Sand (no sale value)
+
+Farmland, Woodland, Mine, Well, Tidewhisper Sandcastle, Dewy House, Carousel Mill, Crafting Table, Claw Game Cooker, Jukebox Dryer, Simmering Pot, Phonolfactory Table, Bouncy Brew Keg, Woodworking Bench and Chimney Kiln are verified in game. The other six facilities' recipes haven't been checked in game yet: `data/unverified.csv` lists them, the recipe list marks each one, and a plan lists any it relies on.
 
 ### Adding New Items
 
@@ -584,7 +635,9 @@ src/
   main.rs            - CLI entry point
   models.rs          - Data structures
   data.rs            - CSV loading functions
-  optimizer.rs       - Optimization algorithms (both the web app's LP solve and the CLI's greedy path)
+  exact.rs           - Exact planner: the web app's mixed-integer model, and its checks
+  coverage.rs        - Environment building coverage geometry and packing
+  optimizer.rs       - Heuristic planner (the web app's fallback) and the CLI's greedy path
   display.rs         - CLI output formatting
   wasm.rs            - WebAssembly bindings
 data/
@@ -594,6 +647,8 @@ web/
   facility-config.js - Shared facility list/categories
   app.js             - Page logic, including the facility recipe reference modal
   style.css          - Styling
+  worker.js          - Web Worker running the wasm module and HiGHS
+  vendor/highs/      - HiGHS solver compiled to WebAssembly (MIT license)
   pkg/               - Built WASM module (generated)
 tests/
   *.rs               - Integration tests
@@ -611,11 +666,11 @@ Contributions are welcome! Here's how you can help:
 
 ### Adding Game Data
 
-The easiest way to contribute is by adding missing items or correcting existing data:
+To add missing items or correct existing data:
 
-1. Edit the appropriate CSV file in `data/`
-2. Follow the existing format for that facility type
-3. Test locally with `cargo run -- --target 1000`
+1. Edit the appropriate CSV file in `data/`, following the existing format for that facility
+2. If you add a new CSV, load it in both `src/data.rs` and `src/wasm.rs`
+3. Run `cargo test`; the data checks flag misspelled ingredients, mismatched quick variants and out-of-range values
 4. Submit a pull request
 
 ### Code Contributions
