@@ -347,7 +347,7 @@ function initFacilityTiers(data) {
 }
 
 function saveInputsToStorage() {
-    const data = { facilityTiers, levelUpStock };
+    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes] };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -363,6 +363,7 @@ function saveInputsToStorage() {
 function loadInputsFromStorage(data) {
     if (!data) return;
     if (data.levelUpStock && typeof data.levelUpStock === 'object') levelUpStock = { ...data.levelUpStock };
+    if (Array.isArray(data.skippedRecipes)) skippedRecipes = new Set(data.skippedRecipes.filter(n => typeof n === 'string'));
     getPersistedFieldIds().forEach(id => {
         if (!(id in data)) return;
         const el = document.getElementById(id);
@@ -403,6 +404,7 @@ async function initWasm() {
         wasmReady = true;
 
         document.getElementById('version').textContent = version;
+        loadRecipeIndex();
 
         console.log(`Aniimax v${version} loaded successfully`);
     } catch (error) {
@@ -501,6 +503,93 @@ function attachModeHandlers() {
         renderStrategy();
     });
     document.getElementById('customize-btn').addEventListener('click', customizeInAdvancedMode);
+}
+
+// --- Recipes to skip -------------------------------------------------------------------
+// Recipes plans may not use (see `JsPlanInput::exclude` in wasm.rs), for things the player can't
+// make yet. Saved with the other inputs.
+
+let skippedRecipes = new Set();
+
+// Every recipe as `{ name, facility }`, loaded once for the search box.
+let recipeIndex = [];
+
+function recipeLabel(recipe) {
+    return `${prettyItem(recipe.name)} (${recipe.facility})`;
+}
+
+async function loadRecipeIndex() {
+    try {
+        recipeIndex = JSON.parse(await callWorker('get_all_items'))
+            .map(r => ({ name: r.name, facility: r.facility }))
+            .sort((a, b) => a.facility.localeCompare(b.facility) || a.name.localeCompare(b.name));
+        document.getElementById('skip-options').innerHTML =
+            recipeIndex.map(r => `<option value="${recipeLabel(r)}"></option>`).join('');
+        renderSkippedRecipes();
+    } catch (error) {
+        console.warn('Could not load the recipe list:', error);
+    }
+}
+
+function renderSkippedRecipes() {
+    const count = skippedRecipes.size;
+    document.getElementById('skip-count').textContent = count ? ` (${count})` : '';
+    const facilityOf = name => recipeIndex.find(r => r.name === name)?.facility;
+    document.getElementById('skip-chips').innerHTML = [...skippedRecipes]
+        .sort((a, b) => prettyItem(a).localeCompare(prettyItem(b)))
+        .map(name => {
+            const facility = facilityOf(name);
+            return `<span class="skip-chip">${prettyItem(name)}${facility ? ` <span class="skip-chip-facility">${facility}</span>` : ''}<button type="button" data-unskip="${name}" aria-label="Stop skipping ${prettyItem(name)}" title="Stop skipping">✕</button></span>`;
+        }).join('');
+}
+
+function setSkipped(name, skipped) {
+    if (skipped) skippedRecipes.add(name); else skippedRecipes.delete(name);
+    renderSkippedRecipes();
+    saveInputsToStorage();
+}
+
+// Adds what's typed in the search box: a full "Item (Facility)" pick, or a unique partial match.
+function addSkipFromInput() {
+    const input = document.getElementById('skip-input');
+    const text = input.value.trim().toLowerCase();
+    if (!text) return;
+    let match = recipeIndex.find(r => recipeLabel(r).toLowerCase() === text);
+    if (!match) {
+        const partial = recipeIndex.filter(r => recipeLabel(r).toLowerCase().includes(text));
+        if (partial.length === 1) match = partial[0];
+    }
+    if (!match) {
+        input.setCustomValidity('Pick a recipe from the list.');
+        input.reportValidity();
+        return;
+    }
+    input.setCustomValidity('');
+    input.value = '';
+    setSkipped(match.name, true);
+}
+
+function attachSkipHandlers() {
+    document.getElementById('skip-add-btn').addEventListener('click', addSkipFromInput);
+    const input = document.getElementById('skip-input');
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addSkipFromInput();
+        }
+    });
+    input.addEventListener('input', () => input.setCustomValidity(''));
+    document.getElementById('skip-chips').addEventListener('click', (e) => {
+        const name = e.target.closest('[data-unskip]')?.dataset.unskip;
+        if (name) setSkipped(name, false);
+    });
+    // The ✕ on a plan row skips that recipe and plans again.
+    document.getElementById('facility-plan-container').addEventListener('click', (e) => {
+        const name = e.target.closest('[data-skip]')?.dataset.skip;
+        if (!name) return;
+        setSkipped(name, true);
+        runFindPlan();
+    });
 }
 
 // --- Strategy ----------------------------------------------------------------------------
@@ -744,6 +833,7 @@ function getPlanInputValues() {
             currency: 'coins',
             prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
             level_up: levelUpInput(),
+            exclude: [...skippedRecipes],
             facilities,
             modules
         };
@@ -768,6 +858,7 @@ function getPlanInputValues() {
         currency: 'coins',
         prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
         level_up: levelUpInput(),
+        exclude: [...skippedRecipes],
         facilities,
         modules
     };
@@ -1010,7 +1101,7 @@ function facilityPlanTable(rows) {
                     <tr class="status-${step.status}">
                         <td data-label="Facility">${step.facility}</td>
                         <td data-label="Count">${step.facility_count}</td>
-                        <td data-label="Producing">${step.item_name ? prettyItem(step.item_name) : '-'}${unverifiedRowKeys.has(`${step.facility}|${step.item_name}`) ? '<span class="tag unverified" title="Not yet checked in game">unverified</span>' : ''}</td>
+                        <td data-label="Producing">${step.item_name ? prettyItem(step.item_name) : '-'}${unverifiedRowKeys.has(`${step.facility}|${step.item_name}`) ? '<span class="tag unverified" title="Not yet checked in game">unverified</span>' : ''}${step.item_name && step.status === 'producing' ? `<button type="button" class="skip-row" data-skip="${step.item_name}" title="Can't make this? Skip it and plan again" aria-label="Skip ${prettyItem(step.item_name)} and plan again">✕</button>` : ''}</td>
                         <td data-label="Aniimo">${aniimoLabel(step)}</td>
                         <td data-label="Why">${prettyReason(step.reason)}</td>
                     </tr>
@@ -1448,11 +1539,12 @@ function displayPlan(plan, scroll = true) {
     updateRateDisplay();
     updateCurrencyLabels(plan.currency);
 
+    // Said only when the plan might not be the best: the solver ran out of time, or the backup
+    // planner made it.
     const explored = document.getElementById('plan-explored-hint');
-    if (plan.proven_optimal === true && plan.level_up) {
-        explored.innerHTML = `<span class="badge">✓ Proven best plan</span>No other plan gets RV ${planContext.target} sooner or earns more on the way, for the game data we have.`;
-    } else if (plan.proven_optimal === true) {
-        explored.innerHTML = '<span class="badge">✓ Proven best plan</span>No other use of these facilities earns more, for the game data we have.';
+    explored.style.display = plan.proven_optimal === true ? 'none' : '';
+    if (plan.proven_optimal === true) {
+        explored.textContent = '';
     } else if (plan.proven_optimal === false && plan.upper_bound > 0) {
         const gap = Math.max(0, (plan.upper_bound - plan.rate_per_second) / plan.upper_bound * 100);
         explored.textContent = `Best plan found in the time allowed; the best possible is at most ${gap.toFixed(1)}% higher.`;
@@ -1470,6 +1562,11 @@ function displayPlan(plan, scroll = true) {
     } else {
         unverifiedEl.style.display = 'none';
     }
+
+    const skippedEl = document.getElementById('plan-skipped');
+    const skipped = planContext?.skipped || [];
+    skippedEl.style.display = skipped.length ? 'block' : 'none';
+    skippedEl.textContent = skipped.length ? `Skipping ${skipped.map(prettyItem).join(', ')}.` : '';
 
     renderLevelUp(plan);
     renderProfitBreakdown(plan);
@@ -1534,6 +1631,7 @@ async function runFindPlan() {
             target: levelUpTarget(),
             unavailable: levelUpUnavailable(),
             ready: !!(input.level_up && input.level_up.cost.every(([name, need]) => stockAmount(name) >= need)),
+            skipped: [...input.exclude].sort((a, b) => prettyItem(a).localeCompare(prettyItem(b))),
         };
 
         // Runs in the worker (see worker.js); the main thread stays free to paint the progress
@@ -1778,6 +1876,8 @@ document.addEventListener('DOMContentLoaded', () => {
     attachFacilityTierHandlers();
     attachModeHandlers();
     attachStrategyHandlers();
+    attachSkipHandlers();
+    renderSkippedRecipes();
     applyConfigMode();
     initWasm();
 
@@ -1805,7 +1905,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // once at startup wouldn't reach a tier added later).
     document.querySelectorAll('input').forEach(input => {
         if (input.id === 'target-amount' || input.id === 'current-amount') return;
-        if (input.closest('#facilities-grid') || input.closest('#level-up-stock-grid')) return;
+        if (input.closest('#facilities-grid') || input.closest('#level-up-stock-grid') || input.id === 'skip-input') return;
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 runFindPlan();
