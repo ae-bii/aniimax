@@ -159,7 +159,7 @@
                                 <h2>Aniimo team</h2>
                             </button>
                             <div class="tabs compact" role="radiogroup" aria-label="Aniimo setup">
-                                <label title="Level-3 Aniimo with each facility's personality: the fastest plan"><input type="radio" name="aniimo-setup" id="aniimo-best" value="best" checked> Best</label>
+                                <label title="Level-3 Aniimo with each facility's personality"><input type="radio" name="aniimo-setup" id="aniimo-best" value="best" checked> Best</label>
                                 <label title="The lowest ability level each recipe accepts: the least you can get by with"><input type="radio" name="aniimo-setup" id="aniimo-minimum" value="minimum"> Minimum</label>
                             </div>
                         </div>
@@ -169,7 +169,7 @@
                         <div id="aniimo-body" hidden>
                             <details class="explain">
                                 <summary>How the team is worked out</summary>
-                                <p><strong>Best</strong> puts a level-3 Aniimo with the facility's personality on every job, the fastest possible. <strong>Minimum</strong> uses the lowest ability level each recipe accepts, with no personality bonus: slower, but it's what you need at the very least. The plan below follows whichever is picked.</p>
+                                <p><strong>Best</strong> puts a level-3 Aniimo with the facility's personality on every job. <strong>Minimum</strong> uses the lowest ability level each recipe accepts, with no personality bonus: slower, but it's what you need at the very least. An Aniimo is fastest on recipes below its level: a level-3 one works a level-1 recipe at 400% but a level-2 recipe at 140%. The plan below follows whichever is picked.</p>
                                 <p>Aniimo move between any jobs they can do, so the counts cover the work on average rather than one per facility; Farmland and Woodland jobs are included. Facilities with a resident Aniimo (Sandcastle, Dewy House and the like) need one each, and so does each Heat Furnace (Fire), Cooling Unit (Ice) and Sunlamp (Light) in use. Whether an environment building's Aniimo level or personality matters isn't known yet. Each recipe's minimum ability level and the Farmland/Woodland jobs haven't been checked in game yet.</p>
                             </details>
                             <div id="aniimo-summary"></div>
@@ -327,9 +327,9 @@
                 <p>HiGHS proves the plan is the best possible. On the rare setup where that takes longer than 30 seconds, it stops with the best plan so far and the results say how far from the best it could be. Every plan is then re-checked on its own before it's shown.</p>
 
                 <h3>Time per batch</h3>
-                <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo working it: 108 workload takes 108s at ability level 1, 36s at level 2 and 27s at level 3. The facility's personality makes it 20% faster.</p>
-                <div class="math-block">\[ t = \frac{\text{workload}}{k \times 1.2^{\,\text{personality}}} \]</div>
-                <p>with \(k\) = 1, 3 or 4 for ability level 1, 2 or 3, and the personality term counted only when the Aniimo has the facility's personality.</p>
+                <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo's Efficiency, which the facility screen shows: at 100%, one workload takes one second.</p>
+                <div class="math-block">\[ t = \frac{\text{workload}}{e \times 1.2^{\,\text{personality}}} \]</div>
+                <p>Efficiency \(e\) depends on the Aniimo's ability level compared with the level the recipe needs. At exactly the needed level it's 100%. On a recipe needing level 1, a level-2 Aniimo reaches 300% and a level-3 one 400%. On a recipe needing level 2 or more, each level above adds 40%: a level-3 Aniimo on a level-2 recipe is 140%, a level-4 one 180%. The personality term counts only when the Aniimo has the facility's personality (+20%).</p>
 
                 <h3>Environment coverage</h3>
                 <p>Each Heat Furnace, Cooling Unit and Sunlamp is 2×2 tiles and covers a 9×9 area centered on it. A plot counts as covered if any part of it is inside, and everything snaps to quarter tiles. Every useful way one building can cover a mix of Farmland, Woodland and the rest is worked out once by exact packing; the plan then picks a mode and one of those mixes for each building.</p>

@@ -87,16 +87,48 @@ pub struct ProductionItem {
     pub environment: Option<String>,
 }
 
-/// Workload per second an Aniimo gets through at ability level 1, 2 and 3. The facility screen
-/// shows this as Efficiency: 100%, 300% and 400%, where 100% is one workload per second (a
-/// 108-workload recipe takes 108s, 36s and 27s). Timed the same at the Jukebox Dryer, Carousel
-/// Mill and Simmering Pot, so a facility's ability only decides which Aniimo can work it, not
-/// how fast.
-pub const SUITABILITY_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
+/// Efficiency on a recipe needing ability level 1, for an Aniimo at level 1, 2 and 3: 100%, 300%
+/// and 400% (a 108-workload recipe takes 108s, 36s and 27s). Timed at the Jukebox Dryer, Carousel
+/// Mill, Simmering Pot and Claw Game Cooker (Bread).
+const LEVEL_ONE_RECIPE_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
+
+/// Efficiency gained per ability level above what a recipe needs, for recipes needing level 2
+/// or more: Sea Salt (needs 2) runs at 140% with a level-3 Aniimo and 180% with a level-4 one.
+const LEVEL_STEP_ABOVE_TWO: f64 = 0.4;
+
+/// Workload per second (the game's Efficiency, where 100% is one workload per second) for an
+/// Aniimo at ability `level` on a recipe needing `required`. It's always 100% at exactly the
+/// required level. Above it, a level-1 recipe jumps to 300% and 400%
+/// ([`LEVEL_ONE_RECIPE_SPEEDS`]), while a recipe needing level 2 or more gains 40% a level
+/// ([`LEVEL_STEP_ABOVE_TWO`]). Checked in game: level-1 recipes at levels 1-3, level-2 recipes at
+/// levels 2-4 (Coarse-Sifted Ore, Sea Salt). Level-3 recipes are assumed to follow the level-2
+/// pattern, and a level-4 Aniimo on a level-1 recipe is taken as 400% until it's measured.
+///
+/// ```
+/// use aniimax::models::efficiency;
+///
+/// assert_eq!(efficiency(1, 1), 1.0);
+/// assert_eq!(efficiency(2, 1), 3.0);
+/// assert_eq!(efficiency(3, 1), 4.0);
+/// assert_eq!(efficiency(2, 2), 1.0);
+/// assert!((efficiency(3, 2) - 1.4).abs() < 1e-12);
+/// assert!((efficiency(4, 2) - 1.8).abs() < 1e-12);
+/// assert_eq!(efficiency(3, 3), 1.0);
+/// ```
+pub fn efficiency(level: u32, required: u32) -> f64 {
+    let required = required.max(1);
+    // An Aniimo below the requirement can't work the recipe; plans never assign one.
+    let level = level.max(required);
+    if required == 1 {
+        LEVEL_ONE_RECIPE_SPEEDS[level.min(3) as usize - 1]
+    } else {
+        1.0 + LEVEL_STEP_ABOVE_TWO * (level - required) as f64
+    }
+}
 
 /// Speed multiplier when the working Aniimo has the facility's personality bonus. The game
-/// describes it as +20% work efficiency, and it multiplies: a level-2 Aniimo goes from 300% to
-/// 360% (a 108-workload recipe takes 30s instead of 36s).
+/// describes it as +20% work efficiency, and it multiplies: a level-2 Aniimo on a level-1 recipe
+/// goes from 300% to 360% (a 108-workload recipe takes 30s instead of 36s).
 pub const PERSONALITY_BONUS: f64 = 1.2;
 
 /// The Aniimo working a workload-based facility (Mine, Well, Tidewhisper Sandcastle and every
@@ -106,14 +138,16 @@ pub const PERSONALITY_BONUS: f64 = 1.2;
 /// ```
 /// use aniimax::models::Worker;
 ///
-/// assert_eq!(Worker::default().seconds_for(108.0), 108.0);
-/// assert_eq!(Worker::new(2, false).seconds_for(108.0), 36.0);
-/// assert!((Worker::new(2, true).seconds_for(108.0) - 30.0).abs() < 1e-9);
-/// assert_eq!(Worker::new(3, false).seconds_for(108.0), 27.0);
+/// assert_eq!(Worker::default().seconds_for(108.0, 1), 108.0);
+/// assert_eq!(Worker::new(2, false).seconds_for(108.0, 1), 36.0);
+/// assert!((Worker::new(2, true).seconds_for(108.0, 1) - 30.0).abs() < 1e-9);
+/// assert_eq!(Worker::new(3, false).seconds_for(108.0, 1), 27.0);
+/// // Coarse-Sifted Ore needs level 2: a level-2 Aniimo takes the full 34s.
+/// assert_eq!(Worker::new(2, false).seconds_for(34.0, 2), 34.0);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Worker {
-    /// Work suitability level for the facility's element, 1 to 3 (out-of-range values are clamped).
+    /// Ability level for the facility's element, 1 to 4.
     pub suitability: u32,
     /// Whether the Aniimo's personality matches the facility's bonus.
     pub personality_bonus: bool,
@@ -131,9 +165,10 @@ impl Worker {
         Self { suitability, personality_bonus }
     }
 
-    /// Workload completed per second.
-    pub fn speed(&self) -> f64 {
-        let base = SUITABILITY_SPEEDS[self.suitability.clamp(1, 3) as usize - 1];
+    /// Workload completed per second on a recipe needing ability level `required` (see
+    /// [`efficiency`]).
+    pub fn speed(&self, required: u32) -> f64 {
+        let base = efficiency(self.suitability.clamp(1, 4), required);
         if self.personality_bonus {
             base * PERSONALITY_BONUS
         } else {
@@ -141,21 +176,23 @@ impl Worker {
         }
     }
 
-    /// Seconds this Aniimo takes to finish `workload`.
-    pub fn seconds_for(&self, workload: f64) -> f64 {
-        workload / self.speed()
+    /// Seconds this Aniimo takes to finish `workload` on a recipe needing ability level
+    /// `required`.
+    pub fn seconds_for(&self, workload: f64, required: u32) -> f64 {
+        workload / self.speed(required)
     }
 }
 
 /// The [`Worker`] on each workload-based facility type. Facilities not set get
-/// [`Worker::default`] (level 1, no bonus), which is also what the data loaders assume.
+/// [`Worker::default`] (level 1, no bonus). The data loaders time every recipe at 100%, which is
+/// an Aniimo at exactly the level the recipe needs.
 ///
 /// ```
 /// use aniimax::models::{Worker, Workers};
 ///
 /// let mut workers = Workers::new();
 /// workers.set("Carousel Mill", Worker::new(3, false));
-/// assert_eq!(workers.get("Carousel Mill").seconds_for(108.0), 27.0);
+/// assert_eq!(workers.get("Carousel Mill").seconds_for(108.0, 1), 27.0);
 /// assert_eq!(workers.get("Jukebox Dryer"), Worker::default());
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -178,12 +215,14 @@ impl Workers {
     }
 
     /// Recomputes every workload-based item's `production_time` for the Aniimo working its
-    /// facility. Items without a workload (crops and trees) keep their fixed grow time. Call this
-    /// on loaded items before handing them to the optimizer.
-    pub fn apply(&self, items: &mut [ProductionItem]) {
+    /// facility, given the ability level each recipe needs (`requirements`; a recipe not listed
+    /// counts as needing level 1). Items without a workload (crops and trees) keep their fixed
+    /// grow time. Call this on loaded items before handing them to the optimizer.
+    pub fn apply(&self, requirements: &AniimoRequirements, items: &mut [ProductionItem]) {
         for item in items.iter_mut() {
             if let Some(workload) = item.workload {
-                item.production_time = self.get(&item.facility).seconds_for(workload);
+                let required = requirements.get(&item.name).map_or(1, |(_, level)| level);
+                item.production_time = self.get(&item.facility).seconds_for(workload, required);
             }
         }
     }
@@ -196,8 +235,8 @@ pub enum AniimoSetup {
     /// Each recipe worked by an Aniimo at exactly the ability level it requires, without the
     /// personality bonus: the least a player needs to run the plan at all.
     Minimum,
-    /// A level-3 Aniimo with the facility's personality bonus everywhere (480% efficiency): the
-    /// fastest any facility can run.
+    /// A level-3 Aniimo with the facility's personality bonus everywhere: the fastest setup most
+    /// players can have (480% on a level-1 recipe, 168% on a level-2 one; see [`efficiency`]).
     Best,
 }
 
@@ -243,7 +282,8 @@ impl AniimoRequirements {
     pub fn apply(&self, setup: AniimoSetup, items: &mut [ProductionItem]) {
         for item in items.iter_mut() {
             if let Some(workload) = item.workload {
-                item.production_time = self.worker_for(&item.name, setup).seconds_for(workload);
+                let required = self.get(&item.name).map_or(1, |(_, level)| level);
+                item.production_time = self.worker_for(&item.name, setup).seconds_for(workload, required);
             }
         }
     }
