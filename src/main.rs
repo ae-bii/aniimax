@@ -259,7 +259,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     for facility in WORKER_FACILITIES {
         workers.set(facility, Worker::new(args.aniimo_level, args.personality_bonus));
     }
-    workers.apply(&mut items);
+    let requirements = aniimax::data::load_aniimo_requirements(data_dir)?;
+    workers.apply(&requirements, &mut items);
     println!();
     println!("Loaded {} production items.", items.len());
 

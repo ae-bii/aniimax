@@ -278,7 +278,7 @@ pub fn load_workload_raw_material(
             cost: None,
             sell_currency: row.sell_currency,
             sell_value: row.sell_value,
-            production_time: crate::models::Worker::default().seconds_for(row.workload),
+            production_time: crate::models::Worker::default().seconds_for(row.workload, 1),
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: row.facility_level,
@@ -339,7 +339,7 @@ pub fn load_processing_with_energy(
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| crate::models::Worker::default().seconds_for(w))
+            .map(|w| crate::models::Worker::default().seconds_for(w, 1))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -394,7 +394,7 @@ pub fn load_processing_no_energy(
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| crate::models::Worker::default().seconds_for(w))
+            .map(|w| crate::models::Worker::default().seconds_for(w, 1))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {

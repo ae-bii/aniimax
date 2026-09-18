@@ -5,7 +5,7 @@
 //! a new facility is added to the game data. Expected rates were worked out by hand from the CSVs;
 //! the arithmetic is in the comments next to each assertion.
 
-use aniimax::data::load_all_data;
+use aniimax::data::{load_all_data, load_aniimo_requirements};
 use aniimax::models::{FacilityCounts, ModuleLevels, PlanStep, PlanStepStatus, ProductionPlan, Worker, Workers};
 use aniimax::optimizer::{
     calculate_efficiencies, find_best_production_path, find_production_plan, time_to_reach_goal,
@@ -811,9 +811,9 @@ fn test_mineral_sand_target_picks_the_best_byproduct_item() {
     assert_rate(&plan, 5.0 * 56.0 / 2700.0);
 }
 
-// The Aniimo working a facility sets its speed: level 1/2/3 complete 1/3/4 workload per second,
-// and the personality bonus makes it 20% faster. A level-3 Aniimo with the bonus makes the same
-// 5 Mines 4.8x as productive as the level-1 default.
+// The Aniimo working a facility sets its speed, relative to the level each recipe needs (see
+// `models::efficiency`). Copper ore needs Earth level 3, so a level-3 Aniimo runs it at 100%, and
+// the personality bonus makes that 120%: 1.2x the default, which times every recipe at 100%.
 #[test]
 fn test_aniimo_level_and_personality_bonus_speed_up_worked_facilities() {
     let data_dir = Path::new("data");
@@ -829,9 +829,9 @@ fn test_aniimo_level_and_personality_bonus_speed_up_worked_facilities() {
 
     let mut workers = Workers::new();
     workers.set("Mine", Worker::new(3, true));
-    workers.apply(&mut items);
+    workers.apply(&load_aniimo_requirements(data_dir).unwrap(), &mut items);
     let fast = find_production_plan(&items, "mineral_sand", &counts, &modules, false).expect("plan should be feasible");
-    assert_rate(&fast, 5.0 * 56.0 * 4.0 * 1.2 / 2700.0);
+    assert_rate(&fast, 5.0 * 56.0 * 1.2 / 2700.0);
 }
 
 // A faster Aniimo means fewer processor units for the same supply. 400 bamboo plots make
@@ -853,7 +853,7 @@ fn test_faster_aniimo_needs_fewer_processor_units() {
 
     let mut workers = Workers::new();
     workers.set("Crafting Table", Worker::new(3, false));
-    workers.apply(&mut items);
+    workers.apply(&load_aniimo_requirements(data_dir).unwrap(), &mut items);
     let fast = find_production_plan(&items, "coins", &counts, &modules, false).expect("plan should be feasible");
     assert_eq!(count_of(&fast, "Crafting Table", "bamboo_ware"), 3, "got: {:?}", fast.coin_items);
     assert_eq!(count_of(&fast, "Woodland", "bamboo"), 400, "got: {:?}", fast.coin_items);
