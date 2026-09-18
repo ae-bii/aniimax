@@ -6,11 +6,10 @@ fn default_facility_counts() -> FacilityCounts {
     FacilityCounts::from_pairs(&[
         ("Farmland", 4, 3),
         ("Woodland", 2, 2),
-        ("Mineral Pile", 1, 1),
+        ("Mine", 1, 1),
         ("Carousel Mill", 2, 2),
         ("Jukebox Dryer", 1, 1),
         ("Crafting Table", 1, 1),
-        ("Nimbus Bed", 1, 1),
     ])
 }
 
@@ -20,7 +19,7 @@ fn test_facility_counts_get_count() {
 
     assert_eq!(counts.get_count("Farmland"), 4);
     assert_eq!(counts.get_count("Woodland"), 2);
-    assert_eq!(counts.get_count("Mineral Pile"), 1);
+    assert_eq!(counts.get_count("Mine"), 1);
     assert_eq!(counts.get_count("Carousel Mill"), 2);
     assert_eq!(counts.get_count("Unknown"), 1); // Default for unknown
 }
@@ -50,9 +49,20 @@ fn test_facility_counts_can_produce() {
     assert!(counts.can_produce("Woodland", 2));
     assert!(!counts.can_produce("Woodland", 3));
 
-    // Mineral Pile at level 1 can only produce level 1 items
-    assert!(counts.can_produce("Mineral Pile", 1));
-    assert!(!counts.can_produce("Mineral Pile", 2));
+    // Mine at level 1 can only produce level 1 items
+    assert!(counts.can_produce("Mine", 1));
+    assert!(!counts.can_produce("Mine", 2));
+}
+
+#[test]
+fn test_facility_counts_only_owns_nothing_unlisted() {
+    let counts = FacilityCounts::only(&[("Farmland", 4, 3)]);
+
+    assert_eq!(counts.get_count("Farmland"), 4);
+    assert_eq!(counts.get_level("Farmland"), 3);
+    assert_eq!(counts.get_count("Mine"), 0);
+    assert!(!counts.can_produce("Mine", 1));
+    assert_eq!(counts.capacity_at_level("Mine", 1), 0);
 }
 
 #[test]

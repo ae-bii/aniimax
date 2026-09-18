@@ -1,6 +1,10 @@
 // Aniimax Web Application
 
-import { FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME } from './facility-config.js';
+import {
+    FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME,
+    MAX_HOME_LEVEL, COUNTS_CONFIRMED_UP_TO, ANIIMO_MAX, simpleSetup,
+    LEVEL_UP_COSTS, LEVEL_UP_CHAINS,
+} from './facility-config.js';
 
 let wasmReady = false;
 
@@ -12,8 +16,12 @@ let worker = null;
 let nextRequestId = 0;
 const pendingWorkerRequests = new Map();
 
+// Tags this page load's worker (and, through it, the wasm solver; see worker.js) so the browser
+// never runs a cached older solver next to newer page code.
+const WORKER_URL = `./worker.js?load=${Date.now()}`;
+
 function initWorker() {
-    worker = new Worker('./worker.js', { type: 'module' });
+    worker = new Worker(WORKER_URL, { type: 'module' });
     worker.onmessage = (event) => {
         const { id, type, ok, result, error, count } = event.data;
         const pending = pendingWorkerRequests.get(id);
@@ -35,6 +43,15 @@ function initWorker() {
     worker.onerror = (event) => {
         console.error('Worker error:', event.message || event);
     };
+}
+
+// Throws away the worker and anything still running in it, e.g. a Minimum-setup solve from an
+// older Calculate click that would otherwise hold up the new one, and starts a fresh worker.
+function restartWorker() {
+    worker.terminate();
+    pendingWorkerRequests.forEach(pending => pending.reject(new Error('Cancelled by a newer calculation')));
+    pendingWorkerRequests.clear();
+    initWorker();
 }
 
 // Sends one request to the worker and resolves with its result (or rejects with its error);
@@ -92,14 +109,39 @@ function trialCountToPercent(count) {
 // change, since those invalidate the plan.
 let lastPlan = null;
 
+// Plans for both Aniimo setups from the latest Calculate: `{ best, minimum }`. Best is solved and
+// shown first; Minimum follows in the background (see `runFindPlan`). `planRunId` lets a newer
+// Calculate click discard an older run's late Minimum result.
+let plansBySetup = {};
+let planRunId = 0;
+
+function selectedAniimoSetup() {
+    return document.getElementById('aniimo-minimum').checked ? 'minimum' : 'best';
+}
+
+// Shows the plan for the selected Aniimo setup, or a "still working" note if Minimum isn't ready.
+function showSelectedPlan(scroll) {
+    const setup = selectedAniimoSetup();
+    const plan = plansBySetup[setup];
+    const pending = document.getElementById('aniimo-pending');
+    if (!plan) {
+        pending.style.display = 'block';
+        return;
+    }
+    pending.style.display = 'none';
+    lastPlan = plan;
+    displayPlan(plan, scroll);
+    if (plan.success) runTimeToGoal();
+}
+
 // The most recently computed goal result, held the same way as `lastPlan` so switching the rate
 // unit can re-render the Product Breakdown table's Profit column without recomputing the goal.
 let lastGoalResult = null;
 
-// Display name and per-second unit label for each optimizable currency.
+// Display name for each optimizable currency. Coins are the only one since the full release
+// removed Bud Tickets; kept as a map so a plan's `currency` still resolves to its label.
 const CURRENCY_LABELS = {
     coins: 'Coins',
-    bud_tickets: 'Bud Tickets',
 };
 
 // Multiplier from the solver's native per-second rate to each display unit, and the short suffix
@@ -241,16 +283,15 @@ const STORAGE_KEY = 'aniimax-config-v1';
 
 // Every plain input ID whose value should be persisted (facility tiers are saved separately;
 // see `facilityTiers`/`initFacilityTiers`, since they're a dynamic list rather than one fixed
-// element per facility). Both currency radios are listed (only the checked one actually
-// restores anything, per the type === 'radio' branch below) since they share a name but not an
-// id.
+// element per facility).
 function getPersistedFieldIds() {
     return [
-        'currency-coins', 'currency-bud-tickets',
         'target-amount', 'current-amount',
         'prioritize-byproducts',
+        'strategy-level-up', 'strategy-coins', 'level-up-target',
+        'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
-        'mineral-detector-level', 'crafting-module-level',
+        'resource-detector-level', 'crafting-module-level',
         'rate-unit'
     ];
 }
@@ -259,11 +300,31 @@ function getPersistedFieldIds() {
 function readStorage() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : null;
+        return raw ? migrateSavedConfig(JSON.parse(raw)) : null;
     } catch (e) {
         console.warn('Could not load saved inputs from localStorage:', e);
         return null;
     }
+}
+
+// Carries a save made under an older name forward to its current one, so a returning user keeps
+// their inputs across a rename instead of silently falling back to defaults. The full release
+// renamed Mineral Pile to Mine and the Mineral Detector module to Resource Detector.
+function migrateSavedConfig(data) {
+    if (!data || typeof data !== 'object') return data;
+    // Saves from before simple mode existed hold a hand-entered setup; keep showing it.
+    if (data['mode-simple'] === undefined && data.facilityTiers) {
+        data['mode-simple'] = false;
+        data['mode-advanced'] = true;
+    }
+    const tiers = data.facilityTiers;
+    if (tiers && tiers['Mine'] === undefined && tiers['Mineral Pile'] !== undefined) {
+        tiers['Mine'] = tiers['Mineral Pile'];
+    }
+    if (data['resource-detector-level'] === undefined && data['mineral-detector-level'] !== undefined) {
+        data['resource-detector-level'] = data['mineral-detector-level'];
+    }
+    return data;
 }
 
 // Populates the module-level `facilityTiers` from a saved config blob (see `readStorage`),
@@ -282,10 +343,11 @@ function initFacilityTiers(data) {
             }))
             : defaults[f.name];
     });
+
 }
 
 function saveInputsToStorage() {
-    const data = { facilityTiers };
+    const data = { facilityTiers, levelUpStock };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -300,6 +362,7 @@ function saveInputsToStorage() {
 
 function loadInputsFromStorage(data) {
     if (!data) return;
+    if (data.levelUpStock && typeof data.levelUpStock === 'object') levelUpStock = { ...data.levelUpStock };
     getPersistedFieldIds().forEach(id => {
         if (!(id in data)) return;
         const el = document.getElementById(id);
@@ -348,17 +411,344 @@ async function initWasm() {
     }
 }
 
-function getCurrency() {
-    const checked = document.querySelector('input[name="currency"]:checked');
-    return checked ? checked.value : 'coins';
+// --- Simple / advanced mode -----------------------------------------------------------
+// Simple mode takes just the RV (Homeland) level and assumes everything that level allows is built
+// and upgraded (see `simpleSetup` in facility-config.js). Advanced mode is the full per-facility
+// input. Switching modes never overwrites the advanced inputs; "Customize in advanced mode" copies
+// the simple setup into them on purpose.
+
+function isSimpleMode() {
+    return document.getElementById('mode-simple').checked;
 }
 
-// Get plan-level input values from the form (facilities/currency/modules/prioritize-byproducts,
-// nothing goal-related, since find_plan doesn't need a target).
+function selectedHomeLevel() {
+    return numberOrDefault(document.getElementById('home-level').value, MAX_HOME_LEVEL);
+}
+
+function populateHomeLevels() {
+    const select = document.getElementById('home-level');
+    const options = [];
+    for (let level = 1; level <= MAX_HOME_LEVEL; level++) {
+        options.push(`<option value="${level}">${level}${level === MAX_HOME_LEVEL ? ' (everything unlocked)' : ''}</option>`);
+    }
+    select.innerHTML = options.join('');
+    select.value = String(MAX_HOME_LEVEL);
+}
+
+// One entry per built facility, e.g. "10 Farmland Lv.2", plus a note when counts above the
+// confirmed RV levels are estimates.
+function renderSimpleSummary() {
+    const homeLevel = selectedHomeLevel();
+    const { facilities, modules } = simpleSetup(homeLevel);
+    const chip = (count, name, level) => `
+        <div class="chip"><span><span class="chip-count">${count}</span> ${name}</span>${level ? `<span class="chip-level">${level}</span>` : ''}</div>`;
+    const built = FACILITIES
+        .map(f => ({ name: f.name, tier: facilities[f.name][0], hasLevels: f.hasLevels !== false }))
+        .filter(({ tier }) => tier.count > 0)
+        .map(({ name, tier, hasLevels }) => chip(`${tier.count}×`, name, hasLevels ? `Lv.${tier.level}` : ''))
+        .join('');
+    const moduleChips = [
+        ['Ecological Module', modules.ecological_module],
+        ['Kitchen Module', modules.kitchen_module],
+        ['Resource Detector', modules.resource_detector],
+        ['Crafting Module', modules.crafting_module],
+    ].map(([name, level]) => chip('', name, level > 0 ? `Lv.${level}` : 'not yet')).join('');
+    const notes = homeLevel > COUNTS_CONFIRMED_UP_TO
+        ? `<ul class="assume-notes">
+               <li>Building counts are confirmed up to RV level ${COUNTS_CONFIRMED_UP_TO}; above that they're estimates.</li>
+               <li>Facility levels past RV level ${COUNTS_CONFIRMED_UP_TO} haven't been checked in game yet.</li>
+           </ul>`
+        : '';
+    document.getElementById('simple-summary').innerHTML = `
+        <p class="assume-title">Facilities</p>
+        <div class="chip-grid">${built}</div>
+        <p class="assume-title">Modules</p>
+        <div class="chip-grid">${moduleChips}</div>
+        ${notes}`;
+}
+
+function applyConfigMode() {
+    const simple = isSimpleMode();
+    document.getElementById('simple-config').style.display = simple ? 'block' : 'none';
+    document.getElementById('advanced-config').style.display = simple ? 'none' : 'block';
+    if (simple) renderSimpleSummary();
+    renderStrategy();
+}
+
+// Copies the simple-mode setup into the advanced inputs and switches to advanced mode, so the
+// player can start from "everything at my RV level" and adjust from there.
+function customizeInAdvancedMode() {
+    const { facilities, modules } = simpleSetup(selectedHomeLevel());
+    FACILITIES.forEach(f => {
+        facilityTiers[f.name] = facilities[f.name].map(t => ({ ...t }));
+        renderTierRows(f.name);
+    });
+    document.getElementById('ecological-module-level').value = modules.ecological_module;
+    document.getElementById('kitchen-module-level').value = modules.kitchen_module;
+    document.getElementById('resource-detector-level').value = modules.resource_detector;
+    document.getElementById('crafting-module-level').value = modules.crafting_module;
+    document.getElementById('mode-advanced').checked = true;
+    applyConfigMode();
+    saveInputsToStorage();
+    document.getElementById('advanced-config').scrollIntoView({ behavior: 'smooth' });
+}
+
+function attachModeHandlers() {
+    document.getElementById('mode-simple').addEventListener('change', applyConfigMode);
+    document.getElementById('mode-advanced').addEventListener('change', applyConfigMode);
+    document.getElementById('home-level').addEventListener('change', () => {
+        renderSimpleSummary();
+        renderStrategy();
+    });
+    document.getElementById('customize-btn').addEventListener('click', customizeInAdvancedMode);
+}
+
+// --- Strategy ----------------------------------------------------------------------------
+// "Level up" plans the soonest next RV level-up (its coins plus a Woodworking Bench item and a
+// Chimney Kiln item, less what's already in stock); "Most coins" plans the most coins.
+
+// What the player has toward a level-up, by item name ('coins' for coins).
+let levelUpStock = {};
+
+const ITEM_NAMES = {
+    coins: 'Coins',
+    wood_block: 'Wood Blocks',
+    mineral_sand: 'Mineral Sand',
+    coarse_sifted_ore: 'Coarse-Sifted Ore',
+};
+
+function isLevelUpStrategy() {
+    return document.getElementById('strategy-level-up').checked;
+}
+
+// The RV level being worked toward: the next one in simple mode, the picked one in advanced.
+function levelUpTarget() {
+    if (isSimpleMode()) return selectedHomeLevel() + 1;
+    return numberOrDefault(document.getElementById('level-up-target').value, 7);
+}
+
+// The target's cost, or null if it isn't known.
+function levelUpCost() {
+    return LEVEL_UP_COSTS[levelUpTarget()] || null;
+}
+
+// Why the level-up can't be planned, or null if it can.
+function levelUpUnavailable() {
+    const target = levelUpTarget();
+    if (target > MAX_HOME_LEVEL) return `RV ${MAX_HOME_LEVEL} is the top level, so there's no level-up to plan.`;
+    if (!LEVEL_UP_COSTS[target]) return `Level-up costs are only known from RV 7 on.`;
+    return null;
+}
+
+// Everything worth counting toward `cost`: coins, and each chain up to the tier it needs.
+function stockNames(cost) {
+    const names = ['coins'];
+    cost.items.forEach(([item]) => {
+        const chain = LEVEL_UP_CHAINS.find(c => c.includes(item));
+        if (chain) names.push(...chain.slice(0, chain.indexOf(item) + 1));
+    });
+    return names;
+}
+
+function stockAmount(name) {
+    const amount = Number(levelUpStock[name]);
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function populateLevelUpTargets() {
+    const select = document.getElementById('level-up-target');
+    select.innerHTML = Object.keys(LEVEL_UP_COSTS).map(level => `<option value="${level}">${level}</option>`).join('');
+}
+
+function renderStrategy() {
+    const levelUp = isLevelUpStrategy();
+    document.getElementById('level-up-config').style.display = levelUp ? 'block' : 'none';
+    document.getElementById('coins-config').style.display = levelUp ? 'none' : 'block';
+    if (!levelUp) return;
+
+    // Simple mode always plans the next RV level, so only Advanced picks one.
+    document.getElementById('level-up-target-row').style.display = isSimpleMode() ? 'none' : '';
+
+    const costEl = document.getElementById('level-up-cost');
+    const stockDetails = document.getElementById('level-up-stock');
+    const unavailable = levelUpUnavailable();
+    if (unavailable) {
+        costEl.innerHTML = `<p class="level-up-note">${unavailable} Plans will go for the most coins.</p>`;
+        stockDetails.style.display = 'none';
+        return;
+    }
+    const cost = levelUpCost();
+    const chip = (amount, name) => `<div class="chip"><span><span class="chip-count">${formatNumber(amount)}</span> ${ITEM_NAMES[name] || prettyItem(name)}</span></div>`;
+    costEl.innerHTML = `
+        <p class="assume-title">RV ${levelUpTarget()} costs</p>
+        <div class="chip-grid">${chip(cost.coins, 'coins')}${cost.items.map(([item, n]) => chip(n, item)).join('')}</div>`;
+    stockDetails.style.display = '';
+    document.getElementById('level-up-stock-grid').innerHTML = stockNames(cost).map(name => `
+        <div class="input-field">
+            <label for="stock-${name}">${ITEM_NAMES[name] || prettyItem(name)}</label>
+            <input type="number" id="stock-${name}" data-stock="${name}" min="0" value="${stockAmount(name)}">
+        </div>`).join('');
+}
+
+function attachStrategyHandlers() {
+    document.getElementById('strategy-level-up').addEventListener('change', renderStrategy);
+    document.getElementById('strategy-coins').addEventListener('change', renderStrategy);
+    document.getElementById('level-up-target').addEventListener('change', renderStrategy);
+    const grid = document.getElementById('level-up-stock-grid');
+    grid.addEventListener('input', (e) => {
+        const name = e.target.dataset.stock;
+        if (!name) return;
+        levelUpStock[name] = Math.max(0, floatOrDefault(e.target.value, 0));
+        saveInputsToStorage();
+    });
+    grid.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && e.target.matches('input')) runFindPlan();
+    });
+}
+
+// The level-up the solver should plan for (see `JsPlanInput::level_up` in wasm.rs), or null.
+function levelUpInput() {
+    if (!isLevelUpStrategy() || levelUpUnavailable()) return null;
+    const cost = levelUpCost();
+    return {
+        cost: [['coins', cost.coins], ...cost.items],
+        stock: stockNames(cost).filter(name => stockAmount(name) > 0).map(name => [name, stockAmount(name)]),
+    };
+}
+
+// A per-second rate as a per-hour figure, with a decimal when it's small.
+function perHour(perSecond) {
+    const hourly = perSecond * 3600;
+    return hourly < 10 ? hourly.toFixed(1) : formatNumber(Math.round(hourly));
+}
+
+// "2d 4h", "5h 12m", "12m": how long until a level-up is covered.
+function formatDuration(seconds) {
+    const minutes = Math.ceil(seconds / 60);
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    const mins = minutes % 60;
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+}
+
+// What the plans on screen were asked for, so they're described against the right target even
+// after the inputs change.
+let planContext = null;
+
+// The level-up card: how soon the plan covers the target's cost, one line per cost.
+function renderLevelUp(plan) {
+    const card = document.getElementById('level-up-card');
+    const context = planContext;
+    if (!context || !context.levelUp) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = 'block';
+    const label = document.getElementById('level-up-label');
+    const time = document.getElementById('level-up-time');
+    const lines = document.getElementById('level-up-lines');
+    label.textContent = `RV ${context.target} level-up`;
+    const report = plan.level_up;
+    if (context.unavailable) {
+        time.textContent = '-';
+        lines.innerHTML = `<p class="level-up-note">${context.unavailable} This plan is for the most coins.</p>`;
+        return;
+    }
+    if (context.ready) {
+        time.textContent = 'Ready now';
+        lines.innerHTML = `<p class="level-up-note">You already have everything it costs. This plan is for the most coins.</p>`;
+        return;
+    }
+    if (!report) {
+        const why = plan.level_up_note === 'unreachable'
+            ? `These facilities can't make everything it costs.`
+            : `The level-up couldn't be planned.`;
+        time.textContent = '-';
+        lines.innerHTML = `<p class="level-up-note">${why} This plan is for the most coins.</p>`;
+        return;
+    }
+    time.textContent = `in ${formatDuration(report.seconds)}`;
+    const slowest = Math.max(...report.requirements.map(r => r.seconds ?? Infinity));
+    const rows = report.requirements.map(r => {
+        const ready = r.seconds === null ? 'never' : r.seconds === 0 ? 'have it' : formatDuration(r.seconds);
+        const isSlowest = r.seconds !== null && r.seconds > 0 && r.seconds >= slowest * (1 - 1e-6);
+        return `<tr${isSlowest ? ' class="slowest"' : ''}>
+            <td>${ITEM_NAMES[r.name] || prettyItem(r.name)}</td>
+            <td>${formatNumber(r.need)}</td>
+            <td>${formatNumber(r.have)}</td>
+            <td>${perHour(r.per_second)}</td>
+            <td>${ready}</td>
+        </tr>`;
+    }).join('');
+    // What's left over once everything is ready and paid for: costs that finish early keep coming
+    // in while the slowest one finishes.
+    const surplus = report.requirements
+        .map(r => ({ name: r.name, spare: Math.floor(r.have + r.per_second * report.seconds - r.need) }))
+        .concat((report.leftovers || []).map(([name, amount]) => ({ name, spare: Math.floor(amount) })))
+        .filter(r => r.spare >= 1)
+        .map(r => `${formatNumber(r.spare)} ${r.name === 'coins' ? 'coins' : ITEM_NAMES[r.name] || prettyItem(r.name)}`);
+    const coinsNote = surplus.length
+        ? `<p class="level-up-coins"><span>Surplus:</span> <strong>${surplus.join(', ')}</strong></p>`
+        : '';
+    lines.innerHTML = `
+        <table class="level-up-lines">
+            <thead><tr><th>Cost</th><th>Need</th><th>Have</th><th>Per hour</th><th>Ready in</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        ${coinsNote}`;
+}
+
+// What each product sold earns in a level-up plan, per hour and by the time the level-up is
+// ready. (Most coins plans show this in the goal card instead.)
+function renderProfitBreakdown(plan) {
+    const card = document.getElementById('profit-card');
+    const report = plan.level_up;
+    const streams = (plan.income_streams || []).filter(s => s.units_per_second > 0);
+    if (!report || streams.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = 'block';
+    const total = streams.reduce((sum, s) => sum + s.rate_per_second, 0);
+    const rows = [...streams]
+        .sort((a, b) => b.rate_per_second - a.rate_per_second)
+        .map(s => `<tr>
+            <td data-label="Product">${prettyItem(s.item_name)}</td>
+            <td data-label="Facility">${s.facility}</td>
+            <td data-label="Sold per hour">${perHour(s.units_per_second)}</td>
+            <td data-label="Profit per hour">${formatNumber(Math.round(s.rate_per_second * 3600))}</td>
+            <td data-label="Share">${total > 0 ? Math.round(s.rate_per_second / total * 100) : 0}%</td>
+            <td data-label="By the level-up">${formatNumber(Math.floor(s.rate_per_second * report.seconds))}</td>
+        </tr>`).join('');
+    document.getElementById('profit-breakdown').innerHTML = `
+        <div class="table-wrapper">
+            <table class="facility-plan-table">
+                <thead><tr><th>Product</th><th>Facility</th><th>Sold per hour</th><th>Profit per hour</th><th>Share</th><th>By the level-up</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+// Get plan-level input values from the form (facilities/modules/prioritize-byproducts, nothing
+// goal-related, since find_plan doesn't need a target). Currency is always coins: the full
+// release removed Bud Tickets, the only other sellable currency.
 function getPlanInputValues() {
     // `facilityTiers` is the live source of truth for owned counts (kept in sync with the DOM by
     // `attachFacilityTierHandlers`), sent straight through as a list of tiers per facility; see
     // `JsPlanInput::facilities` in wasm.rs for the shape (`[{count, level}, ...]` per facility).
+    if (isSimpleMode()) {
+        const { facilities, modules } = simpleSetup(selectedHomeLevel());
+        return {
+            currency: 'coins',
+            prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
+            level_up: levelUpInput(),
+            facilities,
+            modules
+        };
+    }
+
     const facilities = {};
     FACILITIES.forEach(f => {
         facilities[f.name] = facilityTiers[f.name].map(t => ({
@@ -370,13 +760,14 @@ function getPlanInputValues() {
     const modules = {
         ecological_module: numberOrDefault(document.getElementById('ecological-module-level').value, 0),
         kitchen_module: numberOrDefault(document.getElementById('kitchen-module-level').value, 0),
-        mineral_detector: numberOrDefault(document.getElementById('mineral-detector-level').value, 0),
+        resource_detector: numberOrDefault(document.getElementById('resource-detector-level').value, 0),
         crafting_module: numberOrDefault(document.getElementById('crafting-module-level').value, 0)
     };
 
     return {
-        currency: getCurrency(),
-        prioritize_byproducts: document.getElementById('prioritize-byproducts').checked,
+        currency: 'coins',
+        prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
+        level_up: levelUpInput(),
         facilities,
         modules
     };
@@ -385,6 +776,27 @@ function getPlanInputValues() {
 // parseInt/parseFloat that fall back to `fallback` only when the input doesn't parse to a number
 // at all (blank/invalid); unlike `value || fallback`, these correctly keep a legitimate 0 (e.g.
 // "I own zero of this facility"), which `||` would silently discard since 0 is falsy in JS.
+// "quick_aromathyst" -> "Quick Aromathyst": the data uses snake_case names.
+function prettyItem(name) {
+    if (!name) return name;
+    if (ITEM_NAMES[name]) return ITEM_NAMES[name];
+    return name.split('_').map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(' ');
+}
+
+// A plan row's reason with its item names made readable: "Used for dried_strawberries, jam; the
+// rest sells directly" -> "Used for Dried Strawberries, Jam; the rest sells directly".
+function prettyReason(reason) {
+    if (!reason) return reason;
+    const names = list => list.split(', ').map(prettyItem).join(', ');
+    return reason
+        .replace(/^Used for ([^;]+)/, (_, list) => 'Used for ' + names(list))
+        .replace(/takes turns with ([^;]+)$/, (_, list) => 'takes turns with ' + names(list));
+}
+
+// Keys ("Facility|item") of the shown plan's rows that rely on recipes not yet checked in game;
+// set by `displayPlan` so the facility tables can tag those rows.
+let unverifiedRowKeys = new Set();
+
 function numberOrDefault(value, fallback) {
     const parsed = parseInt(value, 10);
     return Number.isNaN(parsed) ? fallback : parsed;
@@ -459,7 +871,7 @@ function renderProductBreakdown(goalResult) {
         const wholeAmount = Math.floor(p.total_units);
         const worth = wholeAmount * p.sell_value;
         row.innerHTML = `
-            <td>${p.item_name}</td>
+            <td>${prettyItem(p.item_name)}</td>
             <td>${p.facility}</td>
             <td>${wholeAmount.toLocaleString()}</td>
             <td>${formatNumber(p.rate_per_second * multiplier)}</td>
@@ -499,7 +911,7 @@ function renderSeedsNeeded(goalResult) {
 
     tbody.innerHTML = requirements.map(r => `
         <tr>
-            <td>${r.item_name}</td>
+            <td>${prettyItem(r.item_name)}</td>
             <td>${r.facility}</td>
             <td>${r.facility_count.toLocaleString()}</td>
             <td>${r.seeds_per_plot.toLocaleString()}</td>
@@ -512,6 +924,75 @@ function renderSeedsNeeded(goalResult) {
 // optimizer.rs (Heat Furnace's two modes, then Cooling Unit's two, then Sunlamp's one).
 const ENVIRONMENT_MODE_ORDER = ['Warm', 'Scorching', 'Cool', 'Freeze', 'Adequate'];
 
+// "Fire Lv.3 · Practical" for a row that needs a specific Aniimo, or '-' when it doesn't (crops,
+// trees, idle facilities).
+// Every Aniimo ability in the game's own order, with its in-game color and what it's for.
+// `dark` marks colors light enough to need dark text.
+const ABILITIES = [
+    { name: 'Fire', color: '#e5484d', about: 'Cooking, smelting and heat' },
+    { name: 'Grass', color: '#3fa36b', about: 'Planting seeds and gathering' },
+    { name: 'Water', color: '#2b8fe8', about: 'Brewing, fetching water and watering' },
+    { name: 'Earth', color: '#b39a74', about: 'Reclaiming land and mining' },
+    { name: 'Lightning', color: '#e6c317', about: 'Electricity', dark: true },
+    { name: 'Ice', color: '#45c4de', about: 'Cooling the homeland' },
+    { name: 'Wind', color: '#2fbfa5', about: 'Processing with wind' },
+    { name: 'Dark', color: '#7d4bb3', about: 'Harvesting, cutting, pickling and drying' },
+    { name: 'Light', color: '#f5a524', about: 'Lighting the homeland', dark: true },
+    { name: 'Hauling', color: '#5f7fd1', about: 'Carrying produce to storage' },
+    { name: 'Artisanship', color: '#5fb14f', about: 'Handcrafted goods' },
+    { name: 'Leisure', color: '#e8678a', about: 'Making things while playing' },
+    { name: 'Perfumery', color: '#b877d9', about: 'Perfumes and incense' },
+];
+const ABILITY_BY_NAME = new Map(ABILITIES.map(a => [a.name, a]));
+
+// The ability each environment building's Aniimo needs (confirmed in game).
+const ENVIRONMENT_BUILDING_ABILITY = {
+    'Heat Furnace': 'Fire',
+    'Cooling Unit': 'Ice',
+    'Sunlamp': 'Light',
+};
+
+// A colored ability tag, like the game's.
+function abilityTag(name) {
+    const a = ABILITY_BY_NAME.get(name);
+    if (!a) return name;
+    return `<span class="ability${a.dark ? ' dark' : ''}" style="--ability:${a.color}" title="${a.about}">${name}</span>`;
+}
+
+// A colored circle with the Aniimo level in it, for the facility plan's Aniimo column; the
+// tooltip has the ability, level and personality.
+function abilityDot(name, level, note) {
+    const a = ABILITY_BY_NAME.get(name);
+    const color = a ? a.color : '#888888';
+    const tip = `${name} Lv.${level}${note ? ` · ${note}` : ''}`;
+    return `<span class="ability-dot${a && a.dark ? ' dark' : ''}${note ? ' bonus' : ''}" style="--ability:${color}" title="${tip}" aria-label="${tip}">${level}</span>`;
+}
+
+function aniimoLabel(step) {
+    const a = step.aniimo;
+    if (!a) {
+        // Crops and trees: the abilities their planting and harvesting jobs need.
+        const tasks = step.aniimo_tasks || [];
+        if (tasks.length === 0) return '-';
+        return `<span class="ability-dots">${tasks.map(t => abilityDot(t.ability, t.level)).join('')}</span>`;
+    }
+    let note = '';
+    if (a.personality_bonus) {
+        const personality = FACILITIES.find(f => f.name === step.facility)?.personality;
+        note = `${personality ? `${personality} personality` : 'matching personality'} (+20% speed)`;
+    }
+    return `<span class="ability-dots">${abilityDot(a.ability, a.level, note)}</span>`;
+}
+
+// "Fire Lv.3 · Practical": one kind of Aniimo, with the facility's personality when the plan
+// counts on its bonus. `tagged` shows the ability as a colored tag.
+function taskLabel(task, facility, tagged = false) {
+    const ability = tagged ? abilityTag(task.ability) : task.ability;
+    if (!task.personality_bonus) return `${ability} Lv.${task.level}`;
+    const personality = FACILITIES.find(f => f.name === facility)?.personality;
+    return `${ability} Lv.${task.level} · ${personality || 'matching personality'}`;
+}
+
 function facilityPlanTable(rows) {
     return `
         <div class="table-wrapper">
@@ -521,19 +1002,145 @@ function facilityPlanTable(rows) {
                         <th>Facility</th>
                         <th>Count</th>
                         <th>Producing</th>
+                        <th>Aniimo</th>
                         <th>Why</th>
                     </tr>
                 </thead>
                 <tbody>${rows.map(step => `
                     <tr class="status-${step.status}">
-                        <td>${step.facility}</td>
-                        <td>${step.facility_count}</td>
-                        <td>${step.item_name || '-'}</td>
-                        <td>${step.reason}</td>
+                        <td data-label="Facility">${step.facility}</td>
+                        <td data-label="Count">${step.facility_count}</td>
+                        <td data-label="Producing">${step.item_name ? prettyItem(step.item_name) : '-'}${unverifiedRowKeys.has(`${step.facility}|${step.item_name}`) ? '<span class="tag unverified" title="Not yet checked in game">unverified</span>' : ''}</td>
+                        <td data-label="Aniimo">${aniimoLabel(step)}</td>
+                        <td data-label="Why">${prettyReason(step.reason)}</td>
                     </tr>
                 `).join('')}</tbody>
             </table>
         </div>
+    `;
+}
+
+// The Aniimo team the shown plan needs, one row per distinct ability / level / personality.
+// Aniimo move between any jobs they can do, so each row needs enough of them to cover the work
+// on average (a facility waiting on ingredients frees its Aniimo), rounded up. Facilities with a
+// resident Aniimo (Sandcastle and the like) are always busy, so they count one each.
+function renderAniimoSummary(plan) {
+    const container = document.getElementById('aniimo-summary');
+    const groups = new Map();
+    (plan.coin_items || []).forEach(step => {
+        (step.aniimo_tasks || []).forEach(task => {
+            const key = taskLabel(task, step.facility);
+            if (!groups.has(key)) {
+                groups.set(key, { label: key, ability: task.ability, level: task.level, bonus: task.personality_bonus, busy: 0, where: new Map() });
+            }
+            const g = groups.get(key);
+            g.busy += task.busy;
+            const place = `${step.facility} (${prettyItem(step.item_name)})`;
+            g.where.set(place, (g.where.get(place) || 0) + step.facility_count);
+        });
+    });
+    // Environment buildings in use each keep an Aniimo busy (abilities confirmed in game; whether
+    // level or personality matters isn't known yet, so any level is shown).
+    (plan.environment_assignments || []).forEach(a => {
+        const ability = ENVIRONMENT_BUILDING_ABILITY[a.building];
+        if (!ability || !a.units) return;
+        const key = `${ability} (environment)`;
+        if (!groups.has(key)) {
+            groups.set(key, { label: `${ability} any level`, ability, level: 1, bonus: false, busy: 0, where: new Map(), environment: true });
+        }
+        const g = groups.get(key);
+        g.busy += a.units;
+        const place = `${a.building} (${a.mode})`;
+        g.where.set(place, (g.where.get(place) || 0) + a.units);
+    });
+    const collapsedSummary = document.getElementById('aniimo-collapsed-summary');
+    if (groups.size === 0) {
+        container.innerHTML = '<p class="hint">Nothing in this plan needs an Aniimo.</p>';
+        collapsedSummary.textContent = 'No Aniimo needed.';
+        document.getElementById('aniimo-abilities').innerHTML = '';
+        return;
+    }
+    // An Aniimo can do any job of its ability at or below its level, so work that fits in a
+    // higher-level row's spare time (e.g. Farmland jobs, which take any level) joins that row
+    // instead of calling for another Aniimo. Rows that count on a personality bonus stay separate.
+    const sorted = [...groups.values()].sort((a, b) => b.level - a.level || Number(b.bonus) - Number(a.bonus) || a.label.localeCompare(b.label));
+    const kept = [];
+    sorted.forEach(g => {
+        const host = g.bonus || g.environment ? null : kept.find(k => k.ability === g.ability && k.level >= g.level && k.spare >= g.busy - 1e-6);
+        if (host) {
+            host.spare -= g.busy;
+            host.busy += g.busy;
+            g.where.forEach((n, place) => host.where.set(place, (host.where.get(place) || 0) + n));
+            return;
+        }
+        g.count = Math.max(1, Math.ceil(g.busy - 1e-6));
+        g.spare = g.count - g.busy;
+        kept.push(g);
+    });
+    let total = 1; // the Hauling row below
+    const rows = kept
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map(g => {
+            total += g.count;
+            const where = [...g.where.entries()].map(([place, n]) => `${n > 1 ? n + '× ' : ''}${place}`).join(', ');
+            const rest = g.label.slice(g.ability.length).trim();
+            return `<tr><td data-label="Aniimo">${abilityTag(g.ability)} ${rest}</td><td data-label="How many">${g.count}</td><td data-label="Busy on average">${g.busy.toFixed(1)}</td><td data-label="Where">${where}</td></tr>`;
+        })
+        .join('');
+    const haulingRow = `<tr><td data-label="Aniimo">${abilityTag('Hauling')} any level</td><td data-label="How many">1+</td><td data-label="Busy on average">?</td><td data-label="Where">Carries produce to storage. How much work this is isn't known yet; add more if produce piles up.</td></tr>`;
+
+    let capNote = '';
+    const cap = isSimpleMode() ? ANIIMO_MAX[selectedHomeLevel() - 1] : null;
+    if (cap && total > cap) {
+        capNote = `<p class="hint small">That's ${total} Aniimo, more than the ${cap} an RV level ${selectedHomeLevel()} homeland holds. Aniimo with more than one of these abilities can cover several rows.</p>`;
+    } else if (cap) {
+        capNote = `<p class="hint small">That's ${total} Aniimo; an RV level ${selectedHomeLevel()} homeland holds ${cap}.</p>`;
+    } else {
+        capNote = `<p class="hint small">That's ${total} Aniimo at most; ones with more than one of these abilities can cover several rows.</p>`;
+    }
+    collapsedSummary.textContent = cap
+        ? `${total} Aniimo · your homeland holds ${cap}${total > cap ? ' (too many; see the list)' : ''}`
+        : `${total} Aniimo at most`;
+    // How many of each ability the plan needs, in the game's order, like its Abilities screen.
+    const needed = new Map(ABILITIES.map(a => [a.name, 0]));
+    kept.forEach(g => needed.set(g.ability, (needed.get(g.ability) || 0) + g.count));
+    // Under each count, one circle per kind of Aniimo (with "×N" when several are the same): its
+    // level inside (a dot for any level), a ring for the personality bonus, and what it's for in
+    // the tooltip.
+    const dot = (ability, text, bonus, tip) => {
+        const a = ABILITY_BY_NAME.get(ability);
+        return `<span class="ability-dot small${a && a.dark ? ' dark' : ''}${bonus ? ' bonus' : ''}" style="--ability:${a ? a.color : '#888888'}" title="${tip}" aria-label="${tip}">${text}</span>`;
+    };
+    const teamDots = g => {
+        const where = [...g.where.entries()].map(([place, n]) => `${n > 1 ? n + '× ' : ''}${place}`).join(', ');
+        const tip = `${g.count > 1 ? `${g.count}× ` : ''}${g.label}${g.bonus ? ' (+20% speed)' : ''} · ${where}`;
+        const times = g.count > 1 ? `<span class="ability-times">×${g.count}</span>` : '';
+        return `<span class="ability-kind">${dot(g.ability, g.environment ? '·' : g.level, g.bonus, tip)}${times}</span>`;
+    };
+    document.getElementById('aniimo-abilities').innerHTML = ABILITIES.map(a => {
+        const n = a.name === 'Hauling' ? `${needed.get(a.name) + 1}+` : needed.get(a.name);
+        const zero = n === 0;
+        const dots = kept
+            .filter(g => g.ability === a.name)
+            .sort((x, y) => y.level - x.level || Number(y.bonus) - Number(x.bonus))
+            .map(teamDots);
+        if (a.name === 'Hauling') {
+            dots.push(`<span class="ability-kind">${dot('Hauling', '·', false, 'Hauling, any level · carries produce to storage; add more if produce piles up')}</span>`);
+        }
+        const stack = dots.length ? `<div class="ability-stack">${dots.join('')}</div>` : '';
+        return `<div class="ability-col" style="--ability:${a.color}">
+            <div class="ability-cell${zero ? ' zero' : ''}" title="${a.name}: ${a.about}">
+                <span class="ability-count">${n}</span><span class="ability-name">${a.name}</span>
+            </div>${stack}</div>`;
+    }).join('');
+    container.innerHTML = `
+        <div class="table-wrapper">
+            <table class="facility-plan-table">
+                <thead><tr><th>Aniimo</th><th>How many</th><th>Busy on average</th><th>Where</th></tr></thead>
+                <tbody>${rows}${haulingRow}</tbody>
+            </table>
+        </div>
+        ${capNote}
     `;
 }
 
@@ -605,7 +1212,7 @@ const ENVIRONMENT_FACILITY_COLORS = {
     'Woodland': '#4caf50',
     'Starfall Hammock': '#42a5f5',
     'Tidewhisper Sandcastle': '#26c6da',
-    'Grass Blossom Mat': '#ab47bc',
+    'Floral Windmill': '#ab47bc',
     'Dewy House': '#ef8a80',
 };
 
@@ -614,52 +1221,111 @@ const ENVIRONMENT_FACILITY_COLORS = {
 const ENVIRONMENT_BUILDING_SIZE = 2.0;
 const ENVIRONMENT_COVERAGE_RADIUS = 4.5;
 
-// Renders a simple SVG diagram of one building instance's exact chosen layout (from
-// `assignment.layouts[i]`); literally the solver's own placements, not an invented
-// illustration: a dashed square for the coverage zone, a solid square for the building itself,
-// and one colored rectangle per hosted facility, with a small legend mapping color to facility
-// name (there's no room for full labels at this scale).
-function renderEnvironmentDiagram(layout) {
+// Coverage tint for each growing environment, used to shade a building's coverage area.
+const ENVIRONMENT_MODE_COLORS = {
+    Warm: '#f59e0b',
+    Scorching: '#ef4444',
+    Cool: '#60a5fa',
+    Freeze: '#67e8f9',
+    Adequate: '#facc15',
+};
+
+// Renders one building's layout as an SVG: faint one-tile gridlines, the building, its coverage
+// area shaded in the environment's color, and every plot the plan puts in it, nearest the
+// building first. `rows` are this building's plan rows; each plot is matched to one of them so
+// hovering a plot names its crop, and when one facility type grows more than one crop here (so
+// color alone can't tell them apart) each plot shows its crop's number from the legend.
+// Positions are the solver's own, in game tiles.
+function renderEnvironmentDiagram(layout, mode, building, rows = []) {
     if (!layout || layout.length === 0) return '';
     const margin = 5;
     const half = ENVIRONMENT_COVERAGE_RADIUS + margin;
     const buildingCenter = ENVIRONMENT_BUILDING_SIZE / 2;
-    // Center the viewBox on the building's own center, not world origin (0,0); the building sits
-    // at (0,0)-(size,size), so its center (and the coverage zone centered on it) is offset from
-    // the origin. Centering the viewBox on the origin instead made the whole diagram look
-    // consistently shifted toward one corner.
+    // Centered on the building's own center (it sits at (0,0)-(size,size)), not world origin.
     const viewMin = buildingCenter - half;
     const viewSize = half * 2;
     const coverageMin = buildingCenter - ENVIRONMENT_COVERAGE_RADIUS;
     const coverageSize = ENVIRONMENT_COVERAGE_RADIUS * 2;
+    const tint = ENVIRONMENT_MODE_COLORS[mode] || '#9aa0a8';
 
-    // A small fixed inset shrinks each tile slightly so adjacent, edge-touching placements (a
-    // legitimate, non-overlapping packing) render with a visible gap between them instead of
-    // looking like one contiguous, ambiguous blob; purely cosmetic, doesn't reflect anything about
-    // the actual game geometry.
-    const inset = 0.06;
-    const rects = layout.map(p => {
+    // Gridlines like the game's: stronger on whole tiles, very faint on the quarter tiles
+    // facilities snap to.
+    const gridLines = [];
+    for (let t = Math.ceil(viewMin * 4) / 4; t <= viewMin + viewSize; t += 0.25) {
+        const cls = Number.isInteger(t) ? 'tile' : 'quarter';
+        gridLines.push(`<line class="${cls}" x1="${t}" y1="${viewMin}" x2="${t}" y2="${viewMin + viewSize}" />`);
+        gridLines.push(`<line class="${cls}" x1="${viewMin}" y1="${t}" x2="${viewMin + viewSize}" y2="${t}" />`);
+    }
+
+    // Plots nearest the building first, each matched to a plan row of its facility type.
+    const distance = p => Math.hypot(p.x + p.size / 2 - buildingCenter, p.y + p.size / 2 - buildingCenter);
+    const plots = [...layout].sort((a, b) => distance(a) - distance(b));
+    const queue = {};
+    rows.forEach(r => {
+        if (!r.item_name) return;
+        (queue[r.facility] = queue[r.facility] || []).push({ item: r.item_name, left: r.facility_count });
+    });
+    const cropOf = p => {
+        const q = queue[p.facility];
+        while (q && q.length && q[0].left <= 0) q.shift();
+        if (!q || !q.length) return null;
+        q[0].left--;
+        return q[0].item;
+    };
+    const assigned = plots.map(p => ({ ...p, crop: cropOf(p) }));
+    const crops = [...new Set(assigned.map(p => `${p.facility}|${p.crop}`))];
+    const cropsPerFacility = {};
+    crops.forEach(key => {
+        const facility = key.split('|')[0];
+        cropsPerFacility[facility] = (cropsPerFacility[facility] || 0) + 1;
+    });
+    const numbered = Object.values(cropsPerFacility).some(n => n > 1);
+    const numberOf = key => crops.indexOf(key) + 1;
+
+    // A small inset keeps edge-touching plots visibly separate; purely cosmetic.
+    const inset = 0.08;
+    const rects = assigned.map(p => {
         const color = ENVIRONMENT_FACILITY_COLORS[p.facility] || '#888888';
         const size = p.size - inset * 2;
-        return `<rect x="${p.x + inset}" y="${p.y + inset}" width="${size}" height="${size}" fill="${color}" fill-opacity="0.75" stroke="${color}" stroke-width="0.03" />`;
+        const label = p.crop ? `${p.facility}: ${prettyItem(p.crop)}` : p.facility;
+        const initials = numbered && p.crop
+            ? `<text x="${p.x + p.size / 2}" y="${p.y + p.size / 2}" font-size="${Math.min(0.9, p.size * 0.4)}">${numberOf(`${p.facility}|${p.crop}`)}</text>`
+            : '';
+        return `<g class="env-plot"><title>${label}</title>
+            <rect x="${p.x + inset}" y="${p.y + inset}" width="${size}" height="${size}" rx="0.25" fill="${color}" fill-opacity="0.85" stroke="${color}" stroke-width="0.06" />${initials}</g>`;
     }).join('');
 
-    const usedFacilities = [...new Set(layout.map(p => p.facility))];
-    const legend = usedFacilities.map(f => `
+    // Legend: the coverage, then each crop with how many plots it gets here.
+    const counts = {};
+    assigned.forEach(p => {
+        const key = `${p.facility}|${p.crop}`;
+        counts[key] = (counts[key] || 0) + 1;
+    });
+    const legend = [`
         <span class="env-legend-item">
-            <span class="env-legend-swatch" style="background:${ENVIRONMENT_FACILITY_COLORS[f] || '#888888'}"></span>${f}
-        </span>
-    `).join('');
+            <span class="env-legend-swatch coverage" style="background:${tint}33;border-color:${tint}"></span>${mode} coverage
+        </span>`].concat(Object.entries(counts).map(([key, n]) => {
+        const [facility, crop] = key.split('|');
+        const name = crop && crop !== 'null' ? `${facility}: ${prettyItem(crop)}` : facility;
+        return `
+        <span class="env-legend-item">
+            <span class="env-legend-swatch" style="background:${ENVIRONMENT_FACILITY_COLORS[facility] || '#888888'}"></span>${numbered ? `<b>${numberOf(key)}</b> ` : ''}${name} ×${n}
+        </span>`;
+    })).join('');
 
     return `
         <div class="env-diagram">
-            <svg viewBox="${viewMin} ${viewMin} ${viewSize} ${viewSize}" width="200" height="200">
+            <svg viewBox="${viewMin} ${viewMin} ${viewSize} ${viewSize}" role="img" aria-label="${building} layout, ${mode} coverage">
+                <g class="env-grid">${gridLines.join('')}</g>
                 <rect x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}"
-                      fill="none" stroke="currentColor" stroke-opacity="0.4" stroke-dasharray="0.3,0.3" stroke-width="0.06" />
-                <rect x="0" y="0" width="${ENVIRONMENT_BUILDING_SIZE}" height="${ENVIRONMENT_BUILDING_SIZE}" fill="currentColor" fill-opacity="0.6" />
+                      fill="${tint}" fill-opacity="0.12" stroke="${tint}" stroke-opacity="0.8" stroke-dasharray="0.35,0.25" stroke-width="0.08" />
                 ${rects}
+                <g class="env-building"><title>${building} (${mode})</title>
+                    <rect x="0.05" y="0.05" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3" fill="${tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
+                </g>
             </svg>
             <div class="env-legend">${legend}</div>
+            <p class="env-note">A plot counts as covered if any part of it is inside the dashed area.</p>
         </div>
     `;
 }
@@ -702,7 +1368,7 @@ function renderFacilityPlan(plan) {
             : units.map((unit, i) => `
                 ${units.length > 1 ? `<p class="hint small">${unit.building} ${i + 1}</p>` : ''}
                 <div class="env-unit">
-                    ${renderEnvironmentDiagram(unit.layout)}
+                    ${renderEnvironmentDiagram(unit.layout, mode, unit.building, unit.rows)}
                     <div class="env-unit-table">${facilityPlanTable(unit.rows)}</div>
                 </div>
             `).join('');
@@ -760,7 +1426,7 @@ function updateRateUnitDisplays() {
 // Render a successfully computed plan: rate summary + facility plan table. Goal-independent,
 // called once per Calculate click (or facility/currency/module change), not on every goal
 // keystroke.
-function displayPlan(plan) {
+function displayPlan(plan, scroll = true) {
     const resultsSection = document.getElementById('results-section');
     const errorEl = document.getElementById('error-message');
     const resultsContent = document.getElementById('results-content');
@@ -776,17 +1442,41 @@ function displayPlan(plan) {
 
     errorEl.style.display = 'none';
     resultsContent.style.display = 'block';
-    goalSection.style.display = 'block';
+    // A level-up plan's own card says how long it takes; the goal is for coin plans.
+    goalSection.style.display = plan.level_up ? 'none' : 'block';
 
     updateRateDisplay();
     updateCurrencyLabels(plan.currency);
 
-    document.getElementById('plan-explored-hint').textContent =
-        `Explored ${plan.candidates_evaluated} candidate item${plan.candidates_evaluated === 1 ? '' : 's'} across ${plan.trial_solves} trial solve${plan.trial_solves === 1 ? '' : 's'} to find this plan.`;
+    const explored = document.getElementById('plan-explored-hint');
+    if (plan.proven_optimal === true && plan.level_up) {
+        explored.innerHTML = `<span class="badge">✓ Proven best plan</span>No other plan gets RV ${planContext.target} sooner or earns more on the way, for the game data we have.`;
+    } else if (plan.proven_optimal === true) {
+        explored.innerHTML = '<span class="badge">✓ Proven best plan</span>No other use of these facilities earns more, for the game data we have.';
+    } else if (plan.proven_optimal === false && plan.upper_bound > 0) {
+        const gap = Math.max(0, (plan.upper_bound - plan.rate_per_second) / plan.upper_bound * 100);
+        explored.textContent = `Best plan found in the time allowed; the best possible is at most ${gap.toFixed(1)}% higher.`;
+    } else {
+        const reason = plan.fallback_reason ? ` (${plan.fallback_reason})` : '';
+        explored.textContent = `The exact planner couldn't run${reason}, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.`;
+    }
 
+    const unverifiedEl = document.getElementById('plan-unverified');
+    const unverified = plan.unverified || [];
+    unverifiedRowKeys = new Set(unverified.map(u => `${u.facility}|${u.item_name}`));
+    if (unverified.length) {
+        unverifiedEl.textContent = `${unverified.length} recipe${unverified.length === 1 ? '' : 's'} in this plan ${unverified.length === 1 ? "hasn't" : "haven't"} been checked in game yet (tagged below). If any of those numbers are off, so is this plan.`;
+        unverifiedEl.style.display = 'block';
+    } else {
+        unverifiedEl.style.display = 'none';
+    }
+
+    renderLevelUp(plan);
+    renderProfitBreakdown(plan);
     renderFacilityPlan(plan);
+    renderAniimoSummary(plan);
 
-    resultsSection.scrollIntoView({ behavior: 'smooth' });
+    if (scroll) resultsSection.scrollIntoView({ behavior: 'smooth' });
 }
 
 // Render a time-to-goal result: Total Time / Amount Produced summary + Product Breakdown. Called
@@ -830,29 +1520,48 @@ async function runFindPlan() {
     btnLoading.style.display = 'inline';
     progressBar.style.display = 'block';
     progressCaption.style.display = 'block';
-    progressFill.style.width = '0%';
-    progressCaption.textContent = 'Starting...';
+    progressFill.style.width = '';
+    progressFill.classList.add('indeterminate');
+    progressCaption.textContent = 'Finding the best plan...';
 
+    const runId = ++planRunId;
+    plansBySetup = {};
+    if (pendingWorkerRequests.size > 0) restartWorker();
     try {
         const input = getPlanInputValues();
-        const inputJson = JSON.stringify(input);
+        planContext = {
+            levelUp: isLevelUpStrategy(),
+            target: levelUpTarget(),
+            unavailable: levelUpUnavailable(),
+            ready: !!(input.level_up && input.level_up.cost.every(([name, need]) => stockAmount(name) >= need)),
+        };
 
         // Runs in the worker (see worker.js); the main thread stays free to paint the progress
         // bar above for however long this takes, instead of freezing. `onTrialProgress` receives
         // the solver's own real, running trial-solve count after every trial solve; converted to
         // a fill percentage by `trialCountToPercent` below.
-        const resultJson = await callWorker('find_plan', inputJson, (count) => {
+        // Only the backup planner reports progress (see worker.js); the exact planner is quick.
+        const bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: 'best' }), (count) => {
+            progressFill.classList.remove('indeterminate');
             progressFill.style.width = `${trialCountToPercent(count)}%`;
-            progressCaption.textContent = `Trial ${count}...`;
+            progressCaption.textContent = `Backup planner, trial ${count}...`;
         });
         progressFill.style.width = '100%';
-        const plan = JSON.parse(resultJson);
+        if (runId !== planRunId) return;
+        plansBySetup.best = JSON.parse(bestJson);
+        showSelectedPlan(true);
 
-        lastPlan = plan;
-        displayPlan(plan);
-        if (plan.success) {
-            await runTimeToGoal();
-        }
+        // The Minimum setup solves after Best is already on screen; switching to it before it's
+        // done shows a short "still working" note until it arrives.
+        callWorker('find_plan', JSON.stringify({ ...input, aniimo: 'minimum' }))
+            .then(json => {
+                if (runId !== planRunId) return;
+                plansBySetup.minimum = JSON.parse(json);
+                if (selectedAniimoSetup() === 'minimum') showSelectedPlan(false);
+            })
+            .catch(error => {
+                if (runId === planRunId) console.error('Minimum Aniimo plan failed:', error);
+            });
     } catch (error) {
         console.error('Plan calculation error:', error);
         lastPlan = null;
@@ -863,6 +1572,7 @@ async function runFindPlan() {
         btnLoading.style.display = 'none';
         progressBar.style.display = 'none';
         progressCaption.style.display = 'none';
+        progressFill.classList.remove('indeterminate');
     }
 }
 
@@ -891,16 +1601,12 @@ async function runTimeToGoal() {
 const RECIPE_MODULE_LABELS = {
     ecological_module: 'Ecological Module',
     kitchen_module: 'Kitchen Module',
-    mineral_detector: 'Mineral Detector',
+    resource_detector: 'Resource Detector',
     crafting_module: 'Crafting Module',
 };
 
 // Cached after the first render, since the underlying data never changes for a given wasm build.
 let recipesRendered = false;
-
-function formatRecipeCurrency(currency) {
-    return currency === 'bud_tickets' ? 'Bud Tickets' : 'Coins';
-}
 
 // Mirrors the Rust `format_time` helper in wasm.rs (hours/minutes/seconds, dropping leading
 // zero units) so times read the same way here as they would in-game.
@@ -918,7 +1624,7 @@ function formatRecipeInputs(recipe) {
     if (recipe.raw_materials && recipe.raw_materials.length > 0) {
         const amounts = recipe.required_amount || [];
         return recipe.raw_materials
-            .map((mat, i) => `${amounts[i] ?? '?'}x ${mat}`)
+            .map((mat, i) => `${amounts[i] ?? '?'}× ${prettyItem(mat)}`)
             .join(', ');
     }
     if (recipe.cost && recipe.cost > 0) {
@@ -934,6 +1640,26 @@ function formatRecipeYield(recipe) {
         text += ` <span class="hint small">(+${amount} ${name})</span>`;
     }
     return text;
+}
+
+// "Fire Lv.2+, best Lv.3 Practical": the minimum ability level a recipe accepts, then the best
+// Aniimo for it. Crops and trees list the ability of each job (sowing, reaping and so on).
+function formatRecipeAniimo(recipe, facility) {
+    if (!recipe.aniimo) {
+        const jobs = recipe.jobs || [];
+        if (jobs.length === 0) return '-';
+        return `<span class="job-list">${jobs.map(([step, ability, level]) =>
+            `<span class="job"><span class="job-step">${step}</span> ${abilityTag(ability)}${level > 1 ? ` Lv.${level}+` : ''}</span>`).join('')}</span>`;
+    }
+    const [ability, minLevel] = recipe.aniimo;
+    const best = `best Lv.3${facility.personality ? ' ' + facility.personality : ''}`;
+    return `<span>${abilityTag(ability)} Lv.${minLevel}+<span class="recipe-best">${best}</span></span>`;
+}
+
+// "44 coins", or what a level-up material is for.
+function formatRecipeSell(recipe) {
+    if (recipe.sell_currency === 'none') return '<span class="hint small">RV level-ups</span>';
+    return `${formatNumber(recipe.sell_value)} ${recipe.sell_value === 1 ? 'coin' : 'coins'}`;
 }
 
 function formatRecipeModule(recipe) {
@@ -963,15 +1689,18 @@ function renderRecipeTables(recipes) {
         if (facilitiesInCategory.length === 0) return '';
 
         const tables = facilitiesInCategory.map(f => {
+            // `data-label` names each cell when rows stack on phones; empty cells are left out there.
+            const cell = (label, value) => `<td data-label="${label}"${value === '-' ? ' class="empty"' : ''}>${value}</td>`;
             const rows = byFacility.get(f.name).map(r => `
-                <tr>
-                    <td>${r.name}</td>
-                    <td>${r.facility_level}</td>
-                    <td>${formatRecipeInputs(r)}</td>
-                    <td>${formatRecipeYield(r)}</td>
-                    <td>${formatRecipeTime(r.production_time)}</td>
-                    <td>${r.sell_value} ${formatRecipeCurrency(r.sell_currency)}</td>
-                    <td>${formatRecipeModule(r)}</td>
+                <tr${r.verified === false ? ' class="unverified"' : ''}>
+                    <td class="recipe-name">${prettyItem(r.name)}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
+                    ${cell('Level', r.facility_level)}
+                    ${cell('Inputs', formatRecipeInputs(r))}
+                    ${cell('Yield', formatRecipeYield(r))}
+                    ${cell('Time', r.workload ? `${r.workload} workload` : formatRecipeTime(r.production_time))}
+                    ${cell('Sell', formatRecipeSell(r))}
+                    ${cell('Module', formatRecipeModule(r))}
+                    ${cell('Aniimo', formatRecipeAniimo(r, f))}
                 </tr>
             `).join('');
 
@@ -986,9 +1715,10 @@ function renderRecipeTables(recipes) {
                                     <th>Level</th>
                                     <th>Inputs</th>
                                     <th>Yield</th>
-                                    <th>Time</th>
+                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: how long it takes depends on the Aniimo working it (108 workload takes 108s at level 1, 36s at level 2, 27s at level 3).">?</span></th>
                                     <th>Sell</th>
                                     <th>Module</th>
+                                    <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 3 with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
@@ -1041,28 +1771,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedData = readStorage();
     initFacilityTiers(savedData);
     renderFacilityCards();
+    populateHomeLevels();
+    populateLevelUpTargets();
     loadInputsFromStorage(savedData);
     attachAutoSave();
     attachFacilityTierHandlers();
+    attachModeHandlers();
+    attachStrategyHandlers();
+    applyConfigMode();
     initWasm();
 
     document.getElementById('optimize-btn').addEventListener('click', runFindPlan);
     document.getElementById('clear-saved-btn').addEventListener('click', clearSavedInputs);
     document.getElementById('rate-unit').addEventListener('change', updateRateUnitDisplays);
+    document.getElementById('aniimo-best').addEventListener('change', () => showSelectedPlan(false));
+    document.getElementById('aniimo-toggle').addEventListener('click', () => {
+        const toggle = document.getElementById('aniimo-toggle');
+        const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', String(expanded));
+        document.getElementById('aniimo-body').hidden = !expanded;
+    });
+    document.getElementById('aniimo-minimum').addEventListener('change', () => showSelectedPlan(false));
 
     // Goal fields update live; no need to re-run the facility-allocation solve just because the
     // goal amount changed.
     document.getElementById('target-amount').addEventListener('input', runTimeToGoal);
     document.getElementById('current-amount').addEventListener('input', runTimeToGoal);
-
-    // Changing currency invalidates the last plan (it was solved for the other currency); hide
-    // the goal section until Calculate is pressed again rather than show a stale rate/plan.
-    document.querySelectorAll('input[name="currency"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-            lastPlan = null;
-            document.getElementById('goal-section').style.display = 'none';
-        });
-    });
 
     // Allow Enter key to trigger a full plan recalculation; but not in the goal fields, which
     // already update live on every keystroke via the listeners above. Facility tier inputs are
@@ -1071,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // once at startup wouldn't reach a tier added later).
     document.querySelectorAll('input').forEach(input => {
         if (input.id === 'target-amount' || input.id === 'current-amount') return;
-        if (input.closest('#facilities-grid')) return;
+        if (input.closest('#facilities-grid') || input.closest('#level-up-stock-grid')) return;
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 runFindPlan();

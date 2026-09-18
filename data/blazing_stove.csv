@@ -1,0 +1,17 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+soy_sauce_fried_rice, milled_rice;soy_sauce, 1;1, 1280, coins, 203, 1,
+creamy_potato_soup, potato;fresh_water, 15;8, 750, coins, 135, 1,
+cherry_blossom_rice_ball, salted_cherry_blossom;milled_rice, 1;1, 1410, coins, 203, 1,
+premium_potato_soup, potato;fresh_water, 15;8, 880, coins, 135, 1, kitchen_module:3
+tanghulu, strawberry;rock_candy, 8;1, 2260, coins, 203, 2,
+soy_sauce_tofu, tofu;soy_sauce, 1;1, 1470, coins, 203, 2,
+sugar_roasted_chestnuts, chestnut;rock_candy, 7;1, 2470, coins, 203, 2,
+steamed_vermicelli_roll, rice_drink, 1, 2510, coins, 162, 3,
+ginseng_chestnut_cake, ginseng_powder;chestnut, 1;7, 2510, coins, 162, 3,
+walnut_cake, walnut;rice_drink, 6;1, 3550, coins, 243, 3,
+jello, petals;maple_sugar_chunk;deep_rock_spring_water, 6;1;6, 4790, coins, 243, 4,
+strawberry_candy, strawberry;malt_sugar, 8;1, 6840, coins, 324, 4,
+rich_grape_compote, grape_juice;dried_grapes, 1;1, 5050, coins, 243, 4,
+premium_jello, petals;maple_sugar_chunk;deep_rock_spring_water, 6;1;6, 5520, coins, 243, 4, kitchen_module:6
+strawberry_cream_puff, refined_flour;strawberry;coconut_oil, 1;16;1, 5650, coins, 243, 5,
+cranberry_chocolate, cocoa_spread;dried_cranberries, 1;1, 13480, coins, 405, 5,

@@ -1,15 +1,14 @@
 name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
-lemon_incense, lemon, 5, 345, coins, 23, 1,
-lavender_incense, lavender, 5, 1260, coins, 27, 2,
-rose_incense, rose, 6, 1263, coins, 27, 2,
-deluxe_lavender_incense, lavender_incense;aromathyst, 1;4, 3708, coins, 54, 3,
-premium_rose_incense, rose_incense;aromathyst, 1;4, 3711, coins, 54, 3,
-premium_lemon_incense, lemon_incense;aromathyst, 1;4, 2793, coins, 54, 3,
-soap, coconut_oil;lemon_incense, 1;1, 2145, coins, 54, 3,
-rose_freshener, bamboo;rose_incense, 4;1, 2507, coins, 54, 3,
-cedarwood_incense, pine, 1, 2040, coins, 27, 3,
-sachet, soap;cotton_fabric, 1;1, 5343, coins, 81, 4,
-lotion, coconut_oil;soap, 1;1, 5400, coins, 81, 4,
-deluxe_cedarwood_incense, cedarwood_incense;aromathyst, 1;4, 5118, coins, 54, 4,
-mixed_perfume, cedarwood_incense;coconut_oil, 1;1, 4470, coins, 54, 4,
-coconutty_candle, mixed_perfume;pine, 1;1, 8475, coins, 81, 4,
+bamboo_joss_stick, bamboo;aromathyst, 15;2, 470, coins, 135, 1,
+rose_incense, rose;aromathyst, 12;2, 790, coins, 135, 2,
+cherry_incense, dried_cherry_blossom;aromathyst, 1;4, 840, coins, 135, 2,
+lavender_incense, lavender;aromathyst, 11;2, 1270, coins, 135, 3,
+lemon_incense, lemon;aromathyst, 12;2, 700, coins, 135, 3,
+advanced_lemon_incense, lemon;aromathyst, 12;2, 900, coins, 135, 3, crafting_module:3
+herbal_ginseng_aroma, ginseng_powder;aromathyst, 1;8, 2360, coins, 162, 4,
+soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 5500, coins, 243, 5,
+premium_soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 6320, coins, 243, 5, crafting_module:5
+orange_flower_incense, orange_flower;aromathyst, 8;8, 3640, coins, 162, 6,
+mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 4850, coins, 162, 6,
+lotion, orange_flower;coconut_oil, 8;2, 7030, coins, 162, 6,
+premium_mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 5520, coins, 162, 6, crafting_module:7

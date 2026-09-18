@@ -1,16 +1,19 @@
 name, cost, sell_value, production_time, yield, energy, facility_level, module_requirement, environment
-wheat, 0, 1, 150, 5, 300, 1, ,
-quick_wheat, 0, 1, 150, 8, 300, 1, ecological_module:1,
-potatoes, 2, 5, 450, 6, 380, 2, ,
-sugarcane, 3, 9, 750, 5, 760, 2, ,
-rice, 3, 5, 750, 10, 380, 2, ,
-cotton, 9, 23, 2250, 6, 0, 2, ,
-strawberry, 24, 72, 2250, 5, 2090, 3, ,
-soybean, 24, 45, 2250, 8, 1300, 3, ,
-lavender, 63, 189, 2250, 5, 0, 4, , Cool
-agave, 63, 236, 2250, 4, 0, 4, , Warm
-rose, 63, 158, 2250, 6, 0, 4, , Cool
-quick_rose, 63, 158, 2250, 9, 0, 4, ecological_module:4, Cool
-grape, 102, 306, 2250, 5, 2510, 5, , Adequate
-ginseng, 102, 765, 2250, 2, 6270, 5, , Cool
-pumpkin, 170, 1530, 4500, 1, 12540, 5, , Adequate
+wheat, 0, 1, 240, 5, , 1, ,
+potato, 1, 8, 640, 2, , 2, ,
+quick_wheat, 0, 1, 1200, 42, , 2, ecological_module:1,
+rice, 12, 10, 2400, 18, , 3, ,
+soybean, 12, 11, 2400, 16, , 3, ,
+rose, 21, 39, 2400, 8, , 4, , Cool
+cotton, 21, 44, 2400, 7, , 4, ,
+quick_potato, 1, 8, 2400, 46, , 4, ecological_module:3,
+strawberry, 32, 61, 2400, 8, , 5, , Cool
+lavender, 32, 69, 2400, 7, , 5, , Adequate
+sugarcane, 32, 81, 2400, 6, , 5, , Scorching
+ginseng, 56, 280, 2400, 3, , 6, , Cool
+grape, 56, 93, 2400, 9, , 6, , Adequate
+premium_wheat, 0, 52, 2400, 15, , 6, ,
+quick_rice, 12, 10, 2400, 79, , 6, ecological_module:5,
+cranberry, 97, 210, 2400, 7, , 7, , Freeze
+agave, 97, 240, 2400, 6, , 7, , Scorching
+quick_strawberry, 32, 61, 2400, 26, , 7, ecological_module:7, Cool

@@ -6,9 +6,18 @@
 use serde::Deserialize;
 use std::collections::HashSet;
 
+/// Each byproduct and the item name recipes use for it: the Woodworking Bench takes
+/// `wood_block`, the Chimney Kiln `mineral_sand`.
+pub const BYPRODUCT_ITEMS: [(&str, &str); 2] = [("Wood Blocks", "wood_block"), ("Mineral Sand", "mineral_sand")];
+
+/// The item name recipes use for a byproduct (see [`BYPRODUCT_ITEMS`]).
+pub fn byproduct_item(resource: &str) -> Option<&'static str> {
+    BYPRODUCT_ITEMS.iter().find(|(r, _)| *r == resource).map(|(_, item)| *item)
+}
+
 /// Represents a single production item that can be produced in the game.
 ///
-/// This includes both raw materials (from Farmland, Woodland, Mineral Pile)
+/// This includes both raw materials (from Farmland, Woodland, Mine)
 /// and processed items (from various processing facilities).
 ///
 /// # Example
@@ -46,7 +55,7 @@ pub struct ProductionItem {
     pub required_amount: Option<Vec<u32>>,
     /// The cost to plant/start production (for raw materials)
     pub cost: Option<f64>,
-    /// The currency received when selling ("coins" or "bud_tickets")
+    /// The currency received when selling ("coins")
     pub sell_currency: String,
     /// The value received per unit when selling
     pub sell_value: f64,
@@ -60,13 +69,13 @@ pub struct ProductionItem {
     pub facility_level: u32,
     /// Module requirement: (module_name, required_level) - None if no module needed
     pub module_requirement: Option<(String, u32)>,
-    /// Workload stat (new-beta Aniimo-dispatch facilities only). Informational; `production_time`
-    /// already reflects the derived time at 100% efficiency; see [`WORKLOAD_RATE_ESTIMATE`].
+    /// Workload for Aniimo-worked facilities. `production_time` holds the time for a level-1
+    /// Aniimo until [`Workers::apply`] sets the one for the player's own Aniimo.
     pub workload: Option<f64>,
     /// Secondary byproduct yielded alongside the main product: (resource_name, amount).
-    /// E.g. Woodland yields Wood Blocks, Mineral Pile yields Mineral Sand. These are
-    /// progression resources (Homeland/RV upgrades), not currency, so they are not folded
-    /// into the profit optimizer; informational only.
+    /// E.g. Woodland yields Wood Blocks, Mine yields Mineral Sand. These are progression
+    /// resources for RV level-ups: they aren't sold, but the Woodworking Bench and Chimney Kiln
+    /// process them (as the items named in [`BYPRODUCT_ITEMS`]).
     pub byproduct: Option<(String, u32)>,
     /// Growing environment this item needs to be planted (e.g. "Cool", "Warm", "Freeze",
     /// "Scorching", "Adequate"), or `None` if it has no environment requirement. Only ever
@@ -78,21 +87,205 @@ pub struct ProductionItem {
     pub environment: Option<String>,
 }
 
-/// Calibration constant for converting `workload` (any workload-driven, Aniimo-dispatch
-/// facility) into an estimated production time at 100% Aniimo efficiency, in
-/// workload-units-per-second. Applied universally across Mineral Pile, Nimbus Bed, Carousel
-/// Mill, Crafting Table, and any other workload-based facility.
+/// Workload per second an Aniimo gets through at ability level 1, 2 and 3. The facility screen
+/// shows this as Efficiency: 100%, 300% and 400%, where 100% is one workload per second (a
+/// 108-workload recipe takes 108s, 36s and 27s). Timed the same at the Jukebox Dryer, Carousel
+/// Mill and Simmering Pot, so a facility's ability only decides which Aniimo can work it, not
+/// how fast.
+pub const SUITABILITY_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
+
+/// Speed multiplier when the working Aniimo has the facility's personality bonus. The game
+/// describes it as +20% work efficiency, and it multiplies: a level-2 Aniimo goes from 300% to
+/// 360% (a 108-workload recipe takes 30s instead of 36s).
+pub const PERSONALITY_BONUS: f64 = 1.2;
+
+/// The Aniimo working a workload-based facility (Mine, Well, Tidewhisper Sandcastle and every
+/// processor). A facility has one Aniimo working it at a time; its work suitability level and
+/// whether it has the facility's personality bonus decide how fast workload is completed.
 ///
-/// Derived from a single direct data point: Shell at Mineral Pile (workload 300) took 3m29s
-/// (209s) at 100% efficiency, giving 300/209 ≈ 1.4354 workload/sec. A second data point, Petals
-/// at Nimbus Bed, was only observed at 140% efficiency and required assuming linear scaling to
-/// back out an implied 100%-rate; a weaker estimate. Identical workload "tier" values turn up
-/// across unrelated facilities (e.g. Wheatmeal at Carousel Mill and Shell Ornament at Crafting
-/// Table both have workload 18), suggesting workload is a shared game-wide unit rather than
-/// facility-specific, so this rate is applied universally as the best available estimate. Still
-/// provisional; revisit if a direct 100%-efficiency calibration point for a different facility
-/// ever contradicts it.
-pub const WORKLOAD_RATE_ESTIMATE: f64 = 300.0 / 209.0;
+/// ```
+/// use aniimax::models::Worker;
+///
+/// assert_eq!(Worker::default().seconds_for(108.0), 108.0);
+/// assert_eq!(Worker::new(2, false).seconds_for(108.0), 36.0);
+/// assert!((Worker::new(2, true).seconds_for(108.0) - 30.0).abs() < 1e-9);
+/// assert_eq!(Worker::new(3, false).seconds_for(108.0), 27.0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Worker {
+    /// Work suitability level for the facility's element, 1 to 3 (out-of-range values are clamped).
+    pub suitability: u32,
+    /// Whether the Aniimo's personality matches the facility's bonus.
+    pub personality_bonus: bool,
+}
+
+impl Default for Worker {
+    /// A level-1 Aniimo without the personality bonus.
+    fn default() -> Self {
+        Self { suitability: 1, personality_bonus: false }
+    }
+}
+
+impl Worker {
+    pub fn new(suitability: u32, personality_bonus: bool) -> Self {
+        Self { suitability, personality_bonus }
+    }
+
+    /// Workload completed per second.
+    pub fn speed(&self) -> f64 {
+        let base = SUITABILITY_SPEEDS[self.suitability.clamp(1, 3) as usize - 1];
+        if self.personality_bonus {
+            base * PERSONALITY_BONUS
+        } else {
+            base
+        }
+    }
+
+    /// Seconds this Aniimo takes to finish `workload`.
+    pub fn seconds_for(&self, workload: f64) -> f64 {
+        workload / self.speed()
+    }
+}
+
+/// The [`Worker`] on each workload-based facility type. Facilities not set get
+/// [`Worker::default`] (level 1, no bonus), which is also what the data loaders assume.
+///
+/// ```
+/// use aniimax::models::{Worker, Workers};
+///
+/// let mut workers = Workers::new();
+/// workers.set("Carousel Mill", Worker::new(3, false));
+/// assert_eq!(workers.get("Carousel Mill").seconds_for(108.0), 27.0);
+/// assert_eq!(workers.get("Jukebox Dryer"), Worker::default());
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct Workers {
+    by_facility: std::collections::HashMap<String, Worker>,
+}
+
+impl Workers {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&mut self, facility: &str, worker: Worker) -> &mut Self {
+        self.by_facility.insert(facility.to_string(), worker);
+        self
+    }
+
+    pub fn get(&self, facility: &str) -> Worker {
+        self.by_facility.get(facility).copied().unwrap_or_default()
+    }
+
+    /// Recomputes every workload-based item's `production_time` for the Aniimo working its
+    /// facility. Items without a workload (crops and trees) keep their fixed grow time. Call this
+    /// on loaded items before handing them to the optimizer.
+    pub fn apply(&self, items: &mut [ProductionItem]) {
+        for item in items.iter_mut() {
+            if let Some(workload) = item.workload {
+                item.production_time = self.get(&item.facility).seconds_for(workload);
+            }
+        }
+    }
+}
+
+/// Which Aniimo a plan assumes on every workload-based facility, when the player hasn't said
+/// which Aniimo they have. The calculator plans both and lets the player pick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AniimoSetup {
+    /// Each recipe worked by an Aniimo at exactly the ability level it requires, without the
+    /// personality bonus: the least a player needs to run the plan at all.
+    Minimum,
+    /// A level-3 Aniimo with the facility's personality bonus everywhere (480% efficiency): the
+    /// fastest any facility can run.
+    Best,
+}
+
+/// The Aniimo ability and minimum ability level each workload-based recipe needs (see
+/// `data/aniimo_requirements.csv`). Crops and trees aren't listed; their grow time is fixed.
+///
+/// ```
+/// use aniimax::models::{AniimoRequirements, AniimoSetup};
+///
+/// let mut reqs = AniimoRequirements::default();
+/// reqs.insert("lavender_powder", "Wind", 2);
+/// assert_eq!(reqs.get("lavender_powder"), Some(("Wind", 2)));
+/// assert_eq!(reqs.worker_for("lavender_powder", AniimoSetup::Minimum).suitability, 2);
+/// assert_eq!(reqs.worker_for("lavender_powder", AniimoSetup::Best).suitability, 3);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct AniimoRequirements {
+    by_item: std::collections::HashMap<String, (String, u32)>,
+}
+
+impl AniimoRequirements {
+    pub fn insert(&mut self, item: &str, ability: &str, min_level: u32) -> &mut Self {
+        self.by_item.insert(item.to_string(), (ability.to_string(), min_level));
+        self
+    }
+
+    /// The ability and minimum ability level `item` needs, if it's worked by an Aniimo.
+    pub fn get(&self, item: &str) -> Option<(&str, u32)> {
+        self.by_item.get(item).map(|(ability, level)| (ability.as_str(), *level))
+    }
+
+    /// The Aniimo `setup` puts on `item`. An item without a listed requirement gets a level-1
+    /// Aniimo under [`AniimoSetup::Minimum`].
+    pub fn worker_for(&self, item: &str, setup: AniimoSetup) -> Worker {
+        match setup {
+            AniimoSetup::Best => Worker::new(3, true),
+            AniimoSetup::Minimum => Worker::new(self.get(item).map_or(1, |(_, level)| level), false),
+        }
+    }
+
+    /// Recomputes every workload-based item's `production_time` for the Aniimo `setup` puts on
+    /// it. Crops and trees keep their fixed grow time.
+    pub fn apply(&self, setup: AniimoSetup, items: &mut [ProductionItem]) {
+        for item in items.iter_mut() {
+            if let Some(workload) = item.workload {
+                item.production_time = self.worker_for(&item.name, setup).seconds_for(workload);
+            }
+        }
+    }
+}
+
+/// One Aniimo job in a crop or tree's growing cycle, e.g. Sowing (Grass, workload 3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GrowerStep {
+    pub step: String,
+    pub ability: String,
+    pub min_level: u32,
+    pub workload: f64,
+}
+
+/// The Aniimo jobs each Farmland/Woodland item needs per harvest (see `data/grower_steps.csv`).
+/// Any Aniimo on the homeland with the right ability does them. They take seconds against a grow
+/// time of minutes, so the plan's grow times leave them out.
+///
+/// ```
+/// use aniimax::models::{GrowerStep, GrowerSteps};
+///
+/// let mut steps = GrowerSteps::default();
+/// steps.insert("wheat", GrowerStep { step: "Sowing".into(), ability: "Grass".into(), min_level: 1, workload: 3.0 });
+/// assert_eq!(steps.get("wheat").len(), 1);
+/// assert!(steps.get("rose").is_empty());
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct GrowerSteps {
+    by_item: std::collections::HashMap<String, Vec<GrowerStep>>,
+}
+
+impl GrowerSteps {
+    pub fn insert(&mut self, item: &str, step: GrowerStep) -> &mut Self {
+        self.by_item.entry(item.to_string()).or_default().push(step);
+        self
+    }
+
+    /// `item`'s jobs in growing order; empty for anything that isn't a crop or tree.
+    pub fn get(&self, item: &str) -> &[GrowerStep] {
+        self.by_item.get(item).map_or(&[], Vec::as_slice)
+    }
+}
 
 /// Efficiency metrics for an item when consumed for energy.
 #[derive(Debug, Clone)]
@@ -205,7 +398,7 @@ pub struct PlanStep {
     pub status: PlanStepStatus,
     /// Human-readable explanation of `status`, for display
     pub reason: String,
-    /// Whether this facility grows/mines something (Farmland, Woodland, Mineral Pile, ...) as
+    /// Whether this facility grows/mines something (Farmland, Woodland, Mine, ...) as
     /// opposed to processing ingredients (Carousel Mill, ...); used for whole-unit plot rounding
     /// (a grower dedicates a whole plot to one crop for its whole cycle; a processor can be
     /// re-dedicated). NOT the same thing as "needs a seed": only Farmland and Woodland are
@@ -221,15 +414,16 @@ pub struct PlanStep {
     /// Producing row for an environment-gated crop (processor rows, idle/unavailable rows, and
     /// ungated crops all leave this `None`).
     pub environment: Option<String>,
+    /// On a producing processor row, how many of its `facility_count` units are busy on average
+    /// (a unit waiting on ingredients frees its Aniimo for other work). `None` elsewhere.
+    pub busy_units: Option<f64>,
 }
 
 /// How many times a Farmland/Woodland plot needs to be (re-)planted with a fresh seed over the
 /// whole goal duration; one seed per planting, matching the crop's existing `cost` field. Only
-/// Farmland and Woodland are actually planted: Mineral Pile is mined, and the Aniimo-dispatch
-/// facilities (Nimbus Bed, Grass Blossom Mat, Starfall Hammock, Tidewhisper Sandcastle, Dewy
-/// House) are harvested via family dispatch; neither needs a seed, so they never appear here,
-/// and nor do processors (they don't plant anything either). See
-/// `crate::optimizer::time_to_reach_goal`.
+/// Farmland and Woodland are actually planted: the Mine and Well are gathered via Aniimo
+/// dispatch, so neither needs a seed and they never appear here, and nor do processors (they
+/// don't plant anything either). See `crate::optimizer::time_to_reach_goal`.
 #[derive(Debug, Clone)]
 pub struct SeedRequirement {
     /// Facility being planted (e.g. "Farmland")
@@ -322,19 +516,19 @@ pub struct EnvironmentAssignment {
 }
 
 /// The provably-optimal simultaneous use of every owned facility for one target, a currency
-/// (`"coins"`/`"bud_tickets"`) or a byproduct pseudo-currency (`"wood_blocks"`/`"mineral_sand"`,
+/// (`"coins"`) or a byproduct pseudo-currency (`"wood_blocks"`/`"mineral_sand"`,
 /// see `crate::optimizer::byproduct_resource_name`). Target-independent: this is "what's the
 /// best I can do," computed before any goal amount is known. See
 /// `crate::optimizer::find_production_plan` for the algorithm, and
 /// `crate::optimizer::time_to_reach_goal` for turning this plan plus a goal amount into a
 /// [`GoalResult`]. Wood Blocks/Mineral Sand can also be targeted directly (not just tracked as a
 /// passive `byproduct_rates` side effect), since they can become an actual chokepoint at high
-/// Homeland levels; a run targeting one of them dedicates Woodland/Mineral Pile to whichever item
+/// Homeland levels; a run targeting one of them dedicates Woodland/Mine to whichever item
 /// yields the most of it, and `byproduct_rates` is simply left empty for that run (it would
 /// otherwise double-count the same total).
 #[derive(Debug, Clone)]
 pub struct ProductionPlan {
-    /// The target this plan was optimized for: a currency (`"coins"`/`"bud_tickets"`) or a
+    /// The target this plan was optimized for: a currency (`"coins"`) or a
     /// byproduct pseudo-currency (`"wood_blocks"`/`"mineral_sand"`)
     pub currency: String,
     /// Combined steady-state rate (currency units/sec) once every income stream's lead time has
@@ -398,7 +592,7 @@ pub struct ProductionEfficiency {
     pub item: ProductionItem,
     /// The LP objective value for one batch of `item`, given whatever target
     /// `calculate_efficiencies` was called with: net profit (sell revenue minus ingredient cost)
-    /// for a currency target (`"coins"`/`"bud_tickets"`), or just the raw byproduct amount for a
+    /// for a currency target (`"coins"`), or just the raw byproduct amount for a
     /// byproduct target (`"wood_blocks"`/`"mineral_sand"`; see
     /// `crate::optimizer::byproduct_resource_name`), since there's no currency involved there and
     /// maximizing raw output IS the goal. `solve_facility_allocation` and the rest of the modern
@@ -476,7 +670,7 @@ pub struct ProductionEfficiency {
 /// let mut counts = FacilityCounts::from_pairs(&[
 ///     ("Farmland", 4, 2),      // 4 plots at level 2
 ///     ("Woodland", 2, 1),      // 2 plots at level 1
-///     ("Mineral Pile", 1, 1),
+///     ("Mine", 1, 1),
 /// ]);
 /// counts.add_tier("Farmland", 3, 4); // + 3 more plots upgraded to level 4
 ///
@@ -491,8 +685,9 @@ pub struct ProductionEfficiency {
 pub struct FacilityCounts {
     facilities: std::collections::HashMap<String, Vec<(u32, u32)>>,
     /// (count, level) reported for any facility not explicitly `set()`/`add_tier()`'d; a single
-    /// implicit tier, normally `(1, 1)`. Used by [`FacilityCounts::show_all_levels`] to report
-    /// every facility as maximally unlocked.
+    /// implicit tier, normally `(1, 1)`. [`FacilityCounts::show_all_levels`] uses `(1, 99)` to
+    /// report every facility as maximally unlocked, and [`FacilityCounts::only`] uses `(0, 1)` so
+    /// unlisted facilities aren't owned at all.
     default_tier: (u32, u32),
 }
 
@@ -516,6 +711,30 @@ impl FacilityCounts {
     /// [`FacilityCounts::add_tier`] to accumulate multiple tiers for the same facility instead).
     pub fn from_pairs(pairs: &[(&str, u32, u32)]) -> Self {
         let mut fc = Self::new();
+        for (name, count, level) in pairs {
+            fc.set(name, *count, *level);
+        }
+        fc
+    }
+
+    /// Like [`FacilityCounts::from_pairs`], but every facility NOT listed is owned zero times
+    /// instead of defaulting to one. Use this when a result must depend only on the facilities
+    /// named: with `from_pairs`, adding a new facility to the game data silently hands every
+    /// caller one of it, which can change which plan comes out on top.
+    ///
+    /// ```
+    /// use aniimax::models::FacilityCounts;
+    ///
+    /// let counts = FacilityCounts::only(&[("Farmland", 4, 2)]);
+    /// assert_eq!(counts.get_count("Farmland"), 4);
+    /// assert_eq!(counts.get_count("Carousel Mill"), 0);
+    /// assert!(!counts.can_produce("Carousel Mill", 1));
+    /// ```
+    pub fn only(pairs: &[(&str, u32, u32)]) -> Self {
+        let mut fc = Self {
+            facilities: std::collections::HashMap::new(),
+            default_tier: (0, 1),
+        };
         for (name, count, level) in pairs {
             fc.set(name, *count, *level);
         }
@@ -626,7 +845,7 @@ impl FacilityCounts {
 /// let modules = ModuleLevels {
 ///     ecological_module: 2,  // Unlocks high-speed wheat and willow
 ///     kitchen_module: 2,     // Unlocks super wheat flour
-///     mineral_detector: 1,   // Unlocks high-speed rock
+///     resource_detector: 1,   // Unlocks high-speed rock
 ///     crafting_module: 1,    // Unlocks advanced wood carving
 /// };
 ///
@@ -638,8 +857,8 @@ pub struct ModuleLevels {
     pub ecological_module: u32,
     /// Level of Kitchen Module (unlocks super wheat flour at 2)
     pub kitchen_module: u32,
-    /// Level of Mineral Detector (unlocks high-speed rock at 1)
-    pub mineral_detector: u32,
+    /// Level of Resource Detector (unlocks high-speed rock at 1)
+    pub resource_detector: u32,
     /// Level of Crafting Module (unlocks advanced wood carving at 1)
     pub crafting_module: u32,
 }
@@ -664,7 +883,7 @@ impl ModuleLevels {
         match module_name {
             "ecological_module" => self.ecological_module,
             "kitchen_module" => self.kitchen_module,
-            "mineral_detector" => self.mineral_detector,
+            "resource_detector" => self.resource_detector,
             "crafting_module" => self.crafting_module,
             _ => 0,
         }
@@ -732,11 +951,11 @@ pub struct WoodlandRow {
     pub environment: Option<String>,
 }
 
-/// CSV row structure for Mineral Pile items.
+/// CSV row structure for workload-based gathering facilities (Mine, Well).
 ///
-/// New-beta Mineral Pile items are workload-based (Aniimo-dispatch driven) rather than
-/// flat-time, so this row carries `workload` instead of `production_time`. See
-/// [`WORKLOAD_RATE_ESTIMATE`] for how workload is converted into an estimated time.
+/// These are Aniimo-dispatch driven rather than flat-time, so this row carries `workload`
+/// instead of `production_time`. See [`Worker`] for how workload is converted
+/// into an estimated time.
 #[derive(Debug, Deserialize)]
 pub struct MineralRow {
     /// Item name
@@ -746,12 +965,13 @@ pub struct MineralRow {
     /// Sell value per unit
     pub sell_value: f64,
     /// Workload stat; converted to an estimated production time via
-    /// [`WORKLOAD_RATE_ESTIMATE`]
+    /// [`Worker`]
     pub workload: f64,
     /// Number of items yielded
     #[serde(rename = "yield")]
     pub yield_amount: u32,
-    /// Secondary Mineral Sand yield (new-beta byproduct, used for Homeland upgrades)
+    /// Secondary byproduct yield (Mineral Sand for the Mine, used for Homeland upgrades); empty
+    /// for a facility with no byproduct, such as the Well
     #[serde(default)]
     pub byproduct_yield: Option<u32>,
     /// Required facility level
@@ -760,8 +980,8 @@ pub struct MineralRow {
     #[serde(default)]
     pub module_requirement: Option<String>,
     /// Growing environment required (e.g. "Cool", "Freeze", "Adequate"), empty if none. Always
-    /// empty for Mineral Pile itself (mining isn't weather-dependent) even though this row shape
-    /// is shared with the Aniimo-material facilities that do need one.
+    /// empty for the Mine and Well (gathering isn't weather-dependent); kept because the
+    /// Aniimo-material facilities share this row shape and do need one.
     #[serde(default)]
     pub environment: Option<String>,
 }
@@ -770,9 +990,9 @@ pub struct MineralRow {
 ///
 /// Carries either a flat `production_time` (old-style facilities not yet updated for the new
 /// beta) or a `workload` (new-beta facilities; converted to time via
-/// [`WORKLOAD_RATE_ESTIMATE`]). At least one of the two must be present in the CSV.
+/// [`Worker`]). At least one of the two must be present in the CSV.
 /// `sell_currency` is optional (defaults to "coins" if the column is absent); added because
-/// new-beta processing facilities (e.g. Claw Game Cooker) can sell for coins or Bud Tickets.
+/// some beta-era recipes sold for a second currency, since removed from the game.
 #[derive(Debug, Deserialize)]
 pub struct ProcessingRowWithEnergy {
     /// Item name
@@ -783,13 +1003,13 @@ pub struct ProcessingRowWithEnergy {
     pub required_amount: String,
     /// Sell value per unit
     pub sell_value: f64,
-    /// Currency the item sells for ("coins" or "bud_tickets"). Defaults to "coins" if absent.
+    /// Currency the item sells for ("coins"). Defaults to "coins" if absent.
     #[serde(default)]
     pub sell_currency: Option<String>,
     /// Production time in seconds (old-style flat-time facilities)
     #[serde(default)]
     pub production_time: Option<f64>,
-    /// Workload stat (new-beta facilities); converted to time via [`WORKLOAD_RATE_ESTIMATE`]
+    /// Workload stat (new-beta facilities); converted to time via [`Worker`]
     #[serde(default)]
     pub workload: Option<f64>,
     /// Energy consumed (optional for items that don't consume energy)
@@ -806,9 +1026,9 @@ pub struct ProcessingRowWithEnergy {
 ///
 /// Carries either a flat `production_time` (old-style facilities not yet updated for the new
 /// beta) or a `workload` (new-beta facilities; converted to time via
-/// [`WORKLOAD_RATE_ESTIMATE`]). At least one of the two must be present in the CSV.
+/// [`Worker`]). At least one of the two must be present in the CSV.
 /// `sell_currency` is optional (defaults to "coins" if the column is absent); added because
-/// new-beta Crafting Table items can sell for coins or Bud Tickets depending on the recipe.
+/// some beta-era recipes sold for a second currency, since removed from the game.
 #[derive(Debug, Deserialize)]
 pub struct ProcessingRowNoEnergy {
     /// Item name
@@ -819,13 +1039,13 @@ pub struct ProcessingRowNoEnergy {
     pub required_amount: String,
     /// Sell value per unit
     pub sell_value: f64,
-    /// Currency the item sells for ("coins" or "bud_tickets"). Defaults to "coins" if absent.
+    /// Currency the item sells for ("coins"). Defaults to "coins" if absent.
     #[serde(default)]
     pub sell_currency: Option<String>,
     /// Production time in seconds (old-style flat-time facilities)
     #[serde(default)]
     pub production_time: Option<f64>,
-    /// Workload stat (new-beta facilities); converted to time via [`WORKLOAD_RATE_ESTIMATE`]
+    /// Workload stat (new-beta facilities); converted to time via [`Worker`]
     #[serde(default)]
     pub workload: Option<f64>,
     /// Required facility level
@@ -833,22 +1053,4 @@ pub struct ProcessingRowNoEnergy {
     /// Module requirement (format: "module_name:level" or empty)
     #[serde(default)]
     pub module_requirement: Option<String>,
-}
-
-/// CSV row structure for Nimbus Bed items.
-///
-/// Nimbus Bed items are workload-based (Aniimo-dispatch driven, requiring a specific Aniimo
-/// Family) rather than flat-time. See [`WORKLOAD_RATE_ESTIMATE`] for the time conversion.
-#[derive(Debug, Deserialize)]
-pub struct NimbusBedRow {
-    /// Item name
-    pub name: String,
-    /// Sell value per unit
-    pub sell_value: f64,
-    /// Workload stat; converted to an estimated production time via
-    /// [`WORKLOAD_RATE_ESTIMATE`]
-    pub workload: f64,
-    /// Number of items yielded
-    #[serde(rename = "yield")]
-    pub yield_amount: u32,
 }

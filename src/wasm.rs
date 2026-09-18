@@ -25,6 +25,25 @@ fn default_level() -> u32 {
     1
 }
 
+/// JavaScript-friendly description of the Aniimo working a facility; see
+/// [`crate::models::Worker`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsWorker {
+    #[serde(default = "default_level")]
+    pub suitability: u32,
+    #[serde(default)]
+    pub personality_bonus: bool,
+}
+
+/// Builds [`crate::models::Workers`] from a facility-name -> worker map.
+fn workers_from(map: &std::collections::HashMap<String, JsWorker>) -> crate::models::Workers {
+    let mut workers = crate::models::Workers::new();
+    for (facility, w) in map {
+        workers.set(facility, crate::models::Worker::new(w.suitability, w.personality_bonus));
+    }
+    workers
+}
+
 /// JavaScript-friendly module levels configuration.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct JsModuleLevels {
@@ -33,14 +52,14 @@ pub struct JsModuleLevels {
     #[serde(default)]
     pub kitchen_module: u32,
     #[serde(default)]
-    pub mineral_detector: u32,
+    pub resource_detector: u32,
     #[serde(default)]
     pub crafting_module: u32,
 }
 
 /// JavaScript-friendly input for optimization.
 ///
-/// `facilities` maps facility display name (e.g. "Farmland", "Mineral Pile"; matching the
+/// `facilities` maps facility display name (e.g. "Farmland", "Mine"; matching the
 /// `facility` field used throughout the Rust data model) to its count/level config. Using a
 /// map instead of fixed fields lets the web UI add new facilities (of which the new beta has
 /// many) without changing this struct.
@@ -56,6 +75,10 @@ pub struct JsOptimizeInput {
     pub facilities: std::collections::HashMap<String, JsFacilityConfig>,
     #[serde(default)]
     pub modules: JsModuleLevels,
+    /// Aniimo working each facility, keyed by facility name; facilities left out get a level-1
+    /// Aniimo without the personality bonus.
+    #[serde(default)]
+    pub workers: std::collections::HashMap<String, JsWorker>,
 }
 
 impl JsOptimizeInput {
@@ -242,21 +265,21 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         });
     }
 
-    // Mineral Pile items (workload-based; production_time derived via MINERAL_PILE_WORKLOAD_RATE)
-    let mineral_data = include_str!("../data/mineral_pile.csv");
+    // Mine items (workload-based; production_time is for a level-1 Aniimo until Workers::apply)
+    let mine_data = include_str!("../data/mine.csv");
     let mut rdr = ReaderBuilder::new()
         .trim(csv::Trim::All)
-        .from_reader(mineral_data.as_bytes());
+        .from_reader(mine_data.as_bytes());
     for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
         items.push(ProductionItem {
             name: row.name,
-            facility: "Mineral Pile".to_string(),
+            facility: "Mine".to_string(),
             raw_materials: None,
             required_amount: None,
             cost: None,
             sell_currency: row.sell_currency,
             sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
+            production_time: crate::models::Worker::default().seconds_for(row.workload),
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: row.facility_level,
@@ -269,116 +292,37 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         });
     }
 
-    // Grass Blossom Mat items (same CSV shape as Mineral Pile; facility level/byproduct
-    // unconfirmed for this facility)
-    let grass_blossom_data = include_str!("../data/grass_blossom_mat.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(grass_blossom_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Grass Blossom Mat".to_string(),
-            raw_materials: None,
-            required_amount: None,
-            cost: None,
-            sell_currency: row.sell_currency,
-            sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
-            yield_amount: row.yield_amount,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: Some(row.workload),
-            byproduct: row
-                .byproduct_yield
-                .map(|amt| ("Mineral Sand".to_string(), amt)),
-            environment: row.environment,
-        });
-    }
-
-    // Tidewhisper Sandcastle items (facility level guessed as 1; requires Cool/Freeze growing
-    // environment, not yet modeled as a hard gate)
-    let tidewhisper_data = include_str!("../data/tidewhisper_sandcastle.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(tidewhisper_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Tidewhisper Sandcastle".to_string(),
-            raw_materials: None,
-            required_amount: None,
-            cost: None,
-            sell_currency: row.sell_currency,
-            sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
-            yield_amount: row.yield_amount,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: Some(row.workload),
-            byproduct: row
-                .byproduct_yield
-                .map(|amt| ("Mineral Sand".to_string(), amt)),
-            environment: row.environment,
-        });
-    }
-
-    // Starfall Hammock items (facility level guessed as 1; requires Cool growing environment,
-    // not yet modeled as a hard gate)
-    let starfall_data = include_str!("../data/starfall_hammock.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(starfall_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Starfall Hammock".to_string(),
-            raw_materials: None,
-            required_amount: None,
-            cost: None,
-            sell_currency: row.sell_currency,
-            sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
-            yield_amount: row.yield_amount,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: Some(row.workload),
-            byproduct: row
-                .byproduct_yield
-                .map(|amt| ("Mineral Sand".to_string(), amt)),
-            environment: row.environment,
-        });
-    }
-
-    // Dewy House items (facility level guessed as 1; requires Warm growing environment, not yet
-    // modeled as a hard gate)
-    let dewy_data = include_str!("../data/dewy_house.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(dewy_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Dewy House".to_string(),
-            raw_materials: None,
-            required_amount: None,
-            cost: None,
-            sell_currency: row.sell_currency,
-            sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
-            yield_amount: row.yield_amount,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: Some(row.workload),
-            byproduct: row
-                .byproduct_yield
-                .map(|amt| ("Mineral Sand".to_string(), amt)),
-            environment: row.environment,
-        });
+    // Well and the Aniimo material facilities (same CSV shape as Mine; no byproduct)
+    for (facility, data) in [
+        ("Well", include_str!("../data/well.csv")),
+        ("Tidewhisper Sandcastle", include_str!("../data/tidewhisper_sandcastle.csv")),
+        ("Dewy House", include_str!("../data/dewy_house.csv")),
+        ("Nimbus Bed", include_str!("../data/nimbus_bed.csv")),
+        ("Starfall Hammock", include_str!("../data/starfall_hammock.csv")),
+        ("Floral Windmill", include_str!("../data/floral_windmill.csv")),
+    ] {
+        let mut rdr = ReaderBuilder::new()
+            .trim(csv::Trim::All)
+            .from_reader(data.as_bytes());
+        for row in rdr.deserialize::<crate::models::MineralRow>().flatten() {
+            items.push(ProductionItem {
+                name: row.name,
+                facility: facility.to_string(),
+                raw_materials: None,
+                required_amount: None,
+                cost: None,
+                sell_currency: row.sell_currency,
+                sell_value: row.sell_value,
+                production_time: crate::models::Worker::default().seconds_for(row.workload),
+                yield_amount: row.yield_amount,
+                energy: None,
+                facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
+                workload: Some(row.workload),
+                byproduct: None,
+                environment: row.environment,
+            });
+        }
     }
 
     // Carousel Mill items
@@ -391,7 +335,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
+            .map(|w| crate::models::Worker::default().seconds_for(w))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -426,7 +370,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
+            .map(|w| crate::models::Worker::default().seconds_for(w))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -461,7 +405,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
+            .map(|w| crate::models::Worker::default().seconds_for(w))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -486,173 +430,53 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         });
     }
 
-    // Crafting Table items
-    let crafting_data = include_str!("../data/crafting_table.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(crafting_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>().flatten() {
-        let raw_mats = parse_raw_materials(&row.raw_materials);
-        let req_amounts = parse_required_amounts(&row.required_amount);
-        let production_time = row
-            .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
-            .or(row.production_time)
-            .expect("row must have either workload or production_time");
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Crafting Table".to_string(),
-            raw_materials: Some(raw_mats),
-            required_amount: Some(req_amounts),
-            cost: None,
-            sell_currency: row
-                .sell_currency
-                .clone()
-                .unwrap_or_else(|| "coins".to_string()),
-            sell_value: row.sell_value,
-            production_time,
-            yield_amount: 1,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: row.workload,
-            byproduct: None,
-            environment: None,
-        });
+    // Processors sharing the no-energy CSV layout
+    for (facility, data) in [
+        ("Crafting Table", include_str!("../data/crafting_table.csv")),
+        ("Simmering Pot", include_str!("../data/simmering_pot.csv")),
+        ("Phonolfactory Table", include_str!("../data/phonolfactory_table.csv")),
+        ("Bouncy Brew Keg", include_str!("../data/bouncy_brew_keg.csv")),
+        ("Blazing Stove", include_str!("../data/blazing_stove.csv")),
+        ("Pickling Jar", include_str!("../data/pickling_jar.csv")),
+        ("Joy Wheel Loom", include_str!("../data/joy_wheel_loom.csv")),
+        ("Woodworking Bench", include_str!("../data/woodworking_bench.csv")),
+        ("Chimney Kiln", include_str!("../data/chimney_kiln.csv")),
+    ] {
+        let mut rdr = ReaderBuilder::new()
+            .trim(csv::Trim::All)
+            .from_reader(data.as_bytes());
+        for row in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>().flatten() {
+            let raw_mats = parse_raw_materials(&row.raw_materials);
+            let req_amounts = parse_required_amounts(&row.required_amount);
+            let production_time = row
+                .workload
+                .map(|w| crate::models::Worker::default().seconds_for(w))
+                .or(row.production_time)
+                .expect("row must have either workload or production_time");
+            items.push(ProductionItem {
+                name: row.name,
+                facility: facility.to_string(),
+                raw_materials: Some(raw_mats),
+                required_amount: Some(req_amounts),
+                cost: None,
+                sell_currency: row
+                    .sell_currency
+                    .clone()
+                    .unwrap_or_else(|| "coins".to_string()),
+                sell_value: row.sell_value,
+                production_time,
+                yield_amount: 1,
+                energy: None,
+                facility_level: row.facility_level,
+                module_requirement: parse_module_requirement(&row.module_requirement),
+                workload: row.workload,
+                byproduct: None,
+                environment: None,
+            });
+        }
     }
 
-    // Note: Dance Pad Polisher and Aniipod Maker are excluded: they don't produce coins/Bud
-    // Tickets, so they're out of scope for this optimizer.
-
-    // Phonolfactory Table items
-    let phono_data = include_str!("../data/phonolfactory_table.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(phono_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>().flatten() {
-        let raw_mats = parse_raw_materials(&row.raw_materials);
-        let req_amounts = parse_required_amounts(&row.required_amount);
-        let production_time = row
-            .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
-            .or(row.production_time)
-            .expect("row must have either workload or production_time");
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Phonolfactory Table".to_string(),
-            raw_materials: Some(raw_mats),
-            required_amount: Some(req_amounts),
-            cost: None,
-            sell_currency: row
-                .sell_currency
-                .clone()
-                .unwrap_or_else(|| "coins".to_string()),
-            sell_value: row.sell_value,
-            production_time,
-            yield_amount: 1,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: row.workload,
-            byproduct: None,
-            environment: None,
-        });
-    }
-
-    // Bouncy Brew Keg items
-    let brew_data = include_str!("../data/bouncy_brew_keg.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(brew_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>().flatten() {
-        let raw_mats = parse_raw_materials(&row.raw_materials);
-        let req_amounts = parse_required_amounts(&row.required_amount);
-        let production_time = row
-            .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
-            .or(row.production_time)
-            .expect("row must have either workload or production_time");
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Bouncy Brew Keg".to_string(),
-            raw_materials: Some(raw_mats),
-            required_amount: Some(req_amounts),
-            cost: None,
-            sell_currency: row
-                .sell_currency
-                .clone()
-                .unwrap_or_else(|| "coins".to_string()),
-            sell_value: row.sell_value,
-            production_time,
-            yield_amount: 1,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: row.workload,
-            byproduct: None,
-            environment: None,
-        });
-    }
-
-    // Joy Wheel Loom items
-    let joy_wheel_data = include_str!("../data/joy_wheel_loom.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(joy_wheel_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::ProcessingRowNoEnergy>().flatten() {
-        let raw_mats = parse_raw_materials(&row.raw_materials);
-        let req_amounts = parse_required_amounts(&row.required_amount);
-        let production_time = row
-            .workload
-            .map(|w| w / crate::models::WORKLOAD_RATE_ESTIMATE)
-            .or(row.production_time)
-            .expect("row must have either workload or production_time");
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Joy Wheel Loom".to_string(),
-            raw_materials: Some(raw_mats),
-            required_amount: Some(req_amounts),
-            cost: None,
-            sell_currency: row
-                .sell_currency
-                .clone()
-                .unwrap_or_else(|| "coins".to_string()),
-            sell_value: row.sell_value,
-            production_time,
-            yield_amount: 1,
-            energy: None,
-            facility_level: row.facility_level,
-            module_requirement: parse_module_requirement(&row.module_requirement),
-            workload: row.workload,
-            byproduct: None,
-            environment: None,
-        });
-    }
-
-    // Nimbus Bed items (produces Wool and Petals)
-    let nimbus_data = include_str!("../data/nimbus_bed.csv");
-    let mut rdr = ReaderBuilder::new()
-        .trim(csv::Trim::All)
-        .from_reader(nimbus_data.as_bytes());
-    for row in rdr.deserialize::<crate::models::NimbusBedRow>().flatten() {
-        items.push(ProductionItem {
-            name: row.name,
-            facility: "Nimbus Bed".to_string(),
-            raw_materials: None,
-            required_amount: None,
-            cost: None,
-            sell_currency: "coins".to_string(),
-            sell_value: row.sell_value,
-            production_time: row.workload / crate::models::WORKLOAD_RATE_ESTIMATE,
-            yield_amount: row.yield_amount,
-            energy: None,
-            facility_level: 1,
-            module_requirement: None,
-            workload: Some(row.workload),
-            byproduct: None,
-            environment: None,
-        });
-    }
+    // Only facilities verified against the full release are embedded; see `crate::data::load_all_data`.
 
     items
 }
@@ -689,11 +513,12 @@ pub fn optimize(input_json: &str) -> String {
     let module_levels = ModuleLevels {
         ecological_module: input.modules.ecological_module,
         kitchen_module: input.modules.kitchen_module,
-        mineral_detector: input.modules.mineral_detector,
+        resource_detector: input.modules.resource_detector,
         crafting_module: input.modules.crafting_module,
     };
 
-    let items = get_embedded_items();
+    let mut items = get_embedded_items();
+    workers_from(&input.workers).apply(&mut items);
 
     let efficiencies = calculate_efficiencies(&items, &input.currency, &facility_counts, &module_levels);
 
@@ -843,7 +668,7 @@ fn default_true() -> bool {
 /// rate and facility plan, with no goal amount (see [`JsGoalInput`] for that).
 #[derive(Debug, Clone, Deserialize)]
 pub struct JsPlanInput {
-    /// `"coins"`/`"bud_tickets"` (matches `ProductionItem::sell_currency`), or a byproduct
+    /// `"coins"` (matches `ProductionItem::sell_currency`), or a byproduct
     /// pseudo-currency target: `"wood_blocks"`/`"mineral_sand"`; see
     /// `crate::optimizer::byproduct_resource_name`.
     #[serde(default = "default_currency")]
@@ -857,11 +682,23 @@ pub struct JsPlanInput {
     pub facilities: std::collections::HashMap<String, Vec<JsFacilityConfig>>,
     #[serde(default)]
     pub modules: JsModuleLevels,
+    /// Aniimo working each facility, keyed by facility name; facilities left out get a level-1
+    /// Aniimo without the personality bonus. Ignored when `aniimo` is set.
+    #[serde(default)]
+    pub workers: std::collections::HashMap<String, JsWorker>,
+    /// `"minimum"` or `"best"`: plan for that [`crate::models::AniimoSetup`] instead of
+    /// `workers`, and report which Aniimo each row needs (see [`JsPlanStep::aniimo`]).
+    #[serde(default)]
+    pub aniimo: Option<String>,
     /// See `crate::optimizer::find_production_plan`'s doc comment on `prioritize_byproducts`;
     /// defaults to `true` (checked by default in the UI) since Wood Blocks/Mineral Sand can be a
     /// real in-game constraint players can't just buy their way around.
     #[serde(default = "default_true")]
     pub prioritize_byproducts: bool,
+    /// Set for the level-up strategy: the next RV level-up's cost and what's in stock. The exact
+    /// planner then finds the soonest level-up, earning as much as it leaves room for.
+    #[serde(default)]
+    pub level_up: Option<crate::exact::LevelUp>,
 }
 
 impl JsPlanInput {
@@ -894,6 +731,118 @@ pub struct JsPlanStep {
     /// The growing environment this row's item needs ("Cool"/"Warm"/"Freeze"/"Scorching"/
     /// "Adequate"), if any; see `crate::models::PlanStep::environment`.
     pub environment: Option<String>,
+    /// The Aniimo this row's recipe needs under the plan's Aniimo setup; only set on producing
+    /// rows of Aniimo-worked facilities, and only when the plan was made for a setup.
+    #[serde(default)]
+    pub aniimo: Option<JsAniimo>,
+    /// See `crate::models::PlanStep::busy_units`.
+    #[serde(default)]
+    pub busy_units: Option<f64>,
+    /// The Aniimo work this row creates under the plan's Aniimo setup, one entry per ability;
+    /// empty when the plan wasn't made for a setup or the row produces nothing.
+    #[serde(default)]
+    pub aniimo_tasks: Vec<JsAniimoTask>,
+}
+
+/// Aniimo work a plan row creates for one ability: how many Aniimo of that ability and level it
+/// keeps busy on average.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsAniimoTask {
+    pub ability: String,
+    pub level: u32,
+    pub personality_bonus: bool,
+    pub busy: f64,
+}
+
+/// Recipes not yet checked in game, embedded in the web build; see `data/unverified.csv`.
+fn embedded_unverified() -> Vec<(String, String)> {
+    crate::data::parse_unverified(include_str!("../data/unverified.csv")).expect("embedded unverified.csv is valid")
+}
+
+/// A recipe a plan relies on that hasn't been checked in game yet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsUnverified {
+    pub facility: String,
+    pub item_name: String,
+}
+
+/// The Farmland/Woodland Aniimo jobs embedded in the web build; see `data/grower_steps.csv`.
+fn embedded_grower_steps() -> crate::models::GrowerSteps {
+    crate::data::parse_grower_steps(include_str!("../data/grower_steps.csv"))
+        .expect("embedded grower_steps.csv is valid")
+}
+
+/// The Aniimo work one producing row creates. A worked facility keeps one Aniimo busy per busy
+/// unit (every unit, for gatherers like the Mine, which never wait on ingredients). A crop or tree
+/// needs each of its jobs done once per harvest by whichever Aniimo has the ability; those jobs
+/// accept any level, so they're counted at their minimum level under either setup.
+fn aniimo_tasks_for(
+    step: &crate::models::PlanStep,
+    setup: crate::models::AniimoSetup,
+    requirements: &crate::models::AniimoRequirements,
+    grower_steps: &crate::models::GrowerSteps,
+) -> Vec<JsAniimoTask> {
+    use crate::models::{PlanStepStatus, Worker};
+    let Some(item) = step.item_name.as_deref() else {
+        return Vec::new();
+    };
+    if step.status != PlanStepStatus::Producing {
+        return Vec::new();
+    }
+    if let Some((ability, _)) = requirements.get(item) {
+        let worker = requirements.worker_for(item, setup);
+        return vec![JsAniimoTask {
+            ability: ability.to_string(),
+            level: worker.suitability,
+            personality_bonus: worker.personality_bonus,
+            busy: step.busy_units.unwrap_or(step.facility_count as f64),
+        }];
+    }
+    let Some(cycle_time) = step.cycle_time.filter(|t| *t > 0.0) else {
+        return Vec::new();
+    };
+    let harvests_per_second = step.facility_count as f64 / cycle_time;
+    let mut tasks: Vec<JsAniimoTask> = Vec::new();
+    for job in grower_steps.get(item) {
+        let level = job.min_level;
+        let busy = harvests_per_second * Worker::new(level, false).seconds_for(job.workload);
+        match tasks.iter_mut().find(|t| t.ability == job.ability) {
+            Some(task) => {
+                task.level = task.level.max(level);
+                task.busy += busy;
+            }
+            None => tasks.push(JsAniimoTask {
+                ability: job.ability.clone(),
+                level,
+                personality_bonus: false,
+                busy,
+            }),
+        }
+    }
+    tasks
+}
+
+/// The Aniimo a plan row needs: its ability, ability level, and whether the plan assumes the
+/// facility's personality bonus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsAniimo {
+    pub ability: String,
+    pub level: u32,
+    pub personality_bonus: bool,
+}
+
+/// The Aniimo requirements embedded in the web build; see `data/aniimo_requirements.csv`.
+fn embedded_aniimo_requirements() -> crate::models::AniimoRequirements {
+    crate::data::parse_aniimo_requirements(include_str!("../data/aniimo_requirements.csv"))
+        .expect("embedded aniimo_requirements.csv is valid")
+}
+
+fn aniimo_setup_from(name: &str) -> Option<crate::models::AniimoSetup> {
+    match name {
+        "minimum" => Some(crate::models::AniimoSetup::Minimum),
+        "best" => Some(crate::models::AniimoSetup::Best),
+        _ => None,
+    }
 }
 
 fn status_str(status: crate::models::PlanStepStatus) -> &'static str {
@@ -925,6 +874,9 @@ impl From<crate::models::PlanStep> for JsPlanStep {
             is_grower: s.is_grower,
             cycle_time: s.cycle_time,
             environment: s.environment,
+            aniimo: None,
+            busy_units: s.busy_units,
+            aniimo_tasks: Vec::new(),
         }
     }
 }
@@ -940,6 +892,7 @@ impl From<JsPlanStep> for crate::models::PlanStep {
             is_grower: s.is_grower,
             cycle_time: s.cycle_time,
             environment: s.environment,
+            busy_units: s.busy_units,
         }
     }
 }
@@ -1091,6 +1044,45 @@ pub struct JsProductionPlan {
     pub candidates_evaluated: u32,
     /// See `crate::models::ProductionPlan::trial_solves`.
     pub trial_solves: u32,
+    /// Set when the exact planner made this plan: whether it's proven to be the best possible.
+    #[serde(default)]
+    pub proven_optimal: Option<bool>,
+    /// Set when the exact planner made this plan: the most any plan could earn.
+    #[serde(default)]
+    pub upper_bound: Option<f64>,
+    /// Recipes this plan produces that haven't been checked in game yet (see
+    /// `data/unverified.csv`), so the page can say what its numbers rest on.
+    #[serde(default)]
+    pub unverified: Vec<JsUnverified>,
+    /// Set for a level-up plan: how long the level-up takes.
+    #[serde(default)]
+    pub level_up: Option<JsLevelUpReport>,
+}
+
+/// How long a level-up plan takes to cover the level-up's cost.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsLevelUpReport {
+    /// Seconds until everything the level-up costs is in stock.
+    pub seconds: f64,
+    /// One entry per thing the level-up costs.
+    pub requirements: Vec<JsLevelUpRequirement>,
+    /// Anything else left over when it's ready (unprocessed Wood Blocks or Mineral Sand, a lower
+    /// tier), as `(item, amount)`.
+    #[serde(default)]
+    pub leftovers: Vec<(String, f64)>,
+}
+
+/// One cost of a level-up and how the plan covers it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsLevelUpRequirement {
+    /// `"coins"` or an item name.
+    pub name: String,
+    pub need: f64,
+    pub have: f64,
+    /// Made per second (for coins, earned).
+    pub per_second: f64,
+    /// Seconds until there's enough; 0 if the stock already covers it, `None` if never.
+    pub seconds: Option<f64>,
 }
 
 fn empty_production_plan(success: bool, error: Option<String>) -> JsProductionPlan {
@@ -1105,6 +1097,10 @@ fn empty_production_plan(success: bool, error: Option<String>) -> JsProductionPl
         environment_assignments: vec![],
         candidates_evaluated: 0,
         trial_solves: 0,
+        proven_optimal: None,
+        upper_bound: None,
+        unverified: vec![],
+        level_up: None,
     }
 }
 
@@ -1139,26 +1135,10 @@ impl JsProductionPlan {
 /// doesn't block anything else from rendering.
 #[wasm_bindgen]
 pub fn find_plan(input_json: &str, on_progress: Option<js_sys::Function>) -> String {
-    let input: JsPlanInput = match serde_json::from_str(input_json) {
-        Ok(i) => i,
-        Err(e) => {
-            return serde_json::to_string(&empty_production_plan(
-                false,
-                Some(format!("Invalid input: {}", e)),
-            ))
-            .unwrap_or_default();
-        }
+    let prepared = match PreparedInput::from_json(input_json) {
+        Ok(p) => p,
+        Err(error) => return error,
     };
-
-    let facility_counts = input.facility_counts();
-    let module_levels = ModuleLevels {
-        ecological_module: input.modules.ecological_module,
-        kitchen_module: input.modules.kitchen_module,
-        mineral_detector: input.modules.mineral_detector,
-        crafting_module: input.modules.crafting_module,
-    };
-
-    let items = get_embedded_items();
 
     // `js_sys::Function::call1` takes `&JsValue` for both the `this` receiver and the argument;
     // errors (e.g. the JS callback itself throwing) are deliberately swallowed with `let _ =`,
@@ -1171,36 +1151,320 @@ pub fn find_plan(input_json: &str, on_progress: Option<js_sys::Function>) -> Str
     let report_ref: Option<&dyn Fn(u32)> = report.as_deref();
 
     match find_production_plan_with_progress(
-        &items,
-        &input.currency,
-        &facility_counts,
-        &module_levels,
-        input.prioritize_byproducts,
+        &prepared.items,
+        &prepared.input.currency,
+        &prepared.facility_counts,
+        &prepared.module_levels,
+        prepared.input.prioritize_byproducts,
         report_ref,
     ) {
-        Some(plan) => {
-            let result = JsProductionPlan {
-                success: true,
-                error: None,
-                currency: plan.currency,
-                rate_per_second: plan.rate_per_second,
-                coin_items: plan.coin_items.into_iter().map(Into::into).collect(),
-                income_streams: plan.income_streams.into_iter().map(Into::into).collect(),
-                byproduct_rates: plan.byproduct_rates,
-                environment_assignments: plan.environment_assignments.into_iter().map(Into::into).collect(),
-                candidates_evaluated: plan.candidates_evaluated,
-                trial_solves: plan.trial_solves,
-            };
-            serde_json::to_string(&result).unwrap_or_default()
-        }
-        None => serde_json::to_string(&empty_production_plan(
-            false,
-            Some(
-                "Could not find a profitable production path. Try increasing facility counts."
-                    .to_string(),
+        Some(plan) => serde_json::to_string(&prepared.to_js(plan, None)).unwrap_or_default(),
+        None => no_plan(),
+    }
+}
+
+/// With "prioritize byproducts" on, the exact planner first finds the most of each byproduct the
+/// facilities can make: one model per byproduct, `[{"resource", "lp", "variables"}]` (see
+/// [`exact_problem`] for the format). The caller solves each and passes
+/// `[[resource, most per second], ...]` to [`exact_problem`] and [`exact_plan`] as the floors.
+/// Empty when byproducts aren't prioritized.
+#[wasm_bindgen]
+pub fn exact_byproduct_problems(input_json: &str) -> String {
+    let Ok(prepared) = PreparedInput::from_json(input_json) else { return "[]".to_string() };
+    if !prepared.input.prioritize_byproducts || prepared.input.currency != "coins" || prepared.input.level_up.is_some() {
+        return "[]".to_string();
+    }
+    let problems: Vec<serde_json::Value> = crate::exact::byproducts(&prepared.items)
+        .iter()
+        .map(|resource| {
+            let (lp, variables) = crate::exact::write_lp(
+                &prepared.items,
+                &prepared.input.currency,
+                &prepared.facility_counts,
+                &prepared.module_levels,
+                crate::exact::Goal::MostOf(resource),
+            );
+            serde_json::json!({ "resource": resource, "lp": lp, "variables": variables })
+        })
+        .collect();
+    serde_json::Value::Array(problems).to_string()
+}
+
+/// For the level-up strategy, the model for the soonest level-up (see
+/// [`crate::exact::Goal::LevelUp`]): `{"lp", "variables"}` as in [`exact_problem`]. The caller
+/// solves it and passes the pace it finds (its objective) to [`exact_problem`] and [`exact_plan`].
+/// `lp` is empty for the coins strategy, or when the stock already covers the level-up.
+#[wasm_bindgen]
+pub fn exact_level_up_problem(input_json: &str) -> String {
+    let lp = match PreparedInput::from_json(input_json) {
+        Ok(prepared) => match &prepared.input.level_up {
+            Some(level_up) if prepared.input.currency == "coins" && !level_up.ready() => crate::exact::write_lp(
+                &prepared.items,
+                &prepared.input.currency,
+                &prepared.facility_counts,
+                &prepared.module_levels,
+                crate::exact::Goal::LevelUp(level_up),
             ),
-        ))
-        .unwrap_or_default(),
+            _ => (String::new(), 0),
+        },
+        Err(_) => (String::new(), 0),
+    };
+    serde_json::json!({ "lp": lp.0, "variables": lp.1 }).to_string()
+}
+
+/// What the earlier solves settled, for [`exact_problem`] and [`exact_plan`].
+#[derive(Debug, Clone, Default, Deserialize)]
+struct JsStage {
+    /// `[[byproduct, per second], ...]` from [`exact_byproduct_problems`].
+    #[serde(default)]
+    floors: Vec<(String, f64)>,
+    /// Level-ups per day from [`exact_level_up_problem`].
+    #[serde(default)]
+    pace: Option<f64>,
+    /// Coins per second at that pace, from solving [`exact_problem`] with just the pace; then the
+    /// model spends spare Bench and Kiln time on the level-up (see
+    /// [`crate::exact::Goal::StockUp`]).
+    #[serde(default)]
+    coins: Option<f64>,
+}
+
+impl JsStage {
+    fn goal<'a>(&'a self, input: &'a JsPlanInput) -> crate::exact::Goal<'a> {
+        match (&input.level_up, self.pace, self.coins) {
+            (Some(level_up), Some(pace), Some(coins)) => crate::exact::Goal::StockUp(level_up, pace, coins),
+            (Some(level_up), Some(pace), None) => crate::exact::Goal::EarnWhileLevelingUp(level_up, pace),
+            _ => crate::exact::Goal::Earn { floors: &self.floors },
+        }
+    }
+}
+
+/// The exact planner's model for this input (see [`crate::exact`]), for the caller to solve with
+/// HiGHS and hand back to [`exact_plan`]: `{"lp": <CPLEX LP text>, "variables": <count>}`, where
+/// the variables are `x0` up to `x<count - 1>`. `stage_json` is `{"floors": [[byproduct, per
+/// second], ...], "pace": <level-ups per day>}` from the earlier solves (see
+/// [`exact_byproduct_problems`] and [`exact_level_up_problem`]); either can be left out. `lp` is
+/// empty when the exact planner doesn't cover the input (a byproduct as the currency), so the
+/// caller uses [`find_plan`] instead.
+#[wasm_bindgen]
+pub fn exact_problem(input_json: &str, stage_json: &str) -> String {
+    let stage: JsStage = serde_json::from_str(stage_json).unwrap_or_default();
+    let lp = match PreparedInput::from_json(input_json) {
+        Ok(prepared) if prepared.input.currency == "coins" => crate::exact::write_lp(
+            &prepared.items,
+            &prepared.input.currency,
+            &prepared.facility_counts,
+            &prepared.module_levels,
+            stage.goal(&prepared.input),
+        ),
+        _ => (String::new(), 0),
+    };
+    serde_json::json!({ "lp": lp.0, "variables": lp.1 }).to_string()
+}
+
+/// The solver's answer to [`exact_problem`]'s model.
+#[derive(Debug, Clone, Deserialize)]
+struct JsSolverResult {
+    /// Every variable's value, in the model's `x0`, `x1`, ... order.
+    values: Vec<f64>,
+    /// Whether the solver proved the answer optimal.
+    proven: bool,
+    /// The solver's best bound on what any plan could earn.
+    bound: f64,
+}
+
+/// Turns HiGHS's solution of [`exact_problem`]'s model into the same result [`find_plan`]
+/// returns, plus whether it's proven optimal.
+#[wasm_bindgen]
+pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> String {
+    let prepared = match PreparedInput::from_json(input_json) {
+        Ok(p) => p,
+        Err(error) => return error,
+    };
+    let stage: JsStage = serde_json::from_str(stage_json).unwrap_or_default();
+    let Ok(result) = serde_json::from_str::<JsSolverResult>(solution_json) else { return no_plan() };
+    let currency = prepared.input.currency.clone();
+    let goal = stage.goal(&prepared.input);
+    let level_up = match goal {
+        crate::exact::Goal::EarnWhileLevelingUp(level_up, _) | crate::exact::Goal::StockUp(level_up, ..) => Some(level_up),
+        _ => None,
+    };
+    let Some(exact) = crate::exact::plan_from_values(
+        &prepared.items,
+        &currency,
+        &prepared.facility_counts,
+        &prepared.module_levels,
+        goal,
+        &result.values,
+        result.proven,
+        result.bound,
+    ) else {
+        return no_plan();
+    };
+    if exact.rate_per_second <= 0.0 && level_up.is_none() {
+        return no_plan();
+    }
+    // Independent re-check of every limit before trusting the plan; the caller falls back to the
+    // heuristic planner if this ever fails.
+    if let Err(problem) =
+        crate::exact::check_plan(&exact, &prepared.items, &currency, &prepared.facility_counts, &prepared.module_levels, level_up)
+    {
+        return serde_json::to_string(&empty_production_plan(false, Some(format!("Exact plan failed its check: {problem}"))))
+            .unwrap_or_default();
+    }
+    let proof = (exact.proven_optimal, exact.upper_bound);
+    let report = level_up.and_then(|level_up| level_up_report(&exact, &prepared.items, level_up, &currency));
+    let plan = crate::exact::to_production_plan(&exact, &prepared.items, &currency, &prepared.facility_counts);
+    let mut js = prepared.to_js(plan, Some(proof));
+    js.level_up = report;
+    serde_json::to_string(&js).unwrap_or_default()
+}
+
+/// How long `exact`, a level-up plan, takes to cover each of the level-up's costs.
+fn level_up_report(
+    exact: &crate::exact::ExactPlan,
+    items: &[ProductionItem],
+    level_up: &crate::exact::LevelUp,
+    currency: &str,
+) -> Option<JsLevelUpReport> {
+    let pace = exact.pace.filter(|p| *p > 0.0)?;
+    let net = crate::exact::net_rates(exact, items);
+    let requirements = level_up
+        .cost
+        .iter()
+        .map(|(name, need)| {
+            let have = level_up.stock.iter().filter(|(n, _)| n == name).fold(0.0, |sum, (_, a)| sum + a);
+            let per_second =
+                if name == currency { exact.rate_per_second } else { net.get(name).copied().unwrap_or(0.0).max(0.0) };
+            let short = (need - have).max(0.0);
+            let seconds = if short <= 0.0 {
+                Some(0.0)
+            } else {
+                (per_second > 0.0).then(|| short / per_second)
+            };
+            JsLevelUpRequirement { name: name.clone(), need: *need, have, per_second, seconds }
+        })
+        .collect();
+    let seconds = crate::exact::PACE_UNIT / pace;
+    let level_up_item = |name: &str| {
+        crate::models::BYPRODUCT_ITEMS.iter().any(|(_, item)| *item == name)
+            || items.iter().any(|i| i.name == name && crate::exact::takes_turns(i))
+    };
+    let mut names: Vec<&str> = net.keys().map(String::as_str).chain(level_up.stock.iter().map(|(n, _)| n.as_str())).collect();
+    names.sort_unstable();
+    names.dedup();
+    let leftovers = names
+        .into_iter()
+        .filter(|name| level_up_item(name) && !level_up.cost.iter().any(|(n, _)| n == name))
+        .filter_map(|name| {
+            let have = level_up.stock.iter().filter(|(n, _)| n == name).fold(0.0, |sum, (_, a)| sum + a);
+            let left = have + net.get(name).copied().unwrap_or(0.0) * seconds;
+            (left >= 1.0).then(|| (name.to_string(), left))
+        })
+        .collect();
+    Some(JsLevelUpReport { seconds, requirements, leftovers })
+}
+
+fn no_plan() -> String {
+    serde_json::to_string(&empty_production_plan(
+        false,
+        Some("Could not find a profitable production path. Try increasing facility counts.".to_string()),
+    ))
+    .unwrap_or_default()
+}
+
+/// A plan request parsed and set up: owned facilities, modules, and items timed for the chosen
+/// Aniimo.
+struct PreparedInput {
+    input: JsPlanInput,
+    facility_counts: FacilityCounts,
+    module_levels: ModuleLevels,
+    items: Vec<ProductionItem>,
+    setup: Option<crate::models::AniimoSetup>,
+    requirements: crate::models::AniimoRequirements,
+    grower_steps: crate::models::GrowerSteps,
+}
+
+impl PreparedInput {
+    /// Parses `input_json`; on failure, the error result to return instead.
+    fn from_json(input_json: &str) -> Result<Self, String> {
+        let input: JsPlanInput = serde_json::from_str(input_json).map_err(|e| {
+            serde_json::to_string(&empty_production_plan(false, Some(format!("Invalid input: {}", e)))).unwrap_or_default()
+        })?;
+        let facility_counts = input.facility_counts();
+        let module_levels = ModuleLevels {
+            ecological_module: input.modules.ecological_module,
+            kitchen_module: input.modules.kitchen_module,
+            resource_detector: input.modules.resource_detector,
+            crafting_module: input.modules.crafting_module,
+        };
+        let mut items = get_embedded_items();
+        let setup = input.aniimo.as_deref().and_then(aniimo_setup_from);
+        let requirements = embedded_aniimo_requirements();
+        match setup {
+            Some(setup) => requirements.apply(setup, &mut items),
+            None => workers_from(&input.workers).apply(&mut items),
+        }
+        Ok(PreparedInput { input, facility_counts, module_levels, items, setup, requirements, grower_steps: embedded_grower_steps() })
+    }
+
+    /// The result the web page shows for `plan`, with each row's Aniimo; `proof` is the exact
+    /// planner's `(proven optimal, upper bound)`, if it made the plan.
+    fn to_js(&self, plan: crate::models::ProductionPlan, proof: Option<(bool, f64)>) -> JsProductionPlan {
+        let listed = embedded_unverified();
+        let mut unverified: Vec<JsUnverified> = plan
+            .coin_items
+            .iter()
+            .filter(|step| step.status == crate::models::PlanStepStatus::Producing)
+            .filter_map(|step| {
+                let item = step.item_name.as_ref()?;
+                listed
+                    .iter()
+                    .any(|(name, facility)| name == item && *facility == step.facility)
+                    .then(|| JsUnverified { facility: step.facility.clone(), item_name: item.clone() })
+            })
+            .collect();
+        unverified.sort_by(|a, b| (&a.facility, &a.item_name).cmp(&(&b.facility, &b.item_name)));
+        unverified.dedup_by(|a, b| a.facility == b.facility && a.item_name == b.item_name);
+        let coin_items = plan
+            .coin_items
+            .into_iter()
+            .map(|step| {
+                let aniimo = match (self.setup, &step.item_name) {
+                    (Some(setup), Some(item)) if step.status == crate::models::PlanStepStatus::Producing => {
+                        self.requirements.get(item).map(|(ability, _)| {
+                            let worker = self.requirements.worker_for(item, setup);
+                            JsAniimo {
+                                ability: ability.to_string(),
+                                level: worker.suitability,
+                                personality_bonus: worker.personality_bonus,
+                            }
+                        })
+                    }
+                    _ => None,
+                };
+                let aniimo_tasks = self
+                    .setup
+                    .map(|setup| aniimo_tasks_for(&step, setup, &self.requirements, &self.grower_steps))
+                    .unwrap_or_default();
+                JsPlanStep { aniimo, aniimo_tasks, ..step.into() }
+            })
+            .collect();
+        JsProductionPlan {
+            success: true,
+            error: None,
+            currency: plan.currency,
+            rate_per_second: plan.rate_per_second,
+            coin_items,
+            income_streams: plan.income_streams.into_iter().map(Into::into).collect(),
+            byproduct_rates: plan.byproduct_rates,
+            environment_assignments: plan.environment_assignments.into_iter().map(Into::into).collect(),
+            candidates_evaluated: plan.candidates_evaluated,
+            trial_solves: plan.trial_solves,
+            proven_optimal: proof.map(|(proven, _)| proven),
+            upper_bound: proof.map(|(_, bound)| bound),
+            unverified,
+            level_up: None,
+        }
     }
 }
 
@@ -1367,12 +1631,23 @@ struct RecipeInfo {
     sell_currency: String,
     sell_value: f64,
     production_time: f64,
+    /// Set for Aniimo-worked items, whose real time depends on the Aniimo; see
+    /// [`crate::models::Worker`].
+    workload: Option<f64>,
     yield_amount: u32,
     cost: Option<f64>,
     raw_materials: Option<Vec<String>>,
     required_amount: Option<Vec<u32>>,
     module_requirement: Option<(String, u32)>,
     byproduct: Option<(String, u32)>,
+    /// The Aniimo ability this recipe uses and the lowest ability level that can run it; `None`
+    /// for crops and trees.
+    aniimo: Option<(String, u32)>,
+    /// `false` if the recipe's numbers haven't been checked in game yet (see
+    /// `data/unverified.csv`).
+    verified: bool,
+    /// For crops and trees, each Aniimo job in growing order: `(step, ability, min level)`.
+    jobs: Vec<(String, String, u32)>,
 }
 
 /// Get the full recipe list for every item in the game data, grouped by nothing in particular
@@ -1380,6 +1655,9 @@ struct RecipeInfo {
 #[wasm_bindgen]
 pub fn get_all_items() -> String {
     let items = get_embedded_items();
+    let requirements = embedded_aniimo_requirements();
+    let unverified = embedded_unverified();
+    let grower_steps = embedded_grower_steps();
     let recipes: Vec<RecipeInfo> = items
         .iter()
         .map(|item| RecipeInfo {
@@ -1389,14 +1667,66 @@ pub fn get_all_items() -> String {
             sell_currency: item.sell_currency.clone(),
             sell_value: item.sell_value,
             production_time: item.production_time,
+            workload: item.workload,
             yield_amount: item.yield_amount,
             cost: item.cost,
             raw_materials: item.raw_materials.clone(),
             required_amount: item.required_amount.clone(),
             module_requirement: item.module_requirement.clone(),
             byproduct: item.byproduct.clone(),
+            aniimo: requirements.get(&item.name).map(|(ability, level)| (ability.to_string(), level)),
+            verified: !unverified.iter().any(|(name, facility)| *name == item.name && *facility == item.facility),
+            jobs: grower_steps.get(&item.name).iter().map(|s| (s.step.clone(), s.ability.clone(), s.min_level)).collect(),
         })
         .collect();
 
     serde_json::to_string(&recipes).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{embedded_aniimo_requirements, embedded_grower_steps, get_embedded_items};
+
+    // Every crop and tree the web build knows has its Aniimo jobs listed.
+    #[test]
+    fn embedded_grower_steps_cover_farmland_and_woodland() {
+        let steps = embedded_grower_steps();
+        for item in get_embedded_items().iter().filter(|i| i.facility == "Farmland" || i.facility == "Woodland") {
+            assert!(!steps.get(&item.name).is_empty(), "{} has no embedded grower steps", item.name);
+        }
+    }
+
+    // Every Aniimo-worked recipe the web build knows has an embedded requirement row.
+    #[test]
+    fn embedded_aniimo_requirements_cover_embedded_items() {
+        let reqs = embedded_aniimo_requirements();
+        for item in get_embedded_items().iter().filter(|i| i.workload.is_some()) {
+            assert!(reqs.get(&item.name).is_some(), "{} has no embedded Aniimo requirement", item.name);
+        }
+    }
+
+    // The web build embeds its own copy of every CSV. A facility added to `load_all_data` but not
+    // here (or the reverse) would silently disappear from the web app.
+    #[test]
+    fn embedded_items_match_the_data_directory() {
+        let data_dir = std::path::Path::new("data");
+        if !data_dir.exists() {
+            return;
+        }
+        let describe = |items: Vec<crate::models::ProductionItem>| {
+            let mut rows: Vec<String> = items.iter().map(|i| format!("{i:?}")).collect();
+            rows.sort();
+            rows
+        };
+        let from_files = describe(crate::data::load_all_data(data_dir).expect("Failed to load data"));
+        let embedded = describe(get_embedded_items());
+        let only_files: Vec<&String> = from_files.iter().filter(|r| !embedded.contains(r)).collect();
+        let only_embedded: Vec<&String> = embedded.iter().filter(|r| !from_files.contains(r)).collect();
+        assert!(
+            only_files.is_empty() && only_embedded.is_empty(),
+            "web build and data directory disagree.
+only in data/: {only_files:#?}
+only embedded: {only_embedded:#?}"
+        );
+    }
 }

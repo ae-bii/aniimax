@@ -1,2 +1,3 @@
 name, sell_currency, sell_value, workload, yield, byproduct_yield, facility_level, module_requirement, environment
-aromathyst, coins, 357, 2700, 4, , 1, , Warm
+aromathyst, coins, 56, 2250, 4, , 1, , 
+quick_aromathyst, coins, 56, 2700, 12, , 2, resource_detector:3, 

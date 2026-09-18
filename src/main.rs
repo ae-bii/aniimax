@@ -10,9 +10,30 @@ use std::path::Path;
 use aniimax::{
     data::load_all_data,
     display::{display_energy_recommendations, display_results},
-    models::{FacilityCounts, ModuleLevels},
+    models::{FacilityCounts, ModuleLevels, Worker, Workers},
     optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_parallel_production_path, find_self_sufficient_path},
 };
+
+/// Facilities an Aniimo works, where its ability level and personality bonus set the speed.
+const WORKER_FACILITIES: [&str; 17] = [
+    "Mine",
+    "Well",
+    "Tidewhisper Sandcastle",
+    "Dewy House",
+    "Nimbus Bed",
+    "Starfall Hammock",
+    "Floral Windmill",
+    "Phonolfactory Table",
+    "Bouncy Brew Keg",
+    "Blazing Stove",
+    "Pickling Jar",
+    "Joy Wheel Loom",
+    "Carousel Mill",
+    "Crafting Table",
+    "Claw Game Cooker",
+    "Jukebox Dryer",
+    "Simmering Pot",
+];
 
 /// Command-line arguments for Aniimax.
 #[derive(Parser, Debug)]
@@ -23,7 +44,7 @@ struct Args {
     #[arg(short, long)]
     target: f64,
 
-    /// Currency type to optimize for (coins or bud_tickets)
+    /// What to optimize for: coins, or a byproduct (wood_blocks or mineral_sand)
     #[arg(short, long, default_value = "coins")]
     currency: String,
 
@@ -57,14 +78,32 @@ struct Args {
     #[arg(long, default_value = "1")]
     woodland_level: u32,
 
-    // ========== Mineral Pile ==========
-    /// Number of Mineral Pile slots available
+    // ========== Mine ==========
+    /// Number of Mine slots available
     #[arg(long, default_value = "1")]
-    mineral_pile: u32,
+    mine: u32,
 
-    /// Mineral Pile facility level
+    /// Mine facility level
     #[arg(long, default_value = "1")]
-    mineral_pile_level: u32,
+    mine_level: u32,
+
+    // ========== Well ==========
+    /// Number of Wells available
+    #[arg(long, default_value = "0")]
+    well: u32,
+
+    /// Well facility level
+    #[arg(long, default_value = "1")]
+    well_level: u32,
+
+    // ========== Tidewhisper Sandcastle ==========
+    /// Number of Tidewhisper Sandcastles available
+    #[arg(long, default_value = "0")]
+    tidewhisper_sandcastle: u32,
+
+    /// Tidewhisper Sandcastle facility level
+    #[arg(long, default_value = "1")]
+    tidewhisper_sandcastle_level: u32,
 
     // ========== Carousel Mill ==========
     /// Number of Carousel Mill machines available
@@ -74,6 +113,15 @@ struct Args {
     /// Carousel Mill facility level
     #[arg(long, default_value = "1")]
     carousel_mill_level: u32,
+
+    // ========== Claw Game Cooker ==========
+    /// Number of Claw Game Cookers available
+    #[arg(long, default_value = "1")]
+    claw_game_cooker: u32,
+
+    /// Claw Game Cooker facility level
+    #[arg(long, default_value = "1")]
+    claw_game_cooker_level: u32,
 
     // ========== Jukebox Dryer ==========
     /// Number of Jukebox Dryer machines available
@@ -93,29 +141,38 @@ struct Args {
     #[arg(long, default_value = "1")]
     crafting_table_level: u32,
 
-    // ========== Nimbus Bed ==========
-    /// Number of Nimbus Bed slots available (produces Wool and Petals)
+    // ========== Simmering Pot ==========
+    /// Number of Simmering Pots available
     #[arg(long, default_value = "0")]
-    nimbus_bed: u32,
+    simmering_pot: u32,
 
-    /// Nimbus Bed facility level
+    /// Simmering Pot facility level
     #[arg(long, default_value = "1")]
-    nimbus_bed_level: u32,
+    simmering_pot_level: u32,
+
+    // ========== Aniimo ==========
+    /// Ability level (1-3) of the Aniimo working the Mine, Well, Tidewhisper Sandcastle and processors
+    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u32).range(1..=3))]
+    aniimo_level: u32,
+
+    /// The working Aniimo has each facility's personality bonus (+20% speed)
+    #[arg(long)]
+    personality_bonus: bool,
 
     // ========== Item Upgrade Modules ==========
-    /// Ecological Module level (1=high-speed wheat, 2=high-speed willow)
+    /// Ecological Module level (unlocks quick crops, e.g. 1=quick wheat)
     #[arg(long, default_value = "0")]
     ecological_module: u32,
 
-    /// Kitchen Module level (2=super wheatmeal)
+    /// Kitchen Module level (unlocks premium dishes, e.g. 2=premium bread)
     #[arg(long, default_value = "0")]
     kitchen_module: u32,
 
-    /// Mineral Detector level (1=high-speed rock)
+    /// Resource Detector level (unlocks quick gathered items, e.g. 1=quick well water)
     #[arg(long, default_value = "0")]
-    mineral_detector: u32,
+    resource_detector: u32,
 
-    /// Crafting Module level (1=advanced wood sculpture)
+    /// Crafting Module level (unlocks premium crafts, e.g. 1=premium river-washed stones)
     #[arg(long, default_value = "0")]
     crafting_module: u32,
 }
@@ -130,22 +187,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(1);
     }
 
-    // Build facility counts from args (count, level) tuples
-    let facility_counts = FacilityCounts::from_pairs(&[
+    // Build facility counts from args (count, level) tuples; facilities without a flag aren't owned
+    let facility_counts = FacilityCounts::only(&[
         ("Farmland", args.farmland, args.farmland_level),
         ("Woodland", args.woodland, args.woodland_level),
-        ("Mineral Pile", args.mineral_pile, args.mineral_pile_level),
+        ("Mine", args.mine, args.mine_level),
+        ("Well", args.well, args.well_level),
+        ("Tidewhisper Sandcastle", args.tidewhisper_sandcastle, args.tidewhisper_sandcastle_level),
         ("Carousel Mill", args.carousel_mill, args.carousel_mill_level),
+        ("Claw Game Cooker", args.claw_game_cooker, args.claw_game_cooker_level),
         ("Jukebox Dryer", args.jukebox_dryer, args.jukebox_dryer_level),
         ("Crafting Table", args.crafting_table, args.crafting_table_level),
-        ("Nimbus Bed", args.nimbus_bed, args.nimbus_bed_level),
+        ("Simmering Pot", args.simmering_pot, args.simmering_pot_level),
     ]);
 
     // Build module levels from args
     let module_levels = ModuleLevels {
         ecological_module: args.ecological_module,
         kitchen_module: args.kitchen_module,
-        mineral_detector: args.mineral_detector,
+        resource_detector: args.resource_detector,
         crafting_module: args.crafting_module,
     };
 
@@ -170,21 +230,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Facilities (count x level):");
     println!("  Farmland:           {} x Lv.{}", args.farmland, args.farmland_level);
     println!("  Woodland:           {} x Lv.{}", args.woodland, args.woodland_level);
-    println!("  Mineral Pile:       {} x Lv.{}", args.mineral_pile, args.mineral_pile_level);
+    println!("  Mine:               {} x Lv.{}", args.mine, args.mine_level);
+    println!("  Well:               {} x Lv.{}", args.well, args.well_level);
+    println!("  Tidewhisper:        {} x Lv.{}", args.tidewhisper_sandcastle, args.tidewhisper_sandcastle_level);
     println!("  Carousel Mill:      {} x Lv.{}", args.carousel_mill, args.carousel_mill_level);
+    println!("  Claw Game Cooker:   {} x Lv.{}", args.claw_game_cooker, args.claw_game_cooker_level);
     println!("  Jukebox Dryer:      {} x Lv.{}", args.jukebox_dryer, args.jukebox_dryer_level);
     println!("  Crafting Table:     {} x Lv.{}", args.crafting_table, args.crafting_table_level);
-    println!("  Nimbus Bed:         {} x Lv.{}", args.nimbus_bed, args.nimbus_bed_level);
+    println!("  Simmering Pot:      {} x Lv.{}", args.simmering_pot, args.simmering_pot_level);
 
     println!();
     println!("Item Modules:");
     println!("  Ecological Module:  Lv.{}", args.ecological_module);
     println!("  Kitchen Module:     Lv.{}", args.kitchen_module);
-    println!("  Mineral Detector:   Lv.{}", args.mineral_detector);
+    println!("  Resource Detector:  Lv.{}", args.resource_detector);
     println!("  Crafting Module:    Lv.{}", args.crafting_module);
 
-    // Load all data
-    let items = load_all_data(data_dir)?;
+    println!();
+    println!(
+        "Aniimo:             Lv.{} suitability{}",
+        args.aniimo_level,
+        if args.personality_bonus { ", personality bonus" } else { "" }
+    );
+
+    // Load all data, with times set for the Aniimo working each facility
+    let mut items = load_all_data(data_dir)?;
+    let mut workers = Workers::new();
+    for facility in WORKER_FACILITIES {
+        workers.set(facility, Worker::new(args.aniimo_level, args.personality_bonus));
+    }
+    workers.apply(&mut items);
     println!();
     println!("Loaded {} production items.", items.len());
 

@@ -1,0 +1,11 @@
+name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
+soy_sauce, soybean;sea_salt, 16;13, 650, coins, 135, 1,
+salted_cherry_blossom, cherry_blossom;sea_salt, 7;13, 780, coins, 135, 1,
+sweet_rice_drink, milled_rice;fresh_water;rock_candy, 1;8;1, 2580, coins, 270, 2,
+cider_vinegar, apple, 8, 510, coins, 68, 2,
+premium_sweet_rice_wine, milled_rice;fresh_water;rock_candy, 1;8;1, 2980, coins, 270, 2, kitchen_module:4
+rice_vinegar, rice_drink, 1, 2510, coins, 162, 3,
+salted_lemon, lemon;sea_salt, 16;13, 1110, coins, 162, 3,
+premium_salted_lemon, lemon;sea_salt, 16;13, 1440, coins, 162, 3, kitchen_module:5
+candied_strawberries, maple_syrup;strawberry, 18;8, 2090, coins, 162, 4,
+candied_orange_flower, agave_syrup;orange_flower, 1;8, 6950, coins, 243, 5,
