@@ -165,9 +165,14 @@ export const FACILITIES = [
     },
 ];
 
-// What reaching each RV level costs: coins plus one Woodworking Bench item and one Chimney Kiln
-// item. Costs below RV 7 aren't known yet.
+// What reaching each RV level costs: coins, plus raw Wood Blocks and Mineral Sand up to RV 6 and
+// one Woodworking Bench item and one Chimney Kiln item from RV 7.
 export const LEVEL_UP_COSTS = {
+    2: { coins: 140, items: [['wood_block', 3]] },
+    3: { coins: 800, items: [['wood_block', 25]] },
+    4: { coins: 2900, items: [['wood_block', 100], ['mineral_sand', 120]] },
+    5: { coins: 7300, items: [['wood_block', 550], ['mineral_sand', 250]] },
+    6: { coins: 32000, items: [['wood_block', 1300], ['mineral_sand', 700]] },
     7: { coins: 69000, items: [['rough_lumber', 290], ['coarse_sifted_ore', 360]] },
     8: { coins: 180000, items: [['rough_lumber', 1100], ['coarse_sifted_ore', 640]] },
     9: { coins: 260000, items: [['rough_lumber', 1520], ['coarse_sifted_ore', 800]] },
