@@ -3,7 +3,7 @@
 import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME,
     MAX_HOME_LEVEL, COUNTS_CONFIRMED_UP_TO, ANIIMO_MAX, simpleSetup,
-    LEVEL_UP_COSTS, LEVEL_UP_CHAINS,
+    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES,
 } from './facility-config.js';
 
 let wasmReady = false;
@@ -347,7 +347,7 @@ function initFacilityTiers(data) {
 }
 
 function saveInputsToStorage() {
-    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes] };
+    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial] };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -364,6 +364,7 @@ function loadInputsFromStorage(data) {
     if (!data) return;
     if (data.levelUpStock && typeof data.levelUpStock === 'object') levelUpStock = { ...data.levelUpStock };
     if (Array.isArray(data.skippedRecipes)) skippedRecipes = new Set(data.skippedRecipes.filter(n => typeof n === 'string'));
+    if (Array.isArray(data.unlockedSpecial)) unlockedSpecial = new Set(data.unlockedSpecial.filter(n => typeof n === 'string'));
     getPersistedFieldIds().forEach(id => {
         if (!(id in data)) return;
         const el = document.getElementById(id);
@@ -505,6 +506,35 @@ function attachModeHandlers() {
     document.getElementById('customize-btn').addEventListener('click', customizeInAdvancedMode);
 }
 
+// --- Special recipes -------------------------------------------------------------------
+// Recipes unlocked with a rare currency (see `SPECIAL_RECIPES`): left out of plans unless ticked.
+
+let unlockedSpecial = new Set();
+const SPECIAL_NAMES = new Set(SPECIAL_RECIPES.map(r => r.name));
+
+function renderSpecialRecipes() {
+    document.getElementById('special-grid').innerHTML = SPECIAL_RECIPES.map(r => `
+        <label class="special-option">
+            <input type="checkbox" data-special="${r.name}"${unlockedSpecial.has(r.name) ? ' checked' : ''}>
+            <span>${prettyItem(r.name)}</span>
+        </label>`).join('');
+}
+
+function attachSpecialHandlers() {
+    document.getElementById('special-grid').addEventListener('change', (e) => {
+        const name = e.target.dataset.special;
+        if (!name) return;
+        if (e.target.checked) unlockedSpecial.add(name); else unlockedSpecial.delete(name);
+        saveInputsToStorage();
+    });
+}
+
+// Every recipe plans may not use: the player's skips and any special recipe not unlocked.
+function excludedRecipes() {
+    const locked = SPECIAL_RECIPES.map(r => r.name).filter(name => !unlockedSpecial.has(name));
+    return [...new Set([...skippedRecipes, ...locked])];
+}
+
 // --- Recipes to skip -------------------------------------------------------------------
 // Recipes plans may not use (see `JsPlanInput::exclude` in wasm.rs), for things the player can't
 // make yet. Saved with the other inputs.
@@ -605,6 +635,7 @@ const ITEM_NAMES = {
     wood_block: 'Wood Blocks',
     mineral_sand: 'Mineral Sand',
     coarse_sifted_ore: 'Coarse-Sifted Ore',
+    flowers_in_a_bottle: 'Flowers in a Bottle',
 };
 
 function isLevelUpStrategy() {
@@ -834,7 +865,7 @@ function getPlanInputValues() {
             currency: 'coins',
             prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
             level_up: levelUpInput(),
-            exclude: [...skippedRecipes],
+            exclude: excludedRecipes(),
             facilities,
             modules
         };
@@ -859,7 +890,7 @@ function getPlanInputValues() {
         currency: 'coins',
         prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
         level_up: levelUpInput(),
-        exclude: [...skippedRecipes],
+        exclude: excludedRecipes(),
         facilities,
         modules
     };
@@ -1632,7 +1663,8 @@ async function runFindPlan() {
             target: levelUpTarget(),
             unavailable: levelUpUnavailable(),
             ready: !!(input.level_up && input.level_up.cost.every(([name, need]) => stockAmount(name) >= need)),
-            skipped: [...input.exclude].sort((a, b) => prettyItem(a).localeCompare(prettyItem(b))),
+            // Only what the player skipped; locked special recipes are the default, not news.
+            skipped: [...skippedRecipes].sort((a, b) => prettyItem(a).localeCompare(prettyItem(b))),
         };
 
         // Runs in the worker (see worker.js); the main thread stays free to paint the progress
@@ -1792,7 +1824,7 @@ function renderRecipeTables(recipes) {
             const cell = (label, value) => `<td data-label="${label}"${value === '-' ? ' class="empty"' : ''}>${value}</td>`;
             const rows = byFacility.get(f.name).map(r => `
                 <tr${r.verified === false ? ' class="unverified"' : ''}>
-                    <td class="recipe-name">${prettyItem(r.name)}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
+                    <td class="recipe-name">${prettyItem(r.name)}${SPECIAL_NAMES.has(r.name) ? ' <span class="tag special" title="Takes a rare currency to unlock">special</span>' : ''}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
                     ${cell('Level', r.facility_level)}
                     ${cell('Inputs', formatRecipeInputs(r))}
                     ${cell('Yield', formatRecipeYield(r))}
@@ -1879,6 +1911,8 @@ document.addEventListener('DOMContentLoaded', () => {
     attachStrategyHandlers();
     attachSkipHandlers();
     renderSkippedRecipes();
+    attachSpecialHandlers();
+    renderSpecialRecipes();
     applyConfigMode();
     initWasm();
 

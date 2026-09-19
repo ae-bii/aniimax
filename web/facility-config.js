@@ -149,7 +149,7 @@ export const FACILITIES = [
         name: 'Joy Wheel Loom', slug: 'joy-wheel-loom', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Wind', personality: 'Faithful',
         unlocks: { 1: 7, 2: 10, 3: 15, 4: 19 },
         counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        tooltip: "Lv.1: cotton thread&#10;Lv.2: woolen yarn, cotton fabric&#10;Lv.3: palm rope, wool fabric&#10;Lv.4: dyed cotton fabric&#10;Not yet verified in game."
+        tooltip: "Lv.1: cotton thread&#10;Lv.2: woolen yarn, cotton fabric&#10;Lv.3: palm rope, wool fabric&#10;Lv.4: dyed cotton fabric"
     },
     {
         name: 'Woodworking Bench', slug: 'woodworking-bench', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Artisanship', personality: 'Energetic',
@@ -163,6 +163,17 @@ export const FACILITIES = [
         counts: [0, 0, 0, 0, 0, 1],
         tooltip: "Lv.1: coarse-sifted ore&#10;Lv.2: sintered ore brick&#10;Lv.3: refined ore&#10;Lv.4: microcrystalline ore plate&#10;Turns Mineral Sand into RV level-up materials."
     },
+];
+
+// Recipes unlocked with a rare currency (a few come from RV level-ups or from collecting one of
+// every product). Plans leave them out until the player says they have them.
+export const SPECIAL_RECIPES = [
+    { name: 'rose_shortbread', facility: 'Claw Game Cooker' },
+    { name: 'potato_kvass', facility: 'Bouncy Brew Keg' },
+    { name: 'ginseng_porridge', facility: 'Simmering Pot' },
+    { name: 'strawberry_candy', facility: 'Blazing Stove' },
+    { name: 'flowers_in_a_bottle', facility: 'Crafting Table' },
+    { name: 'lotion', facility: 'Phonolfactory Table' },
 ];
 
 // What reaching each RV level costs: coins, plus raw Wood Blocks and Mineral Sand up to RV 6 and
