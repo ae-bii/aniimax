@@ -593,8 +593,9 @@ function attachSkipHandlers() {
 }
 
 // --- Strategy ----------------------------------------------------------------------------
-// "Level up" plans the soonest next RV level-up (its coins plus a Woodworking Bench item and a
-// Chimney Kiln item, less what's already in stock); "Most coins" plans the most coins.
+// "Level up" plans the soonest next RV level-up (its coins plus Wood Blocks and Mineral Sand, or
+// from RV 7 a Woodworking Bench item and a Chimney Kiln item, less what's already in stock);
+// "Most coins" plans the most coins.
 
 // What the player has toward a level-up, by item name ('coins' for coins).
 let levelUpStock = {};
@@ -625,7 +626,7 @@ function levelUpCost() {
 function levelUpUnavailable() {
     const target = levelUpTarget();
     if (target > MAX_HOME_LEVEL) return `RV ${MAX_HOME_LEVEL} is the top level, so there's no level-up to plan.`;
-    if (!LEVEL_UP_COSTS[target]) return `Level-up costs are only known from RV 7 on.`;
+    if (!LEVEL_UP_COSTS[target]) return `There's no level-up cost for RV ${target}.`;
     return null;
 }
 
@@ -1813,7 +1814,7 @@ function renderRecipeTables(recipes) {
                                     <th>Level</th>
                                     <th>Inputs</th>
                                     <th>Yield</th>
-                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: at 100% Efficiency one workload takes one second. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above and 400% two above; at gathering facilities like the Well, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
+                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: at 100% Efficiency one workload takes one second. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above, then +100% per level; at gathering facilities like the Well, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
                                     <th>Sell</th>
                                     <th>Module</th>
                                     <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 3 with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>

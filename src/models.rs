@@ -87,11 +87,18 @@ pub struct ProductionItem {
     pub environment: Option<String>,
 }
 
-/// Efficiency at a processor for an Aniimo 0, 1 and 2 levels above what the recipe needs: 100%,
-/// 300% and 400% (a 108-workload recipe takes 108s, 36s and 27s), whatever level the recipe
-/// needs. Checked on level-1 recipes (Bread, Roasted Soybeans, Milled Rice) and a level-2 one
-/// (Coarse-Sifted Ore: 300% with a level-3 Aniimo).
-const PROCESSOR_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
+/// Efficiency at a processor for an Aniimo `above` levels above what the recipe needs, whatever
+/// level the recipe needs: 100% at the needed level, then 300%, 400%, 500% (+100% a level after
+/// the first). A 108-workload recipe takes 108s, 36s, 27s. Checked on level-1 recipes (Bread,
+/// Roasted Soybeans, Milled Rice; Dried Lemon Slices at 500% with a level-4 Aniimo) and a level-2
+/// one (Coarse-Sifted Ore: 300% with a level-3 Aniimo).
+fn processor_speed(above: u32) -> f64 {
+    if above == 0 {
+        1.0
+    } else {
+        2.0 + above as f64
+    }
+}
 
 /// Efficiency gained per level above a level-1 recipe at a gathering facility: Well Water runs at
 /// 150%, 200% and 250% with a level-2, 3 and 4 Aniimo, and Sea Salt at 150% with a level-2 one.
@@ -106,12 +113,11 @@ const GATHERING_STEP_ABOVE_TWO: f64 = 0.4;
 /// Aniimo at ability `level` on a recipe needing `required`, at a gathering facility (one that
 /// makes something from nothing: Well, Mine, Sandcastle, Dewy House and the like) or a processor.
 /// It's always 100% at exactly the required level. Above it:
-/// - at a processor, 300% one level above and 400% two above ([`PROCESSOR_SPEEDS`]);
+/// - at a processor, 300% one level above, then +100% a level ([`processor_speed`]);
 /// - at a gathering facility, +50% a level on a level-1 recipe ([`GATHERING_LEVEL_ONE_STEP`])
 ///   and +40% a level on a harder one ([`GATHERING_STEP_ABOVE_TWO`]).
 ///
-/// Not checked yet: anything needing level 3, and a processor recipe with an Aniimo three levels
-/// above it (taken as 400%).
+/// Not checked yet: anything needing level 3.
 ///
 /// ```
 /// use aniimax::models::efficiency;
@@ -122,6 +128,7 @@ const GATHERING_STEP_ABOVE_TWO: f64 = 0.4;
 /// assert_eq!(efficiency(3, 1, false), 4.0);
 /// assert_eq!(efficiency(2, 2, false), 1.0);
 /// assert_eq!(efficiency(3, 2, false), 3.0);
+/// assert_eq!(efficiency(4, 1, false), 5.0);
 /// // Gathering: Well Water needs level 1; Quick Sea Salt and Plain Fresh Water need 2.
 /// assert_eq!(efficiency(2, 1, true), 1.5);
 /// assert_eq!(efficiency(4, 1, true), 2.5);
@@ -134,7 +141,7 @@ pub fn efficiency(level: u32, required: u32, gathering: bool) -> f64 {
     let level = level.max(required);
     let above = level - required;
     match (gathering, required) {
-        (false, _) => PROCESSOR_SPEEDS[above.min(2) as usize],
+        (false, _) => processor_speed(above),
         (true, 1) => 1.0 + GATHERING_LEVEL_ONE_STEP * above as f64,
         (true, _) => 1.0 + GATHERING_STEP_ABOVE_TWO * above as f64,
     }

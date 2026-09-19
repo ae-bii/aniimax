@@ -177,6 +177,7 @@ fn test_efficiency_matches_every_in_game_reading() {
         ("Carousel Mill", "Milled Rice", 3, true, 1, false, 4.8),
         ("Carousel Mill", "Milled Rice", 1, true, 1, false, 1.2),
         ("Carousel Mill", "Milled Rice", 2, false, 1, false, 3.0),
+        ("Jukebox Dryer", "Dried Lemon Slices", 4, true, 1, false, 6.0),
         ("Chimney Kiln", "Coarse-Sifted Ore", 2, false, 2, false, 1.0),
         ("Chimney Kiln", "Coarse-Sifted Ore", 3, true, 2, false, 3.6),
         // Shown as "Sea Salt" with Recommended L2: the quick recipe, which makes the same item.
