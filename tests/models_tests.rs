@@ -164,3 +164,37 @@ fn test_processed_item_creation() {
     assert_eq!(item.raw_materials, Some(vec!["wheat".to_string()]));
     assert_eq!(item.required_amount, Some(vec![2]));
 }
+
+// Every Efficiency % read off a facility screen in game: (facility, recipe, Aniimo level,
+// personality, recipe's required level, gathering facility, shown).
+#[test]
+fn test_efficiency_matches_every_in_game_reading() {
+    use aniimax::models::Worker;
+    let readings = [
+        ("Claw Game Cooker", "Bread", 2, false, 1, false, 3.0),
+        ("Claw Game Cooker", "Roasted Soybeans", 2, false, 1, false, 3.0),
+        ("Claw Game Cooker", "Roasted Soybeans", 3, true, 1, false, 4.8),
+        ("Carousel Mill", "Milled Rice", 3, true, 1, false, 4.8),
+        ("Carousel Mill", "Milled Rice", 1, true, 1, false, 1.2),
+        ("Carousel Mill", "Milled Rice", 2, false, 1, false, 3.0),
+        ("Chimney Kiln", "Coarse-Sifted Ore", 2, false, 2, false, 1.0),
+        ("Chimney Kiln", "Coarse-Sifted Ore", 3, true, 2, false, 3.6),
+        // Shown as "Sea Salt" with Recommended L2: the quick recipe, which makes the same item.
+        ("Tidewhisper Sandcastle", "Quick Sea Salt", 3, true, 2, true, 1.68),
+        ("Tidewhisper Sandcastle", "Quick Sea Salt", 4, false, 2, true, 1.8),
+        ("Tidewhisper Sandcastle", "Quick Sea Salt", 4, true, 2, true, 2.16),
+        ("Tidewhisper Sandcastle", "Sea Salt", 1, false, 1, true, 1.0),
+        ("Tidewhisper Sandcastle", "Sea Salt", 2, false, 1, true, 1.5),
+        ("Well", "Plain Fresh Water", 4, true, 2, true, 2.16),
+        ("Dewy House", "Aromathyst", 3, false, 2, true, 1.4),
+        ("Mine", "Clay", 3, false, 2, true, 1.4),
+        ("Mine", "Clay", 3, true, 2, true, 1.68),
+        ("Well", "Well Water", 2, false, 1, true, 1.5),
+        ("Well", "Well Water", 3, true, 1, true, 2.4),
+        ("Well", "Well Water", 4, true, 1, true, 3.0),
+    ];
+    for (facility, recipe, level, personality, required, gathering, shown) in readings {
+        let speed = Worker::new(level, personality).speed(required, gathering);
+        assert!((speed - shown).abs() < 1e-9, "{facility} {recipe}: level {level} gives {speed}, game shows {shown}");
+    }
+}

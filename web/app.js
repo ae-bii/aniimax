@@ -1813,7 +1813,7 @@ function renderRecipeTables(recipes) {
                                     <th>Level</th>
                                     <th>Inputs</th>
                                     <th>Yield</th>
-                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: at 100% Efficiency one workload takes one second. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (on a level-1 recipe, 300% at level 2 and 400% at level 3; on harder recipes, +40% per level).">?</span></th>
+                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: at 100% Efficiency one workload takes one second. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above and 400% two above; at gathering facilities like the Well, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
                                     <th>Sell</th>
                                     <th>Module</th>
                                     <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 3 with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>

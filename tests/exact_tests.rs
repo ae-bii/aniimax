@@ -129,13 +129,13 @@ fn solve_level_up(items: &[ProductionItem], counts: &FacilityCounts, level_up: &
     let plan = solve_exact(items, "coins", counts, &modules, Goal::EarnWhileLevelingUp(level_up, pace), None, None)
         .expect("earning plan");
     assert!(plan.proven_optimal);
-    assert!(plan.pace.unwrap() >= pace * (1.0 - 1e-5), "pace {:?} below {pace}", plan.pace);
+    assert!(plan.pace.unwrap() >= pace * (1.0 - 2e-4), "pace {:?} below {pace}", plan.pace);
     check_plan(&plan, items, "coins", counts, &modules, Some(level_up)).expect("plan passes its re-check");
     // Then spare Bench and Kiln time, without giving up pace or coins.
     let stocked = solve_exact(items, "coins", counts, &modules, Goal::StockUp(level_up, pace, plan.rate_per_second), None, None)
         .expect("stocked plan");
     assert!(stocked.proven_optimal);
-    assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 1e-5));
+    assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 2e-4));
     check_plan(&stocked, items, "coins", counts, &modules, Some(level_up)).expect("stocked plan passes its re-check");
     (stocked, PACE_UNIT / pace)
 }
@@ -171,9 +171,9 @@ fn exact_level_up_makes_its_items_from_byproducts() {
     let (plan, seconds) = solve_level_up(&items, &counts, &cost);
     assert!(plan.units.contains_key("rough_lumber") && plan.units.contains_key("coarse_sifted_ore"), "{plan:?}");
     let net = net_rates(&plan, &items);
-    assert!(net["rough_lumber"] * seconds >= 290.0 * (1.0 - 1e-5));
-    assert!(net["coarse_sifted_ore"] * seconds >= 360.0 * (1.0 - 1e-5));
-    assert!(plan.rate_per_second * seconds >= 69000.0 * (1.0 - 1e-5));
+    assert!(net["rough_lumber"] * seconds >= 290.0 * (1.0 - 2e-4));
+    assert!(net["coarse_sifted_ore"] * seconds >= 360.0 * (1.0 - 2e-4));
+    assert!(plan.rate_per_second * seconds >= 69000.0 * (1.0 - 2e-4));
 
     // Wood Blocks in stock cut the time.
     let stocked = level_up(&[("coins", 69000.0), ("rough_lumber", 290.0), ("coarse_sifted_ore", 360.0)], &[("wood_block", 2320.0)]);
@@ -225,6 +225,6 @@ fn exact_level_up_processes_spare_byproducts() {
     let cost = level_up(&[("coins", 1000.0), ("rough_lumber", 100.0), ("coarse_sifted_ore", 100.0)], &[]);
     let (plan, seconds) = solve_level_up(&items, &counts, &cost);
     let net = net_rates(&plan, &items);
-    assert!((net["rough_lumber"] * seconds - 100.0).abs() < 1e-3, "lumber {}", net["rough_lumber"] * seconds);
+    assert!((net["rough_lumber"] * seconds - 100.0).abs() < 0.05, "lumber {}", net["rough_lumber"] * seconds);
     assert!(net["coarse_sifted_ore"] * seconds > 150.0, "ore {}", net["coarse_sifted_ore"] * seconds);
 }

@@ -39,8 +39,13 @@ const EXACT_TIME_LIMIT = 30;
 // Solves one exact-planner model with HiGHS: `{ values, proven, objective }`, or null if HiGHS
 // found no plan at all.
 async function solveModel(problem) {
-    const highs = await newHighs();
-    const result = highs.solve(problem.lp, { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT });
+    let result = (await newHighs()).solve(problem.lp, { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT });
+    if (result.Status === 'Infeasible') {
+        // HiGHS's presolve can call a tightly constrained model infeasible when it isn't (seen on
+        // the level-up stock solve, whose floors come from earlier solves); solving without it
+        // settles it.
+        result = (await newHighs()).solve(problem.lp, { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT, presolve: 'off' });
+    }
     const proven = result.Status === 'Optimal';
     if (!proven && result.Status !== 'Time limit reached') return null;
     const values = Array.from({ length: problem.variables }, (_, i) => result.Columns['x' + i]?.Primal ?? 0);
@@ -89,14 +94,18 @@ async function exactPlanJson(pkg, payload) {
         bound = relaxed.ObjectiveValue;
     }
     if (stage.pace) {
-        // Keeping that pace and those coins, spare Bench and Kiln time goes to the level-up.
-        stage.coins = solved.objective;
-        stageJson = JSON.stringify(stage);
-        problem = JSON.parse(exact_problem(payload, stageJson));
-        const stocked = await solveModel(problem);
-        if (!stocked) throw new Error('no plan found for the level-up stock');
-        solved = stocked;
-        proven &&= stocked.proven;
+        // Keeping that pace and those coins, spare Bench and Kiln time goes to the level-up. If
+        // that solve fails, the plan above already has the pace and coins, so it stands.
+        const stockStage = { ...stage, coins: solved.objective };
+        const stockJson = JSON.stringify(stockStage);
+        const stocked = await solveModel(JSON.parse(exact_problem(payload, stockJson)));
+        const stockedPlan = stocked
+            && JSON.parse(exact_plan(payload, stockJson, JSON.stringify({ values: stocked.values, proven: proven && stocked.proven, bound })));
+        if (stockedPlan && stockedPlan.success) {
+            stockedPlan.level_up_note = levelUpNote;
+            return JSON.stringify(stockedPlan);
+        }
+        console.warn('Level-up stock solve found no usable plan; keeping the plan without it.');
     }
     const json = exact_plan(payload, stageJson, JSON.stringify({ values: solved.values, proven, bound }));
     const plan = JSON.parse(json);
