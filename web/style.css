@@ -2008,3 +2008,33 @@ tr:hover .skip-row,
     font-size: 0.85rem;
     color: var(--text-muted);
 }
+
+/* Special recipes: one checkbox each, always shown. */
+.special-recipes {
+    margin: 0 0 1.25rem;
+}
+
+.special-recipes h3 {
+    margin-bottom: 0.3rem;
+}
+
+.special-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.4rem 1rem;
+    margin-top: 0.6rem;
+}
+
+.special-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.tag.special {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    margin-left: 0.35rem;
+}
