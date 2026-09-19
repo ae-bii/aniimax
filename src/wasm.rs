@@ -279,7 +279,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             cost: None,
             sell_currency: row.sell_currency,
             sell_value: row.sell_value,
-            production_time: crate::models::Worker::default().seconds_for(row.workload, 1),
+            production_time: crate::models::Worker::default().seconds_for(row.workload, 1, false),
             yield_amount: row.yield_amount,
             energy: None,
             facility_level: row.facility_level,
@@ -313,7 +313,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 cost: None,
                 sell_currency: row.sell_currency,
                 sell_value: row.sell_value,
-                production_time: crate::models::Worker::default().seconds_for(row.workload, 1),
+                production_time: crate::models::Worker::default().seconds_for(row.workload, 1, false),
                 yield_amount: row.yield_amount,
                 energy: None,
                 facility_level: row.facility_level,
@@ -335,7 +335,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| crate::models::Worker::default().seconds_for(w, 1))
+            .map(|w| crate::models::Worker::default().seconds_for(w, 1, false))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -370,7 +370,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| crate::models::Worker::default().seconds_for(w, 1))
+            .map(|w| crate::models::Worker::default().seconds_for(w, 1, false))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -405,7 +405,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         let req_amounts = parse_required_amounts(&row.required_amount);
         let production_time = row
             .workload
-            .map(|w| crate::models::Worker::default().seconds_for(w, 1))
+            .map(|w| crate::models::Worker::default().seconds_for(w, 1, false))
             .or(row.production_time)
             .expect("row must have either workload or production_time");
         items.push(ProductionItem {
@@ -450,7 +450,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             let req_amounts = parse_required_amounts(&row.required_amount);
             let production_time = row
                 .workload
-                .map(|w| crate::models::Worker::default().seconds_for(w, 1))
+                .map(|w| crate::models::Worker::default().seconds_for(w, 1, false))
                 .or(row.production_time)
                 .expect("row must have either workload or production_time");
             items.push(ProductionItem {
@@ -808,7 +808,7 @@ fn aniimo_tasks_for(
     let mut tasks: Vec<JsAniimoTask> = Vec::new();
     for job in grower_steps.get(item) {
         let level = job.min_level;
-        let busy = harvests_per_second * Worker::new(level, false).seconds_for(job.workload, level);
+        let busy = harvests_per_second * Worker::new(level, false).seconds_for(job.workload, level, true);
         match tasks.iter_mut().find(|t| t.ability == job.ability) {
             Some(task) => {
                 task.level = task.level.max(level);

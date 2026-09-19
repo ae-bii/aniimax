@@ -87,42 +87,56 @@ pub struct ProductionItem {
     pub environment: Option<String>,
 }
 
-/// Efficiency on a recipe needing ability level 1, for an Aniimo at level 1, 2 and 3: 100%, 300%
-/// and 400% (a 108-workload recipe takes 108s, 36s and 27s). Timed at the Jukebox Dryer, Carousel
-/// Mill, Simmering Pot and Claw Game Cooker (Bread).
-const LEVEL_ONE_RECIPE_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
+/// Efficiency at a processor for an Aniimo 0, 1 and 2 levels above what the recipe needs: 100%,
+/// 300% and 400% (a 108-workload recipe takes 108s, 36s and 27s), whatever level the recipe
+/// needs. Checked on level-1 recipes (Bread, Roasted Soybeans, Milled Rice) and a level-2 one
+/// (Coarse-Sifted Ore: 300% with a level-3 Aniimo).
+const PROCESSOR_SPEEDS: [f64; 3] = [1.0, 3.0, 4.0];
 
-/// Efficiency gained per ability level above what a recipe needs, for recipes needing level 2
-/// or more: Sea Salt (needs 2) runs at 140% with a level-3 Aniimo and 180% with a level-4 one.
-const LEVEL_STEP_ABOVE_TWO: f64 = 0.4;
+/// Efficiency gained per level above a level-1 recipe at a gathering facility: Well Water runs at
+/// 150%, 200% and 250% with a level-2, 3 and 4 Aniimo, and Sea Salt at 150% with a level-2 one.
+const GATHERING_LEVEL_ONE_STEP: f64 = 0.5;
+
+/// Efficiency gained per level above a gathering facility's recipe needing level 2 or more:
+/// Quick Sea Salt, Plain Fresh Water and Aromathyst run at 140% with a level-3 Aniimo and 180%
+/// with a level-4 one.
+const GATHERING_STEP_ABOVE_TWO: f64 = 0.4;
 
 /// Workload per second (the game's Efficiency, where 100% is one workload per second) for an
-/// Aniimo at ability `level` on a recipe needing `required`. It's always 100% at exactly the
-/// required level. Above it, a level-1 recipe jumps to 300% and 400%
-/// ([`LEVEL_ONE_RECIPE_SPEEDS`]), while a recipe needing level 2 or more gains 40% a level
-/// ([`LEVEL_STEP_ABOVE_TWO`]). Checked in game: level-1 recipes at levels 1-3, level-2 recipes at
-/// levels 2-4 (Coarse-Sifted Ore, Sea Salt). Level-3 recipes are assumed to follow the level-2
-/// pattern, and a level-4 Aniimo on a level-1 recipe is taken as 400% until it's measured.
+/// Aniimo at ability `level` on a recipe needing `required`, at a gathering facility (one that
+/// makes something from nothing: Well, Mine, Sandcastle, Dewy House and the like) or a processor.
+/// It's always 100% at exactly the required level. Above it:
+/// - at a processor, 300% one level above and 400% two above ([`PROCESSOR_SPEEDS`]);
+/// - at a gathering facility, +50% a level on a level-1 recipe ([`GATHERING_LEVEL_ONE_STEP`])
+///   and +40% a level on a harder one ([`GATHERING_STEP_ABOVE_TWO`]).
+///
+/// Not checked yet: anything needing level 3, and a processor recipe with an Aniimo three levels
+/// above it (taken as 400%).
 ///
 /// ```
 /// use aniimax::models::efficiency;
 ///
-/// assert_eq!(efficiency(1, 1), 1.0);
-/// assert_eq!(efficiency(2, 1), 3.0);
-/// assert_eq!(efficiency(3, 1), 4.0);
-/// assert_eq!(efficiency(2, 2), 1.0);
-/// assert!((efficiency(3, 2) - 1.4).abs() < 1e-12);
-/// assert!((efficiency(4, 2) - 1.8).abs() < 1e-12);
-/// assert_eq!(efficiency(3, 3), 1.0);
+/// // Processors: Bread needs level 1, Coarse-Sifted Ore needs 2.
+/// assert_eq!(efficiency(1, 1, false), 1.0);
+/// assert_eq!(efficiency(2, 1, false), 3.0);
+/// assert_eq!(efficiency(3, 1, false), 4.0);
+/// assert_eq!(efficiency(2, 2, false), 1.0);
+/// assert_eq!(efficiency(3, 2, false), 3.0);
+/// // Gathering: Well Water needs level 1; Quick Sea Salt and Plain Fresh Water need 2.
+/// assert_eq!(efficiency(2, 1, true), 1.5);
+/// assert_eq!(efficiency(4, 1, true), 2.5);
+/// assert!((efficiency(3, 2, true) - 1.4).abs() < 1e-12);
+/// assert!((efficiency(4, 2, true) - 1.8).abs() < 1e-12);
 /// ```
-pub fn efficiency(level: u32, required: u32) -> f64 {
+pub fn efficiency(level: u32, required: u32, gathering: bool) -> f64 {
     let required = required.max(1);
     // An Aniimo below the requirement can't work the recipe; plans never assign one.
     let level = level.max(required);
-    if required == 1 {
-        LEVEL_ONE_RECIPE_SPEEDS[level.min(3) as usize - 1]
-    } else {
-        1.0 + LEVEL_STEP_ABOVE_TWO * (level - required) as f64
+    let above = level - required;
+    match (gathering, required) {
+        (false, _) => PROCESSOR_SPEEDS[above.min(2) as usize],
+        (true, 1) => 1.0 + GATHERING_LEVEL_ONE_STEP * above as f64,
+        (true, _) => 1.0 + GATHERING_STEP_ABOVE_TWO * above as f64,
     }
 }
 
@@ -138,12 +152,12 @@ pub const PERSONALITY_BONUS: f64 = 1.2;
 /// ```
 /// use aniimax::models::Worker;
 ///
-/// assert_eq!(Worker::default().seconds_for(108.0, 1), 108.0);
-/// assert_eq!(Worker::new(2, false).seconds_for(108.0, 1), 36.0);
-/// assert!((Worker::new(2, true).seconds_for(108.0, 1) - 30.0).abs() < 1e-9);
-/// assert_eq!(Worker::new(3, false).seconds_for(108.0, 1), 27.0);
+/// assert_eq!(Worker::default().seconds_for(108.0, 1, false), 108.0);
+/// assert_eq!(Worker::new(2, false).seconds_for(108.0, 1, false), 36.0);
+/// assert!((Worker::new(2, true).seconds_for(108.0, 1, false) - 30.0).abs() < 1e-9);
+/// assert_eq!(Worker::new(3, false).seconds_for(108.0, 1, false), 27.0);
 /// // Coarse-Sifted Ore needs level 2: a level-2 Aniimo takes the full 34s.
-/// assert_eq!(Worker::new(2, false).seconds_for(34.0, 2), 34.0);
+/// assert_eq!(Worker::new(2, false).seconds_for(34.0, 2, false), 34.0);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Worker {
@@ -165,10 +179,10 @@ impl Worker {
         Self { suitability, personality_bonus }
     }
 
-    /// Workload completed per second on a recipe needing ability level `required` (see
-    /// [`efficiency`]).
-    pub fn speed(&self, required: u32) -> f64 {
-        let base = efficiency(self.suitability.clamp(1, 4), required);
+    /// Workload completed per second on a recipe needing ability level `required`, at a gathering
+    /// facility or a processor (see [`efficiency`]).
+    pub fn speed(&self, required: u32, gathering: bool) -> f64 {
+        let base = efficiency(self.suitability.clamp(1, 4), required, gathering);
         if self.personality_bonus {
             base * PERSONALITY_BONUS
         } else {
@@ -177,9 +191,15 @@ impl Worker {
     }
 
     /// Seconds this Aniimo takes to finish `workload` on a recipe needing ability level
-    /// `required`.
-    pub fn seconds_for(&self, workload: f64, required: u32) -> f64 {
-        workload / self.speed(required)
+    /// `required`, at a gathering facility or a processor.
+    pub fn seconds_for(&self, workload: f64, required: u32, gathering: bool) -> f64 {
+        workload / self.speed(required, gathering)
+    }
+
+    /// Seconds this Aniimo takes on one batch of `item`, which needs ability level `required`.
+    /// A recipe with no ingredients is gathered; one with ingredients is processed.
+    pub fn seconds_for_item(&self, item: &ProductionItem, workload: f64, required: u32) -> f64 {
+        self.seconds_for(workload, required, item.raw_materials.is_none())
     }
 }
 
@@ -192,7 +212,7 @@ impl Worker {
 ///
 /// let mut workers = Workers::new();
 /// workers.set("Carousel Mill", Worker::new(3, false));
-/// assert_eq!(workers.get("Carousel Mill").seconds_for(108.0, 1), 27.0);
+/// assert_eq!(workers.get("Carousel Mill").seconds_for(108.0, 1, false), 27.0);
 /// assert_eq!(workers.get("Jukebox Dryer"), Worker::default());
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -222,7 +242,7 @@ impl Workers {
         for item in items.iter_mut() {
             if let Some(workload) = item.workload {
                 let required = requirements.get(&item.name).map_or(1, |(_, level)| level);
-                item.production_time = self.get(&item.facility).seconds_for(workload, required);
+                item.production_time = self.get(&item.facility).seconds_for_item(item, workload, required);
             }
         }
     }
@@ -236,7 +256,8 @@ pub enum AniimoSetup {
     /// personality bonus: the least a player needs to run the plan at all.
     Minimum,
     /// A level-3 Aniimo with the facility's personality bonus everywhere: the fastest setup most
-    /// players can have (480% on a level-1 recipe, 168% on a level-2 one; see [`efficiency`]).
+    /// players can have (at a processor 480% on a level-1 recipe and 360% on a level-2 one; at a
+    /// gathering facility 240% and 168%; see [`efficiency`]).
     Best,
 }
 
@@ -283,7 +304,7 @@ impl AniimoRequirements {
         for item in items.iter_mut() {
             if let Some(workload) = item.workload {
                 let required = self.get(&item.name).map_or(1, |(_, level)| level);
-                item.production_time = self.worker_for(&item.name, setup).seconds_for(workload, required);
+                item.production_time = self.worker_for(&item.name, setup).seconds_for_item(item, workload, required);
             }
         }
     }

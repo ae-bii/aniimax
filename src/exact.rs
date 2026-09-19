@@ -288,7 +288,9 @@ fn build_model<'a>(
     // A level-up: stock and cost per unit of pace, in coins and in every item they name.
     let level_up = match goal {
         Goal::LevelUp(level_up) => Some((level_up, 0.0)),
-        Goal::EarnWhileLevelingUp(level_up, pace) | Goal::StockUp(level_up, pace, _) => Some((level_up, pace * (1.0 - 1e-6))),
+        // Slack of 0.01% (about 9 seconds a day): `pace` is another solve's maximum, and the pace
+        // terms are small enough that a tighter floor sits inside the solver's tolerances.
+        Goal::EarnWhileLevelingUp(level_up, pace) | Goal::StockUp(level_up, pace, _) => Some((level_up, pace * (1.0 - 1e-4))),
         _ => None,
     };
     if let Some((level_up, min_pace)) = level_up {
@@ -300,8 +302,9 @@ fn build_model<'a>(
         earned.push((pace, per_pace(currency)));
         model.constrain(earned, ComparisonOp::Ge, 0.0);
         if let Goal::StockUp(_, _, coins) = goal {
-            // A hair of slack: `coins` is another solve's exact maximum.
-            model.constrain(coin_terms, ComparisonOp::Ge, coins - 1e-6 * coins.abs().max(1.0));
+            // Slack of 0.01%: `coins` is another solve's maximum, and a tighter floor can leave
+            // no whole-unit plan within the solver's tolerances.
+            model.constrain(coin_terms, ComparisonOp::Ge, coins - 1e-4 * coins.abs());
         }
         for (name, _) in level_up.cost.iter().chain(&level_up.stock) {
             if name != currency {
