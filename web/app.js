@@ -429,13 +429,15 @@ function selectedHomeLevel() {
 }
 
 function populateHomeLevels() {
-    const select = document.getElementById('home-level');
     const options = [];
     for (let level = 1; level <= MAX_HOME_LEVEL; level++) {
         options.push(`<option value="${level}">${level}${level === MAX_HOME_LEVEL ? ' (everything unlocked)' : ''}</option>`);
     }
-    select.innerHTML = options.join('');
-    select.value = String(MAX_HOME_LEVEL);
+    for (const id of ['home-level', 'fill-level']) {
+        const select = document.getElementById(id);
+        select.innerHTML = options.join('');
+        select.value = String(MAX_HOME_LEVEL);
+    }
 }
 
 // One entry per built facility, e.g. "10 Farmland Lv.2", plus a note when counts above the
@@ -480,8 +482,9 @@ function applyConfigMode() {
 
 // Copies the simple-mode setup into the advanced inputs and switches to advanced mode, so the
 // player can start from "everything at my RV level" and adjust from there.
-function customizeInAdvancedMode() {
-    const { facilities, modules } = simpleSetup(selectedHomeLevel());
+// Fills the advanced inputs with everything `homeLevel` allows.
+function fillAdvancedFrom(homeLevel) {
+    const { facilities, modules } = simpleSetup(homeLevel);
     FACILITIES.forEach(f => {
         facilityTiers[f.name] = facilities[f.name].map(t => ({ ...t }));
         renderTierRows(f.name);
@@ -490,9 +493,14 @@ function customizeInAdvancedMode() {
     document.getElementById('kitchen-module-level').value = modules.kitchen_module;
     document.getElementById('resource-detector-level').value = modules.resource_detector;
     document.getElementById('crafting-module-level').value = modules.crafting_module;
+    saveInputsToStorage();
+}
+
+function customizeInAdvancedMode() {
+    fillAdvancedFrom(selectedHomeLevel());
+    document.getElementById('fill-level').value = String(selectedHomeLevel());
     document.getElementById('mode-advanced').checked = true;
     applyConfigMode();
-    saveInputsToStorage();
     document.getElementById('advanced-config').scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -504,6 +512,9 @@ function attachModeHandlers() {
         renderStrategy();
     });
     document.getElementById('customize-btn').addEventListener('click', customizeInAdvancedMode);
+    document.getElementById('fill-btn').addEventListener('click', () => {
+        fillAdvancedFrom(numberOrDefault(document.getElementById('fill-level').value, MAX_HOME_LEVEL));
+    });
 }
 
 // --- Special recipes -------------------------------------------------------------------

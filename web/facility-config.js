@@ -94,7 +94,7 @@ export const FACILITIES = [
     {
         name: 'Carousel Mill', slug: 'carousel-mill', defaultCount: 1, category: 'Materials Processing', hasWorker: true, ability: 'Wind', personality: 'Tenacious',
         unlocks: { 1: 2, 2: 5, 3: 9, 4: 13, 5: 16, 6: 18 },
-        counts: [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: wheatmeal&#10;Lv.2: tofu, milled rice&#10;Lv.3: lavender powder&#10;Lv.4: rice drink, ginseng powder&#10;Lv.5: refined flour, coconut oil&#10;Lv.6: cocoa powder, coconut milk"
     },
     {
