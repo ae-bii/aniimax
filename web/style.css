@@ -2038,3 +2038,32 @@ tr:hover .skip-row,
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     margin-left: 0.35rem;
 }
+
+/* "Fill from RV level" in advanced mode. */
+.fill-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.75rem 0 1.25rem;
+}
+
+.fill-row label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.fill-row select {
+    padding: 0.4rem 0.6rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+}
+
+.fill-row .hint {
+    flex-basis: 100%;
+    margin: 0;
+}

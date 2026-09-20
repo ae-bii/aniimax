@@ -49,6 +49,12 @@
                 <div id="advanced-config">
                     <h3>Facilities</h3>
                     <p class="hint">Set the count and level for each facility you have.</p>
+                    <div class="fill-row">
+                        <label for="fill-level">Fill from RV level</label>
+                        <select id="fill-level"></select>
+                        <button type="button" id="fill-btn" class="skip-add-btn">Fill</button>
+                        <span class="hint small">Replaces every count and level below with what that RV level allows.</span>
+                    </div>
 
                     <!-- Facility cards are generated dynamically by app.js from the FACILITIES config,
                          grouped into category sections (Materials / Environment / Materials
@@ -369,7 +375,7 @@
             </div>
             <div class="modal-body">
                 <h3>1. Tell it what you've built</h3>
-                <p><strong>Simple</strong>: pick your RV level, and the calculator assumes you've built and upgraded everything that level allows. <strong>Advanced</strong>: set the count and level of every facility and upgrade module yourself. "Customize in Advanced" copies the Simple setup over as a starting point.</p>
+                <p><strong>Simple</strong>: pick your RV level, and the calculator assumes you've built and upgraded everything that level allows. <strong>Advanced</strong>: set the count and level of every facility and upgrade module yourself. "Customize in Advanced" copies the Simple setup over as a starting point, and "Fill from RV level" in Advanced does the same at any time.</p>
                 <p><strong>Special recipes</strong> (Rose Shortbread, Potato Kvass and a few others) take a rare currency to unlock, so plans leave them out until you tick the ones you have.</p>
                 <p>Under <strong>Recipes to skip</strong>, add anything you can't make yet, such as recipes behind unlocks you don't have. Plans won't use them. The ✕ next to a product in a plan skips it and plans again.</p>
 
