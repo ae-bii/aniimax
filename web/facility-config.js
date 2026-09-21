@@ -100,7 +100,7 @@ export const FACILITIES = [
     {
         name: 'Crafting Table', slug: 'crafting-table', defaultCount: 1, category: 'Materials Processing', hasWorker: true, ability: 'Artisanship', personality: 'Judicious',
         unlocks: { 1: 3, 2: 5, 3: 7, 4: 9, 5: 12, 6: 15, 7: 18, 8: 20 },
-        counts: [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: wood sculpture&#10;Lv.2: bamboo ware, river-washed stones, premium river-washed stones&#10;Lv.3: rose freshener, pottery, premium rose freshener&#10;Lv.4: bouquet, shell ornament, lavender sachet&#10;Lv.5: wind chime, star wish lantern, dream catcher, advanced wind chime&#10;Lv.6: rubber duck, pearl necklace, woven toy, porcelain&#10;Lv.7: dye, gemstone dust, flowers in a bottle, advanced gemstone dust&#10;Lv.8: doll&#10;Some recipes need ingredients from facilities not yet in the calculator"
     },
     {
@@ -137,13 +137,13 @@ export const FACILITIES = [
         name: 'Blazing Stove', slug: 'blazing-stove', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Fire', personality: 'Nimble',
         unlocks: { 1: 8, 2: 10, 3: 13, 4: 16, 5: 18 },
         counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        tooltip: "Lv.1: soy sauce fried rice, creamy potato soup, cherry blossom rice ball, premium potato soup&#10;Lv.2: tanghulu, soy sauce tofu, sugar-roasted chestnuts&#10;Lv.3: steamed vermicelli roll, ginseng chestnut cake, walnut cake&#10;Lv.4: jello, strawberry candy, rich grape compote, premium jello&#10;Lv.5: strawberry cream puff, cranberry chocolate&#10;Not yet verified in game."
+        tooltip: "Lv.1: soy sauce fried rice, creamy potato soup, cherry blossom rice ball, premium potato soup&#10;Lv.2: tanghulu, soy sauce tofu, sugar-roasted chestnuts&#10;Lv.3: steamed vermicelli roll, ginseng chestnut cake, walnut cake&#10;Lv.4: jello, strawberry candy, rich grape compote, premium jello&#10;Lv.5: strawberry cream puff, cranberry chocolate"
     },
     {
         name: 'Pickling Jar', slug: 'pickling-jar', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Dark', personality: 'Playful',
         unlocks: { 1: 8, 2: 10, 3: 13, 4: 16, 5: 19 },
         counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        tooltip: "Lv.1: soy sauce, salted cherry blossom&#10;Lv.2: sweet rice drink, cider vinegar, premium sweet rice wine&#10;Lv.3: rice vinegar, salted lemon, premium salted lemon&#10;Lv.4: candied strawberries&#10;Lv.5: candied orange flower&#10;Not yet verified in game."
+        tooltip: "Lv.1: soy sauce, salted cherry blossom&#10;Lv.2: sweet rice drink, cider vinegar, premium sweet rice wine&#10;Lv.3: rice vinegar, salted lemon, premium salted lemon&#10;Lv.4: candied strawberries&#10;Lv.5: candied orange flower"
     },
     {
         name: 'Joy Wheel Loom', slug: 'joy-wheel-loom', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Wind', personality: 'Faithful',
@@ -152,18 +152,34 @@ export const FACILITIES = [
         tooltip: "Lv.1: cotton thread&#10;Lv.2: woolen yarn, cotton fabric&#10;Lv.3: palm rope, wool fabric&#10;Lv.4: dyed cotton fabric"
     },
     {
+        name: 'Dance Pad Polisher', slug: 'dance-pad-polisher', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Lightning',
+        unlocks: { 1: 2, 2: 5, 3: 7 },
+        counts: [0, 1],
+        tooltip: "Lv.1: growth bud&#10;Lv.2: growth flower&#10;Lv.3: growth fruit&#10;Makes Aniimo EXP, not coins.&#10;Unlock levels not yet confirmed in game."
+    },
+    {
+        name: 'Aniipod Maker', slug: 'aniipod-maker', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Lightning',
+        unlocks: { 1: 3, 2: 6, 3: 9 },
+        counts: [0, 0, 1],
+        tooltip: "Lv.1: aniipod&#10;Lv.2: aniipod pro&#10;Lv.3: aniipod mega&#10;Aniipods are for catching Aniimo, not for selling.&#10;Unlock levels not yet confirmed in game."
+    },
+    {
         name: 'Woodworking Bench', slug: 'woodworking-bench', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Artisanship', personality: 'Energetic',
         unlocks: { 1: 6, 2: 10, 3: 14, 4: 18 },
-        counts: [0, 0, 0, 0, 0, 1],
+        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: rough lumber&#10;Lv.2: standard planks&#10;Lv.3: laminated beams&#10;Lv.4: densified timber component&#10;Turns Wood Blocks into RV level-up materials."
     },
     {
         name: 'Chimney Kiln', slug: 'chimney-kiln', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Fire', personality: 'Practical',
         unlocks: { 1: 6, 2: 10, 3: 14, 4: 18 },
-        counts: [0, 0, 0, 0, 0, 1],
+        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: coarse-sifted ore&#10;Lv.2: sintered ore brick&#10;Lv.3: refined ore&#10;Lv.4: microcrystalline ore plate&#10;Turns Mineral Sand into RV level-up materials."
     },
 ];
+
+// Aniipod tiers in Aniipod Maker level order: each level adds a better one for catching Aniimo.
+// The "Most Aniipods" strategy makes only the best tier the player's Maker can reach.
+export const ANIIPOD_TIERS = ['aniipod', 'aniipod_pro', 'aniipod_mega'];
 
 // Recipes unlocked with a rare currency (a few come from RV level-ups or from collecting one of
 // every product). Plans leave them out until the player says they have them.

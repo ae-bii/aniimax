@@ -89,10 +89,11 @@ fn test_currency_types() {
     let items = load_all_data(data_dir).expect("Failed to load data");
 
     for item in &items {
-        // "none": a level-up material, made only for RV level-ups.
+        // "aniimo_exp" and "aniipods": Growth items and Aniipods, which the player keeps rather
+        // than selling. "none": a level-up material, made for RV level-ups.
         assert!(
-            item.sell_currency == "coins" || item.sell_currency == "none",
-            "Currency should be 'coins' or 'none', got: {}",
+            ["coins", "none", "aniimo_exp", "aniipods"].contains(&item.sell_currency.as_str()),
+            "Currency should be 'coins', 'aniimo_exp', 'aniipods' or 'none', got: {}",
             item.sell_currency
         );
     }

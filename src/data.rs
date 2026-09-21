@@ -406,7 +406,7 @@ pub fn load_processing_no_energy(
             sell_currency: row.sell_currency.unwrap_or_else(|| "coins".to_string()),
             sell_value: row.sell_value,
             production_time,
-            yield_amount: 1,
+            yield_amount: row.yield_amount.unwrap_or(1),
             energy: None,
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
@@ -489,7 +489,7 @@ const ANIIMO_MATERIAL_FILES: [(&str, &str); 5] = [
 ];
 
 /// Processors whose CSVs use the no-energy layout (see [`load_processing_no_energy`]).
-const PROCESSOR_FILES: [(&str, &str); 9] = [
+const PROCESSOR_FILES: [(&str, &str); 11] = [
     ("crafting_table.csv", "Crafting Table"),
     ("simmering_pot.csv", "Simmering Pot"),
     ("phonolfactory_table.csv", "Phonolfactory Table"),
@@ -499,4 +499,6 @@ const PROCESSOR_FILES: [(&str, &str); 9] = [
     ("joy_wheel_loom.csv", "Joy Wheel Loom"),
     ("woodworking_bench.csv", "Woodworking Bench"),
     ("chimney_kiln.csv", "Chimney Kiln"),
+    ("dance_pad_polisher.csv", "Dance Pad Polisher"),
+    ("aniipod_maker.csv", "Aniipod Maker"),
 ];

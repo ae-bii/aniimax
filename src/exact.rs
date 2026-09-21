@@ -15,7 +15,10 @@
 //!   runs one mode and one coverage mix (see [`crate::coverage::single_building_options`]).
 //! - Woodland and Mine byproducts (Wood Blocks, Mineral Sand) balance like any other item, so the
 //!   Woodworking Bench and Chimney Kiln can use them.
-//! - The objective is coins/sec from everything sold, minus seed costs. For an RV level-up
+//! - The objective is the target currency per second from everything sold; for coins, minus seed
+//!   costs (seeds are paid in coins, so they don't come off an Aniimo EXP total). A floor can
+//!   name another currency, so a plan keeps up the Aniimo EXP or Aniipods an earlier solve found
+//!   while earning as many coins as that leaves room for. For an RV level-up
 //!   ([`Goal::LevelUp`]) it's the pace instead: level-ups per day, where making the coins and
 //!   items it costs, on top of what's already in stock, takes a day per level-up. Stock enters each
 //!   balance as `pace * stock`, and the cost as `-pace * cost`, which keeps the model linear.
@@ -248,11 +251,14 @@ fn build_model<'a>(
         constraints: Vec::new(),
     };
 
+    // Seeds are paid in coins, so they only come off a coin total.
+    let seed_cost = |recipe: &ProductionItem| if currency == "coins" { recipe.cost.unwrap_or(0.0) } else { 0.0 };
+
     // Recipe rates and units.
     let mut rate_of: Vec<(&ProductionItem, usize)> = Vec::new();
     let mut units_of: Vec<(&ProductionItem, usize)> = Vec::new();
     for &recipe in &recipes {
-        let rate = model.add(-recipe.cost.unwrap_or(0.0), (0.0, f64::INFINITY), false, VarKind::Rate(recipe));
+        let rate = model.add(-seed_cost(recipe), (0.0, f64::INFINITY), false, VarKind::Rate(recipe));
         let max = facility_counts.get_count(&recipe.facility) as f64;
         let units = model.add(0.0, (0.0, max), !takes_turns(recipe), VarKind::Units(recipe));
         model.constrain(vec![(rate, recipe.production_time), (units, -1.0)], ComparisonOp::Le, 0.0);
@@ -275,10 +281,21 @@ fn build_model<'a>(
             }
         }
     }
+    // A floor naming a currency ("aniimo_exp", "aniipods") keeps a plan making that much of it
+    // while it earns `currency`; those items need sell variables too, worth nothing here.
+    let floor_currencies: Vec<&str> = match goal {
+        Goal::Earn { floors } => floors.iter().map(|(name, _)| name.as_str()).collect(),
+        _ => Vec::new(),
+    };
+    let mut sold_of: Vec<(usize, &str, f64)> = Vec::new();
     for (&item_name, terms) in &mut balance {
         if let Some(item) = all.get(item_name) {
-            if item.sell_currency == currency && item.sell_value > 0.0 {
-                let sold = model.add(item.sell_value, (0.0, f64::INFINITY), false, VarKind::Sold(item.name.as_str()));
+            let sells_for = item.sell_currency.as_str();
+            let wanted = sells_for == currency || floor_currencies.contains(&sells_for);
+            if wanted && item.sell_value > 0.0 {
+                let earns = if sells_for == currency { item.sell_value } else { 0.0 };
+                let sold = model.add(earns, (0.0, f64::INFINITY), false, VarKind::Sold(item.name.as_str()));
+                sold_of.push((sold, sells_for, item.sell_value));
                 terms.push((sold, -1.0));
             }
         }
@@ -302,9 +319,9 @@ fn build_model<'a>(
         earned.push((pace, per_pace(currency)));
         model.constrain(earned, ComparisonOp::Ge, 0.0);
         if let Goal::StockUp(_, _, coins) = goal {
-            // Slack of 0.01%: `coins` is another solve's maximum, and a tighter floor can leave
-            // no whole-unit plan within the solver's tolerances.
-            model.constrain(coin_terms, ComparisonOp::Ge, coins - 1e-4 * coins.abs());
+            // Slack of 0.1%: `coins` is another solve's maximum, and a tighter floor can leave no
+            // whole-unit plan the independent re-check accepts (seen at RV 9 and 14).
+            model.constrain(coin_terms, ComparisonOp::Ge, coins - 1e-3 * coins.abs());
         }
         for (name, _) in level_up.cost.iter().chain(&level_up.stock) {
             if name != currency {
@@ -418,10 +435,20 @@ fn build_model<'a>(
     match goal {
         Goal::Earn { floors } => {
             for (resource, floor) in floors {
-                let terms = byproduct_terms(resource);
-                if *floor > 0.0 && !terms.is_empty() {
+                if *floor <= 0.0 {
+                    continue;
+                }
+                let byproduct = byproduct_terms(resource);
+                if !byproduct.is_empty() {
                     // A hair of slack: the floor is another solve's exact maximum.
-                    model.constrain(terms, ComparisonOp::Ge, floor * (1.0 - 1e-6));
+                    model.constrain(byproduct, ComparisonOp::Ge, floor * (1.0 - 1e-6));
+                    continue;
+                }
+                // Otherwise it's a currency: everything sold for it, at its value.
+                let sold: Vec<(usize, f64)> =
+                    sold_of.iter().filter(|(_, c, _)| c == resource).map(|&(v, _, value)| (v, value)).collect();
+                if !sold.is_empty() {
+                    model.constrain(sold, ComparisonOp::Ge, floor * (1.0 - 1e-4));
                 }
             }
         }
@@ -756,15 +783,18 @@ pub fn check_plan(
                 *made.entry(input.as_str()).or_default() -= rate * amount as f64;
             }
         }
-        earned -= rate * recipe.cost.unwrap_or(0.0);
+        if currency == "coins" {
+            earned -= rate * recipe.cost.unwrap_or(0.0);
+        }
     }
     for (name, &sold) in &plan.sold {
         let item = all.get(name.as_str()).ok_or(format!("unknown item {name}"))?;
-        if item.sell_currency != currency {
-            return Err(format!("{name} doesn't sell for {currency}"));
-        }
         *made.entry(item.name.as_str()).or_default() -= sold;
-        earned += sold * item.sell_value;
+        // An item sold for another currency (Aniimo EXP, Aniipods) leaves the balance the same
+        // way, but earns nothing towards `currency`.
+        if item.sell_currency == currency {
+            earned += sold * item.sell_value;
+        }
     }
     if let Some(level_up) = level_up {
         let pace = plan.pace.ok_or("the plan has no level-up pace")?;
@@ -901,6 +931,16 @@ pub fn plan_from_values(
         .collect();
     let (value, solved) = model.relax(&fixed)?;
     Some(plan_from(&model, value, upper_bound.max(value), proven_optimal, 0, &solved, value))
+}
+
+/// What `exact` makes per second of `currency`, at its items' sell values: the Aniimo EXP or
+/// Aniipods a coin plan keeps up alongside its coins.
+pub fn currency_rate(exact: &ExactPlan, items: &[ProductionItem], currency: &str) -> f64 {
+    items
+        .iter()
+        .filter(|item| item.sell_currency == currency)
+        .map(|item| exact.sold.get(&item.name).copied().unwrap_or(0.0) * item.sell_value)
+        .sum()
 }
 
 /// Each item's rate per second made, less what the plan's recipes use and sell, including Wood
@@ -1060,7 +1100,7 @@ pub fn to_production_plan(
         .collect();
     for (name, &rate) in &exact.recipe_rates {
         let Some(recipe) = all.get(name.as_str()) else { continue };
-        let cost = recipe.cost.unwrap_or(0.0) * rate;
+        let cost = if currency == "coins" { recipe.cost.unwrap_or(0.0) * rate } else { 0.0 };
         if cost <= 0.0 {
             continue;
         }

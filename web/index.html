@@ -104,6 +104,16 @@
                     <div class="tabs" role="radiogroup" aria-label="Strategy">
                         <label><input type="radio" name="strategy" id="strategy-level-up" value="level-up" checked> Level up</label>
                         <label><input type="radio" name="strategy" id="strategy-coins" value="coins"> Most coins</label>
+                        <label><input type="radio" name="strategy" id="strategy-exp" value="exp"> Most Aniimo EXP</label>
+                        <label><input type="radio" name="strategy" id="strategy-aniipods" value="aniipods"> Most Aniipods</label>
+                    </div>
+
+                    <div id="exp-config" style="display: none;">
+                        <p class="hint">Makes as much Aniimo EXP an hour as your facilities can, from the Dance Pad Polisher's Growth items, then earns as many coins as that leaves room for.</p>
+                    </div>
+
+                    <div id="aniipods-config" style="display: none;">
+                        <p class="hint" id="aniipods-hint"></p>
                     </div>
 
                     <div id="level-up-config">
@@ -204,6 +214,7 @@
                                 <option value="day">per day</option>
                             </select>
                         </div>
+                        <p class="plan-alongside" id="plan-alongside" style="display: none;"></p>
                         <p class="plan-proof" id="plan-explored-hint"></p>
                         <p class="plan-unverified" id="plan-unverified" style="display: none;"></p>
                         <p class="plan-skipped" id="plan-skipped" style="display: none;"></p>
@@ -382,6 +393,7 @@
                 <h3>2. Pick a strategy</h3>
                 <p><strong>Level up</strong> gets everything your next RV level costs as soon as possible: its coins plus Wood Blocks and Mineral Sand, or from RV 7 a Woodworking Bench item and a Chimney Kiln item. Under "What you already have", enter what you've got; Wood Blocks, Mineral Sand and lower tiers count too, since the Bench and Kiln process them up. The plan still earns as many coins as it can on the way. In Advanced you can pick which RV level to plan for.</p>
                 <p><strong>Most coins</strong> goes for coins alone. Ticking "Prioritize Wood Blocks and Mineral Sand" makes as much of those as possible first, then as many coins as that allows.</p>
+                <p><strong>Most Aniimo EXP</strong> turns crops into Growth Buds, Flowers and Fruit at the Dance Pad Polisher, which feed your Aniimo instead of selling. <strong>Most Aniipods</strong> makes as many as it can of the best Aniipod your Aniipod Maker can reach, since a better Aniipod catches better. Both settle their own total first and then earn as many coins as the rest of your homeland allows, so the rate card shows both numbers.</p>
 
                 <h3>3. Find the best plan</h3>
                 <p>Click "Find the best plan" to see how long the level-up takes (or your best rate) and what each facility should make. Set it up once and leave it running. Everything you enter is saved in your browser; "Clear saved values" resets it.</p>

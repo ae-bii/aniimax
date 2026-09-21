@@ -621,7 +621,7 @@ Production data is stored in CSV files in the `data/` directory:
 - `joy_wheel_loom.csv` - Thread, yarn and fabric
 - `woodworking_bench.csv`, `chimney_kiln.csv` - RV level-up materials from Wood Blocks and Mineral Sand (no sale value)
 
-Farmland, Woodland, Mine, Well, Tidewhisper Sandcastle, Dewy House, Carousel Mill, Crafting Table, Claw Game Cooker, Jukebox Dryer, Simmering Pot, Phonolfactory Table, Bouncy Brew Keg, Joy Wheel Loom, Woodworking Bench and Chimney Kiln are verified in game. The other five facilities' recipes haven't been checked in game yet: `data/unverified.csv` lists them, the recipe list marks each one, and a plan lists any it relies on.
+Farmland, Woodland, Mine, Well, Tidewhisper Sandcastle, Dewy House, Carousel Mill, Crafting Table, Claw Game Cooker, Jukebox Dryer, Simmering Pot, Phonolfactory Table, Bouncy Brew Keg, Joy Wheel Loom, Blazing Stove, Pickling Jar, Woodworking Bench and Chimney Kiln are verified in game. The other three facilities' recipes haven't been checked in game yet: `data/unverified.csv` lists them, the recipe list marks each one, and a plan lists any it relies on.
 
 ### Adding New Items
 
