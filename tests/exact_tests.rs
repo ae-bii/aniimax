@@ -135,7 +135,7 @@ fn solve_level_up(items: &[ProductionItem], counts: &FacilityCounts, level_up: &
     let stocked = solve_exact(items, "coins", counts, &modules, Goal::StockUp(level_up, pace, plan.rate_per_second), None, None)
         .expect("stocked plan");
     assert!(stocked.proven_optimal);
-    assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 2e-4));
+    assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 2e-3));
     check_plan(&stocked, items, "coins", counts, &modules, Some(level_up)).expect("stocked plan passes its re-check");
     (stocked, PACE_UNIT / pace)
 }

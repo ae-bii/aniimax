@@ -2067,3 +2067,9 @@ tr:hover .skip-row,
     flex-basis: 100%;
     margin: 0;
 }
+
+.plan-alongside {
+    margin: 0.35rem 0 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}

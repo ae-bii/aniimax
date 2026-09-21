@@ -3,7 +3,7 @@
 import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME,
     MAX_HOME_LEVEL, COUNTS_CONFIRMED_UP_TO, ANIIMO_MAX, simpleSetup,
-    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES,
+    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, ANIIPOD_TIERS,
 } from './facility-config.js';
 
 let wasmReady = false;
@@ -142,6 +142,8 @@ let lastGoalResult = null;
 // removed Bud Tickets; kept as a map so a plan's `currency` still resolves to its label.
 const CURRENCY_LABELS = {
     coins: 'Coins',
+    aniimo_exp: 'Aniimo EXP',
+    aniipods: 'Aniipods',
 };
 
 // Multiplier from the solver's native per-second rate to each display unit, and the short suffix
@@ -288,7 +290,7 @@ function getPersistedFieldIds() {
     return [
         'target-amount', 'current-amount',
         'prioritize-byproducts',
-        'strategy-level-up', 'strategy-coins', 'level-up-target',
+        'strategy-level-up', 'strategy-coins', 'strategy-exp', 'strategy-aniipods', 'level-up-target',
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
@@ -543,7 +545,10 @@ function attachSpecialHandlers() {
 // Every recipe plans may not use: the player's skips and any special recipe not unlocked.
 function excludedRecipes() {
     const locked = SPECIAL_RECIPES.map(r => r.name).filter(name => !unlockedSpecial.has(name));
-    return [...new Set([...skippedRecipes, ...locked])];
+    // Going for Aniipods means the best tier only; the others would be cheaper but catch worse.
+    const best = isAniipodStrategy() ? bestAniipod() : null;
+    const lesser = best ? ANIIPOD_TIERS.filter(name => name !== best) : [];
+    return [...new Set([...skippedRecipes, ...locked, ...lesser])];
 }
 
 // --- Recipes to skip -------------------------------------------------------------------
@@ -653,6 +658,32 @@ function isLevelUpStrategy() {
     return document.getElementById('strategy-level-up').checked;
 }
 
+function isExpStrategy() {
+    return document.getElementById('strategy-exp').checked;
+}
+
+function isAniipodStrategy() {
+    return document.getElementById('strategy-aniipods').checked;
+}
+
+// Plans always earn coins; the EXP and Aniipod strategies maximize their own currency first and
+// then earn what coins that leaves room for (see `maximize_first` in wasm.rs).
+function maximizeFirst() {
+    if (isExpStrategy()) return 'aniimo_exp';
+    if (isAniipodStrategy()) return 'aniipods';
+    return null;
+}
+
+// The best Aniipod the owned Aniipod Maker can make, or null without one. A better Aniipod
+// catches better, so the strategy makes only this one.
+function bestAniipod() {
+    const tiers = isSimpleMode()
+        ? simpleSetup(selectedHomeLevel()).facilities['Aniipod Maker']
+        : facilityTiers['Aniipod Maker'];
+    const level = Math.max(0, ...(tiers || []).filter(t => t.count > 0).map(t => t.level));
+    return level > 0 ? ANIIPOD_TIERS[Math.min(level, ANIIPOD_TIERS.length) - 1] : null;
+}
+
 // The RV level being worked toward: the next one in simple mode, the picked one in advanced.
 function levelUpTarget() {
     if (isSimpleMode()) return selectedHomeLevel() + 1;
@@ -695,7 +726,15 @@ function populateLevelUpTargets() {
 function renderStrategy() {
     const levelUp = isLevelUpStrategy();
     document.getElementById('level-up-config').style.display = levelUp ? 'block' : 'none';
-    document.getElementById('coins-config').style.display = levelUp ? 'none' : 'block';
+    document.getElementById('coins-config').style.display = document.getElementById('strategy-coins').checked ? 'block' : 'none';
+    document.getElementById('exp-config').style.display = isExpStrategy() ? 'block' : 'none';
+    document.getElementById('aniipods-config').style.display = isAniipodStrategy() ? 'block' : 'none';
+    if (isAniipodStrategy()) {
+        const best = bestAniipod();
+        document.getElementById('aniipods-hint').textContent = best
+            ? `Makes as many ${prettyItem(best)} an hour as your facilities can; it's the best your Aniipod Maker can reach. It earns no coins while it runs.`
+            : "You don't have an Aniipod Maker yet, so there's nothing to make. It unlocks at RV 3.";
+    }
     if (!levelUp) return;
 
     // Simple mode always plans the next RV level, so only Advanced picks one.
@@ -725,6 +764,8 @@ function renderStrategy() {
 function attachStrategyHandlers() {
     document.getElementById('strategy-level-up').addEventListener('change', renderStrategy);
     document.getElementById('strategy-coins').addEventListener('change', renderStrategy);
+    document.getElementById('strategy-exp').addEventListener('change', renderStrategy);
+    document.getElementById('strategy-aniipods').addEventListener('change', renderStrategy);
     document.getElementById('level-up-target').addEventListener('change', renderStrategy);
     const grid = document.getElementById('level-up-stock-grid');
     grid.addEventListener('input', (e) => {
@@ -874,6 +915,7 @@ function getPlanInputValues() {
         const { facilities, modules } = simpleSetup(selectedHomeLevel());
         return {
             currency: 'coins',
+            maximize_first: maximizeFirst(),
             prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
             level_up: levelUpInput(),
             exclude: excludedRecipes(),
@@ -899,6 +941,7 @@ function getPlanInputValues() {
 
     return {
         currency: 'coins',
+        maximize_first: maximizeFirst(),
         prioritize_byproducts: !isLevelUpStrategy() && document.getElementById('prioritize-byproducts').checked,
         level_up: levelUpInput(),
         exclude: excludedRecipes(),
@@ -1540,11 +1583,32 @@ function renderFacilityPlan(plan) {
 // switching units never needs a facility-allocation re-solve.
 function updateRateDisplay() {
     if (!lastPlan || !lastPlan.success) return;
-    const unit = document.getElementById('rate-unit').value;
+    const select = document.getElementById('rate-unit');
+    // A slow plan (Aniipods take an hour each) would read "0" per second, so step the unit up
+    // until the number says something.
+    const headline = lastPlan.maximized ? lastPlan.maximized[1] : lastPlan.rate_per_second;
+    while (headline * RATE_UNIT_SECONDS[select.value].multiplier < 0.05) {
+        const next = { second: 'hour', hour: 'day' }[select.value];
+        if (!next) break;
+        select.value = next;
+    }
+    const unit = select.value;
     const { multiplier, suffix } = RATE_UNIT_SECONDS[unit] || RATE_UNIT_SECONDS.second;
     const label = CURRENCY_LABELS[lastPlan.currency] || lastPlan.currency;
-    document.getElementById('plan-rate').textContent =
-        `${formatNumber(lastPlan.rate_per_second * multiplier)} ${label}${suffix}`;
+    const coins = `${formatNumber(lastPlan.rate_per_second * multiplier)} ${label}${suffix}`;
+    // A strategy that maximized another currency leads with that, and the coins it still earns
+    // follow underneath.
+    const [target, targetRate] = lastPlan.maximized || [];
+    // "Aniipods" is a currency, but a plan makes one particular tier, so name it.
+    const targetLabel = target === 'aniipods' && planContext?.aniipod
+        ? prettyItem(planContext.aniipod)
+        : CURRENCY_LABELS[target] || target;
+    const alongside = document.getElementById('plan-alongside');
+    document.getElementById('plan-rate').textContent = target
+        ? `${formatNumber(targetRate * multiplier)} ${targetLabel}${suffix}`
+        : coins;
+    alongside.style.display = target ? 'block' : 'none';
+    alongside.textContent = target ? `and ${coins} from the rest of your homeland` : '';
 }
 
 // Re-renders every rate-unit-dependent display ("Your Rate" and the Product Breakdown table's
@@ -1674,6 +1738,7 @@ async function runFindPlan() {
             target: levelUpTarget(),
             unavailable: levelUpUnavailable(),
             ready: !!(input.level_up && input.level_up.cost.every(([name, need]) => stockAmount(name) >= need)),
+            aniipod: isAniipodStrategy() ? bestAniipod() : null,
             // Only what the player skipped; locked special recipes are the default, not news.
             skipped: [...skippedRecipes].sort((a, b) => prettyItem(a).localeCompare(prettyItem(b))),
         };

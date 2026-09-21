@@ -60,7 +60,7 @@ async function solveModel(problem) {
 // Returns the plan's JSON, or throws with the reason it couldn't, so the caller can fall back to
 // `find_plan` and say why.
 async function exactPlanJson(pkg, payload) {
-    const { exact_byproduct_problems, exact_level_up_problem, exact_problem, exact_plan } = pkg;
+    const { exact_byproduct_problems, exact_currency_problem, exact_level_up_problem, exact_problem, exact_plan } = pkg;
     const stage = { floors: [] };
     let allProven = true;
     for (const problem of JSON.parse(exact_byproduct_problems(payload))) {
@@ -69,6 +69,15 @@ async function exactPlanJson(pkg, payload) {
         allProven &&= most.proven;
         stage.floors.push([problem.resource, most.objective]);
     }
+    // Aniimo EXP or Aniipods first, if that's the strategy: the coin solve then has to keep it up.
+    const maximized = JSON.parse(exact_currency_problem(payload));
+    if (maximized.lp) {
+        const most = await solveModel(maximized);
+        if (!most) throw new Error('no plan found for the currency being maximized');
+        allProven &&= most.proven;
+        stage.floors.push([JSON.parse(payload).maximize_first, most.objective]);
+    }
+
     let levelUpNote = null;
     const levelUp = JSON.parse(exact_level_up_problem(payload));
     if (levelUp.lp) {

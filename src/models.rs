@@ -147,6 +147,16 @@ pub fn efficiency(level: u32, required: u32, gathering: bool) -> f64 {
     }
 }
 
+/// Facilities with no personality bonus at all, so no Aniimo works them faster than the level
+/// alone gives (checked in game on the Dance Pad Polisher and Aniipod Maker).
+pub const FACILITIES_WITHOUT_PERSONALITY: [&str; 2] = ["Dance Pad Polisher", "Aniipod Maker"];
+
+/// Whether `facility` has a personality whose Aniimo work it faster (see
+/// [`FACILITIES_WITHOUT_PERSONALITY`]).
+pub fn has_personality_bonus(facility: &str) -> bool {
+    !FACILITIES_WITHOUT_PERSONALITY.contains(&facility)
+}
+
 /// Speed multiplier when the working Aniimo has the facility's personality bonus. The game
 /// describes it as +20% work efficiency, and it multiplies: a level-2 Aniimo on a level-1 recipe
 /// goes from 300% to 360% (a 108-workload recipe takes 30s instead of 36s).
@@ -297,10 +307,17 @@ impl AniimoRequirements {
     }
 
     /// The Aniimo `setup` puts on `item`. An item without a listed requirement gets a level-1
-    /// Aniimo under [`AniimoSetup::Minimum`].
+    /// Aniimo under [`AniimoSetup::Minimum`]. Assumes the facility has a personality bonus; see
+    /// [`AniimoRequirements::worker_for_at`] for one that may not.
     pub fn worker_for(&self, item: &str, setup: AniimoSetup) -> Worker {
+        self.worker_for_at(item, "", setup)
+    }
+
+    /// The Aniimo `setup` puts on `item` at `facility`, which decides whether the Best setup gets
+    /// a personality bonus (see [`has_personality_bonus`]).
+    pub fn worker_for_at(&self, item: &str, facility: &str, setup: AniimoSetup) -> Worker {
         match setup {
-            AniimoSetup::Best => Worker::new(3, true),
+            AniimoSetup::Best => Worker::new(3, has_personality_bonus(facility)),
             AniimoSetup::Minimum => Worker::new(self.get(item).map_or(1, |(_, level)| level), false),
         }
     }
@@ -311,7 +328,8 @@ impl AniimoRequirements {
         for item in items.iter_mut() {
             if let Some(workload) = item.workload {
                 let required = self.get(&item.name).map_or(1, |(_, level)| level);
-                item.production_time = self.worker_for(&item.name, setup).seconds_for_item(item, workload, required);
+                let worker = self.worker_for_at(&item.name, &item.facility, setup);
+                item.production_time = worker.seconds_for_item(item, workload, required);
             }
         }
     }
@@ -1116,6 +1134,9 @@ pub struct ProcessingRowNoEnergy {
     /// Workload stat (new-beta facilities); converted to time via [`Worker`]
     #[serde(default)]
     pub workload: Option<f64>,
+    /// How many the recipe makes per batch; 1 if absent, which is what most processors do.
+    #[serde(default, rename = "yield")]
+    pub yield_amount: Option<u32>,
     /// Required facility level
     pub facility_level: u32,
     /// Module requirement (format: "module_name:level" or empty)

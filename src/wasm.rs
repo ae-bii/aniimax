@@ -441,6 +441,8 @@ fn get_embedded_items() -> Vec<ProductionItem> {
         ("Joy Wheel Loom", include_str!("../data/joy_wheel_loom.csv")),
         ("Woodworking Bench", include_str!("../data/woodworking_bench.csv")),
         ("Chimney Kiln", include_str!("../data/chimney_kiln.csv")),
+        ("Dance Pad Polisher", include_str!("../data/dance_pad_polisher.csv")),
+        ("Aniipod Maker", include_str!("../data/aniipod_maker.csv")),
     ] {
         let mut rdr = ReaderBuilder::new()
             .trim(csv::Trim::All)
@@ -465,7 +467,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                     .unwrap_or_else(|| "coins".to_string()),
                 sell_value: row.sell_value,
                 production_time,
-                yield_amount: 1,
+                yield_amount: row.yield_amount.unwrap_or(1),
                 energy: None,
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
@@ -702,6 +704,10 @@ pub struct JsPlanInput {
     /// Recipes the plan may not use, for comparing against a plan someone suggests. Not on the page.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// A currency to maximize before earning `currency`: the plan makes as much of it as it can
+    /// ("aniimo_exp", "aniipods"), then earns as much `currency` as that leaves room for.
+    #[serde(default)]
+    pub maximize_first: Option<String>,
 }
 
 impl JsPlanInput {
@@ -793,7 +799,7 @@ fn aniimo_tasks_for(
         return Vec::new();
     }
     if let Some((ability, _)) = requirements.get(item) {
-        let worker = requirements.worker_for(item, setup);
+        let worker = requirements.worker_for_at(item, &step.facility, setup);
         return vec![JsAniimoTask {
             ability: ability.to_string(),
             level: worker.suitability,
@@ -1060,6 +1066,10 @@ pub struct JsProductionPlan {
     /// Set for a level-up plan: how long the level-up takes.
     #[serde(default)]
     pub level_up: Option<JsLevelUpReport>,
+    /// Set when another currency was maximized first: `(currency, per second)`, e.g. the Aniimo
+    /// EXP a coin plan keeps up.
+    #[serde(default)]
+    pub maximized: Option<(String, f64)>,
 }
 
 /// How long a level-up plan takes to cover the level-up's cost.
@@ -1104,6 +1114,7 @@ fn empty_production_plan(success: bool, error: Option<String>) -> JsProductionPl
         upper_bound: None,
         unverified: vec![],
         level_up: None,
+        maximized: None,
     }
 }
 
@@ -1193,6 +1204,28 @@ pub fn exact_byproduct_problems(input_json: &str) -> String {
     serde_json::Value::Array(problems).to_string()
 }
 
+/// For a strategy that maximizes another currency first (Aniimo EXP, Aniipods), the model for the
+/// most of it this homeland can make: `{"lp", "variables"}` as in [`exact_problem`]. The caller
+/// solves it and passes `[[currency, per second]]` to [`exact_problem`] as a floor, so the coin
+/// solve keeps that much. `lp` is empty when no currency is being maximized first.
+#[wasm_bindgen]
+pub fn exact_currency_problem(input_json: &str) -> String {
+    let lp = match PreparedInput::from_json(input_json) {
+        Ok(prepared) => match &prepared.input.maximize_first {
+            Some(target) if !target.is_empty() => crate::exact::write_lp(
+                &prepared.items,
+                target,
+                &prepared.facility_counts,
+                &prepared.module_levels,
+                crate::exact::Goal::Earn { floors: &[] },
+            ),
+            _ => (String::new(), 0),
+        },
+        Err(_) => (String::new(), 0),
+    };
+    serde_json::json!({ "lp": lp.0, "variables": lp.1 }).to_string()
+}
+
 /// For the level-up strategy, the model for the soonest level-up (see
 /// [`crate::exact::Goal::LevelUp`]): `{"lp", "variables"}` as in [`exact_problem`]. The caller
 /// solves it and passes the pace it finds (its objective) to [`exact_problem`] and [`exact_plan`].
@@ -1252,7 +1285,7 @@ impl JsStage {
 pub fn exact_problem(input_json: &str, stage_json: &str) -> String {
     let stage: JsStage = serde_json::from_str(stage_json).unwrap_or_default();
     let lp = match PreparedInput::from_json(input_json) {
-        Ok(prepared) if prepared.input.currency == "coins" => crate::exact::write_lp(
+        Ok(prepared) if !prepared.input.currency.is_empty() => crate::exact::write_lp(
             &prepared.items,
             &prepared.input.currency,
             &prepared.facility_counts,
@@ -1319,6 +1352,9 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
     let plan = crate::exact::to_production_plan(&exact, &prepared.items, &currency, &prepared.facility_counts);
     let mut js = prepared.to_js(plan, Some(proof));
     js.level_up = report;
+    js.maximized = prepared.input.maximize_first.as_ref().filter(|t| !t.is_empty()).map(|target| {
+        (target.clone(), crate::exact::currency_rate(&exact, &prepared.items, target))
+    });
     serde_json::to_string(&js).unwrap_or_default()
 }
 
@@ -1436,7 +1472,7 @@ impl PreparedInput {
                 let aniimo = match (self.setup, &step.item_name) {
                     (Some(setup), Some(item)) if step.status == crate::models::PlanStepStatus::Producing => {
                         self.requirements.get(item).map(|(ability, _)| {
-                            let worker = self.requirements.worker_for(item, setup);
+                            let worker = self.requirements.worker_for_at(item, &step.facility, setup);
                             JsAniimo {
                                 ability: ability.to_string(),
                                 level: worker.suitability,
@@ -1468,6 +1504,7 @@ impl PreparedInput {
             upper_bound: proof.map(|(_, bound)| bound),
             unverified,
             level_up: None,
+            maximized: None,
         }
     }
 }
