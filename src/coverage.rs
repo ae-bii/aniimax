@@ -625,6 +625,231 @@ fn compact_layout(mut layout: Vec<Placement>, types: &[&str]) -> Vec<Placement> 
     }
 }
 
+thread_local! {
+    static TIDY_CACHE: std::cell::RefCell<HashMap<Vec<(String, u32)>, Option<Vec<Placement>>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// A tidy layout to show for exactly `counts` plots around one building: [`nearest_layout`], or
+/// if that search fails, whichever of [`pinwheel_layout`] and [`grid_layout`] puts the plots
+/// nearer the building. All keep every plot on the building's tile grid, inside the rules. Only
+/// for drawing: how many plots a building covers comes from the packing, not from this. `None`
+/// if nothing fits, so the packing's quarter-tile layout is shown instead. Cached per `counts`.
+pub fn tidy_layout(counts: &[(String, u32)]) -> Option<Vec<Placement>> {
+    let key: Vec<(String, u32)> = counts.iter().filter(|(_, n)| *n > 0).cloned().collect();
+    if let Some(hit) = TIDY_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let layout = nearest_layout(&key).or_else(|| fallback_layout(&key));
+    TIDY_CACHE.with(|cache| cache.borrow_mut().insert(key, layout.clone()));
+    layout
+}
+
+/// Whichever of [`pinwheel_layout`] and [`grid_layout`] puts the plots nearer the building.
+fn fallback_layout(counts: &[(String, u32)]) -> Option<Vec<Placement>> {
+    let center = BUILDING_SIZE / 2.0;
+    let spread = |layout: &Vec<Placement>| -> f64 {
+        layout.iter().map(|p| (p.x + p.size / 2.0 - center).hypot(p.y + p.size / 2.0 - center)).sum()
+    };
+    [pinwheel_layout(counts), grid_layout(counts)]
+        .into_iter()
+        .flatten()
+        .min_by(|a, b| spread(a).partial_cmp(&spread(b)).unwrap_or(std::cmp::Ordering::Equal))
+}
+
+/// How much a full shared side between two plots is worth, in tiles of distance, in
+/// [`nearest_layout`]: enough to line plots up in rows and columns, not so much that they drift
+/// away from the building to do it.
+const ALIGN_REWARD: f64 = 1.0;
+
+/// The most compact arrangement of exactly `counts` plots on the building's whole-tile grid: the
+/// one with the least total distance from plot centers to the building's center, found by a small
+/// integer program over every whole-tile spot (no two plots may share a tile). `None` if the
+/// solve fails or runs out of time.
+pub fn nearest_layout(counts: &[(String, u32)]) -> Option<Vec<Placement>> {
+    let building = building_rect();
+    let coverage = coverage_rect();
+    let center = BUILDING_SIZE / 2.0;
+    let mut problem = microlp::Problem::new(microlp::OptimizationDirection::Minimize);
+    let mut vars: Vec<(Placement, microlp::Variable)> = Vec::new();
+    for (facility, count) in counts.iter().filter(|(_, n)| *n > 0) {
+        let size = facility_footprint(facility)?;
+        let (lo, hi) = ((coverage.x1 - size).floor() as i64, coverage.x2.ceil() as i64);
+        let mut of_type: Vec<(f64, microlp::Variable)> = Vec::new();
+        for x in lo..=hi {
+            for y in lo..=hi {
+                let (x, y) = (x as f64, y as f64);
+                let rect = Rect::new(x, y, size);
+                if !rect.overlaps(&coverage) || rect.overlaps(&building) {
+                    continue;
+                }
+                let distance = (x + size / 2.0 - center).hypot(y + size / 2.0 - center);
+                let v = problem.add_binary_var(distance);
+                of_type.push((1.0, v));
+                vars.push((Placement { facility: facility.clone(), x, y, size }, v));
+            }
+        }
+        problem.add_constraint(&of_type.iter().map(|&(c, v)| (v, c)).collect::<Vec<_>>(), microlp::ComparisonOp::Eq, *count as f64);
+    }
+    // Plots of a size lined up edge to edge, a whole side against a whole side, earn a reward, so
+    // the nearest arrangement also comes out in rows and columns rather than staggered.
+    let reward = ALIGN_REWARD;
+    for (i, (a, va)) in vars.iter().enumerate() {
+        for (b, vb) in &vars[i + 1..] {
+            let side = (a.size - b.size).abs() < EPS
+                && (((a.x - b.x).abs() - a.size).abs() < EPS && (a.y - b.y).abs() < EPS
+                    || ((a.y - b.y).abs() - a.size).abs() < EPS && (a.x - b.x).abs() < EPS);
+            if side {
+                let both = problem.add_var(-reward, (0.0, 1.0));
+                problem.add_constraint(&[(both, 1.0), (*va, -1.0)], microlp::ComparisonOp::Le, 0.0);
+                problem.add_constraint(&[(both, 1.0), (*vb, -1.0)], microlp::ComparisonOp::Le, 0.0);
+            }
+        }
+    }
+    // One plot per whole tile.
+    let (min, max) = (coverage.x1.floor() as i64 - 6, coverage.x2.ceil() as i64 + 6);
+    for tx in min..max {
+        for ty in min..max {
+            let (cx, cy) = (tx as f64 + 0.5, ty as f64 + 0.5);
+            let terms: Vec<(microlp::Variable, f64)> = vars
+                .iter()
+                .filter(|(p, _)| cx > p.x && cx < p.x + p.size && cy > p.y && cy < p.y + p.size)
+                .map(|(_, v)| (*v, 1.0))
+                .collect();
+            if terms.len() > 1 {
+                problem.add_constraint(&terms, microlp::ComparisonOp::Le, 1.0);
+            }
+        }
+    }
+    problem.set_time_limit(std::time::Duration::from_secs(2));
+    let solution = problem.solve().ok()?;
+    let chosen: Vec<Placement> = vars.iter().filter(|(_, v)| solution[*v] > 0.5).map(|(p, _)| p.clone()).collect();
+    let wanted: u32 = counts.iter().map(|(_, n)| n).sum();
+    (chosen.len() == wanted as usize).then_some(chosen)
+}
+
+/// Plots flush against the building and each other, nearest first: each plot takes the closest
+/// free whole-tile spot, preferring spots touching the building with a corner on one of its
+/// corner lines, so the next plot can sit flush beside it (a pinwheel). Largest footprint first.
+/// `None` once plots no longer fit this way.
+pub fn pinwheel_layout(counts: &[(String, u32)]) -> Option<Vec<Placement>> {
+    let building = building_rect();
+    let coverage = coverage_rect();
+    let center = BUILDING_SIZE / 2.0;
+    let mut wanted: Vec<(&str, f64, u32)> = counts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(facility, n)| facility_footprint(facility).map(|size| (facility.as_str(), size, *n)))
+        .collect::<Option<_>>()?;
+    wanted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(b.0)));
+    let mut placed: Vec<Placement> = Vec::new();
+    for (facility, size, count) in wanted {
+        let lo = (coverage.x1 - size).floor() as i64;
+        let hi = coverage.x2.ceil() as i64;
+        let mut spots: Vec<((f64, f64, f64, f64), Placement)> = Vec::new();
+        for x in lo..=hi {
+            for y in lo..=hi {
+                let (x, y) = (x as f64, y as f64);
+                let rect = Rect::new(x, y, size);
+                if !rect.overlaps(&coverage) || rect.overlaps(&building) {
+                    continue;
+                }
+                let (dx, dy) = (x + size / 2.0 - center, y + size / 2.0 - center);
+                // How far the plot's edge is from the building's, so plots touching it come first.
+                let gap_x = (building.x1 - rect.x2).max(rect.x1 - building.x2).max(0.0);
+                let gap_y = (building.y1 - rect.y2).max(rect.y1 - building.y2).max(0.0);
+                // A plot with a corner on one of the building's corner lines leaves room for the
+                // next one to sit flush beside it (a pinwheel), where a centered one sticks out
+                // past the building both ways.
+                let edges = [building.x1, building.x2];
+                let aligned = (edges.contains(&rect.x1) || edges.contains(&rect.x2))
+                    && (edges.contains(&rect.y1) || edges.contains(&rect.y2));
+                // Clockwise from straight up, so equally good spots fill around the building.
+                let angle = dx.atan2(dy).rem_euclid(std::f64::consts::TAU);
+                let key = (gap_x.hypot(gap_y), if aligned { 0.0 } else { 1.0 }, (dx * dx + dy * dy).sqrt(), angle);
+                spots.push((key, Placement { facility: facility.to_string(), x, y, size }));
+            }
+        }
+        spots.sort_by(|a, b| {
+            let rounded = |k: &(f64, f64, f64, f64)| [(k.0 * 1e6).round(), k.1, (k.2 * 1e6).round(), k.3];
+            rounded(&a.0).partial_cmp(&rounded(&b.0)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut left = count;
+        for (_, spot) in spots {
+            if left == 0 {
+                break;
+            }
+            if placed.iter().all(|p| !placements_overlap(&spot, p)) {
+                placed.push(spot);
+                left -= 1;
+            }
+        }
+        if left > 0 {
+            return None;
+        }
+    }
+    Some(placed)
+}
+
+/// Plots of each type on a regular grid of plot-sized cells, so every row and column lines up.
+/// The grid is shifted (in whole tiles) to whichever offset fits the plots nearest the building,
+/// and the nearest cells are used. Largest footprint first; a smaller type fills cells its grid
+/// has that the bigger plots don't cover. `None` if no grid fits them all.
+pub fn grid_layout(counts: &[(String, u32)]) -> Option<Vec<Placement>> {
+    let building = building_rect();
+    let coverage = coverage_rect();
+    let center = BUILDING_SIZE / 2.0;
+    let mut wanted: Vec<(&str, f64, u32)> = counts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(facility, n)| facility_footprint(facility).map(|size| (facility.as_str(), size, *n)))
+        .collect::<Option<_>>()?;
+    wanted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(b.0)));
+    let mut placed: Vec<Placement> = Vec::new();
+    for (facility, size, count) in wanted {
+        // Every whole-tile offset of a grid of `size` cells, keeping the one whose nearest
+        // `count` free cells are closest to the building in total.
+        let mut best: Option<(f64, Vec<Placement>)> = None;
+        let steps = size.round() as i64;
+        for ox in 0..steps {
+            for oy in 0..steps {
+                let mut cells: Vec<(f64, f64, Placement)> = Vec::new();
+                let first = |offset: i64, lo: f64| offset as f64 + ((lo - size - offset as f64) / size).floor() * size;
+                let mut x = first(ox, coverage.x1);
+                while x <= coverage.x2 {
+                    let mut y = first(oy, coverage.y1);
+                    while y <= coverage.y2 {
+                        let rect = Rect::new(x, y, size);
+                        let cell = Placement { facility: facility.to_string(), x, y, size };
+                        if rect.overlaps(&coverage) && !rect.overlaps(&building) && placed.iter().all(|p| !placements_overlap(&cell, p)) {
+                            let (dx, dy) = (x + size / 2.0 - center, y + size / 2.0 - center);
+                            // Clockwise from straight up, so equally near cells fill around evenly.
+                            let angle = dx.atan2(dy).rem_euclid(std::f64::consts::TAU);
+                            cells.push(((dx * dx + dy * dy).sqrt(), angle, cell));
+                        }
+                        y += size;
+                    }
+                    x += size;
+                }
+                if cells.len() < count as usize {
+                    continue;
+                }
+                cells.sort_by(|a, b| {
+                    let near = (a.0 * 1e6).round().partial_cmp(&(b.0 * 1e6).round()).unwrap_or(std::cmp::Ordering::Equal);
+                    near.then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                });
+                cells.truncate(count as usize);
+                let total: f64 = cells.iter().map(|c| c.0).sum();
+                if best.as_ref().is_none_or(|(t, _)| total < t - 1e-9) {
+                    best = Some((total, cells.into_iter().map(|c| c.2).collect()));
+                }
+            }
+        }
+        placed.extend(best?.1);
+    }
+    Some(placed)
+}
+
 /// Tries every minimum count of `types[position]` from 0 up until it no longer fits, recursing into
 /// the next position; at the last type, records the most of it that fits. Returns whether the
 /// minimums fixed so far fit at all.
@@ -693,6 +918,27 @@ pub fn single_building_options(types: &[&str]) -> Vec<CoverageOption> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Every count one building can cover gets a tidy grid layout that obeys the coverage rules,
+    // up to the most the packing fits.
+    #[test]
+    fn tidy_layouts_obey_the_rules() {
+        let building = building_rect();
+        let coverage = coverage_rect();
+        for (facility, size) in [("Woodland", 4.0), ("Farmland", 2.0)] {
+            let most = single_building_options(&[facility])[0].counts[0];
+            for n in 1..=most {
+                let layout = tidy_layout(&[(facility.to_string(), n)])
+                    .unwrap_or_else(|| panic!("{n} {facility} should fit on a regular grid"));
+                assert_eq!(layout.len(), n as usize);
+                for (i, p) in layout.iter().enumerate() {
+                    let rect = Rect::new(p.x, p.y, size);
+                    assert!(rect.overlaps(&coverage) && !rect.overlaps(&building), "{facility} {n}: {p:?}");
+                    assert!(layout[i + 1..].iter().all(|q| !placements_overlap(p, q)), "{facility} {n}: overlap");
+                }
+            }
+        }
+    }
 
     #[test]
     fn building_packing_with_multiple_modes_is_fast_and_correct() {

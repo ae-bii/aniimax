@@ -799,10 +799,16 @@ tbody tr:first-child td {
     border-radius: 10px;
 }
 
+/* Whole-tile lines, a heavier major line every other tile, and faint quarter-tile lines. */
 .env-grid line {
     stroke: currentColor;
     stroke-opacity: 0.2;
     stroke-width: 0.035;
+}
+
+.env-grid line.major {
+    stroke-opacity: 0.38;
+    stroke-width: 0.08;
 }
 
 .env-grid line.quarter {
@@ -1265,13 +1271,6 @@ footer {
     white-space: nowrap;
 }
 
-.assume-notes {
-    margin: 0.75rem 0 0.25rem;
-    padding-left: 1.1rem;
-    color: var(--text-muted);
-    font-size: 0.78rem;
-}
-
 /* Options and the main button */
 .option-row {
     gap: 0.4rem;
@@ -1308,7 +1307,7 @@ footer {
 }
 
 /* Results: the rate */
-.rate-card .summary-label {
+#rate-block .summary-label {
     margin-bottom: 0.1rem;
 }
 
@@ -1319,7 +1318,7 @@ footer {
     flex-wrap: wrap;
 }
 
-.rate-card .summary-value {
+.rate-line .summary-value {
     display: inline;
     font-size: 2rem;
     font-weight: 700;
@@ -1481,7 +1480,8 @@ details.explain p {
         white-space: nowrap;
     }
 
-    .rate-card .summary-value {
+    .rate-line .summary-value,
+    .level-up-card .summary-value {
         font-size: 1.6rem;
     }
 
@@ -1753,7 +1753,19 @@ details.explain p {
     border-top: 1px solid var(--border);
 }
 
-.level-up-lines .slowest td {
+/* The unit select, as the rate column's header. */
+.level-up-lines th .rate-unit-select {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.3rem;
+}
+
+/* A level-up that couldn't be planned: the coin rate follows its note. */
+.level-up-card .level-up-note {
+    margin-bottom: 1rem;
+}
+
+.level-up-lines .slowest td,
+.rate-table .top td {
     font-weight: 600;
 }
 
@@ -1900,9 +1912,13 @@ details.explain p {
     white-space: nowrap;
 }
 
-/* Recipes to skip */
-.skip-recipes {
+/* Recipes: special recipes and recipes to skip */
+.recipes-section {
     margin: 0 0 1.25rem;
+}
+
+.recipes-section .assume-title:first-of-type {
+    margin-top: 0.75rem;
 }
 
 .skip-count {
@@ -2009,15 +2025,7 @@ tr:hover .skip-row,
     color: var(--text-muted);
 }
 
-/* Special recipes: one checkbox each, always shown. */
-.special-recipes {
-    margin: 0 0 1.25rem;
-}
-
-.special-recipes h3 {
-    margin-bottom: 0.3rem;
-}
-
+/* Special recipes: one checkbox each. */
 .special-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -2068,8 +2076,180 @@ tr:hover .skip-row,
     margin: 0;
 }
 
-.plan-alongside {
-    margin: 0.35rem 0 0;
-    font-size: 0.9rem;
+/* Seeds a plan plants, in their own card. */
+.seed-table {
+    margin-top: 0.5rem;
+}
+
+.seed-table table {
+    width: 100%;
+    max-width: 32rem;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.seed-table th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.75rem;
     color: var(--text-muted);
+    padding: 0.2rem 0.5rem 0.2rem 0;
+}
+
+.seed-table td {
+    padding: 0.25rem 0.5rem 0.25rem 0;
+    border-top: 1px solid var(--border);
+}
+
+.seed-table tfoot td {
+    font-weight: 600;
+}
+
+/* Priorities: a ranked, draggable list. */
+.priority-list {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    max-width: 26rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.priority {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    cursor: grab;
+}
+
+.priority.off .priority-name,
+.priority.off .drag-handle {
+    opacity: 0.55;
+}
+
+.priority.dragging {
+    opacity: 0.4;
+}
+
+.priority.drop-target {
+    border-color: var(--accent);
+}
+
+.priority-name {
+    flex: 1;
+}
+
+/* On/off switch: a real checkbox, drawn as a sliding switch. */
+.priority-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.priority-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+}
+
+.switch-track {
+    position: relative;
+    width: 2.1rem;
+    height: 1.2rem;
+    border-radius: 999px;
+    background: var(--border);
+    transition: background 0.15s;
+}
+
+.switch-track::after {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.15s, background 0.15s;
+}
+
+.priority-switch input:checked + .switch-track {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.priority-switch input:checked + .switch-track::after {
+    transform: translateX(0.9rem);
+    background: var(--accent);
+}
+
+.priority-switch input:focus-visible + .switch-track {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.switch-text {
+    min-width: 1.5rem;
+}
+
+.drag-handle {
+    color: var(--text-muted);
+    letter-spacing: -0.15em;
+    user-select: none;
+}
+
+.priority-rank {
+    min-width: 1rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-align: center;
+}
+
+.priority-move {
+    display: flex;
+    gap: 0.2rem;
+}
+
+.priority-move button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.priority-move button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.priority-move button:not(:disabled):hover {
+    border-color: var(--accent);
+}
+
+/* The coverage tint drawn over the plots, so it shows which part of each is covered; it lets
+   hovers through to the plots underneath. */
+.env-coverage-top {
+    pointer-events: none;
+}
+
+/* Simple mode's facility list, collapsed by default. */
+.simple-details {
+    margin-top: 0.75rem;
 }

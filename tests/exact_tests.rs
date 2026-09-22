@@ -55,6 +55,10 @@ fn exact_matches_the_hand_worked_rice_drink_plan() {
     assert!((plan.rate_per_second - expected).abs() < 1e-6, "got {}, expected {expected}", plan.rate_per_second);
     assert_eq!(plan.units.get("rice_drink"), Some(&1));
     assert_eq!(plan.units.get("milled_rice"), Some(&1));
+    // The rice seeds come off the rice drink they end up in.
+    let shown = to_production_plan(&plan, &items, "coins", &counts);
+    let drink = shown.income_streams.iter().find(|s| s.item_name == "rice_drink").expect("rice drink sold");
+    assert!((drink.rate_per_second - 0.000625 * (1860.0 - 24.0)).abs() < 1e-9, "rice drink earns {}", drink.rate_per_second);
 }
 
 // A mid-game setup with an Aniimo setup applied and a Cooling Unit, so environment coverage and
@@ -87,6 +91,11 @@ fn exact_handles_environments_and_aniimo_speeds() {
     }
     let streams: f64 = shown.income_streams.iter().map(|s| s.rate_per_second).sum();
     assert!((streams - plan.rate_per_second).abs() < 1e-6, "income streams add to {streams}");
+    // Seed costs follow a crop into what it's made into, so nothing the plan chose to sell loses
+    // money.
+    for stream in &shown.income_streams {
+        assert!(stream.rate_per_second > 0.0, "{} earns {}", stream.item_name, stream.rate_per_second);
+    }
 }
 
 // "Prioritize byproducts": the most Wood Blocks the Woodland can make is found first, and the
@@ -137,6 +146,12 @@ fn solve_level_up(items: &[ProductionItem], counts: &FacilityCounts, level_up: &
     assert!(stocked.proven_optimal);
     assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 2e-3));
     check_plan(&stocked, items, "coins", counts, &modules, Some(level_up)).expect("stocked plan passes its re-check");
+    // Nothing that sells for coins is left over: spare clay from a Mine kept for its Mineral Sand
+    // still sells.
+    for (name, spare) in net_rates(&stocked, items) {
+        let sells = items.iter().any(|i| i.name == name && i.sell_currency == "coins" && i.sell_value > 0.0);
+        assert!(!sells || spare < 1e-7, "{name}: {spare}/sec left unsold");
+    }
     (stocked, PACE_UNIT / pace)
 }
 

@@ -4342,8 +4342,15 @@ pub fn time_to_reach_goal(plan: &ProductionPlan, target: f64, current: f64) -> O
             lo = mid;
         }
     }
-    let total_time = hi;
-    let amount_produced = amount_at(total_time);
+    Some(production_over(plan, hi))
+}
+
+/// What `plan` makes in `total_time` seconds: each income stream from its own lead time on, the
+/// byproducts, and the seeds planted. The breakdown behind a coin goal, and behind a goal for
+/// anything else once its time is known.
+pub fn production_over(plan: &ProductionPlan, total_time: f64) -> GoalResult {
+    let amount_produced: f64 =
+        plan.income_streams.iter().map(|p| p.rate_per_second * (total_time - p.lead_time).max(0.0)).sum();
 
     // Fill in each income stream's actual contribution over the plan's duration, and drop any
     // that never got past their own lead time (they were claimed, but the target was reached
@@ -4414,11 +4421,11 @@ pub fn time_to_reach_goal(plan: &ProductionPlan, target: f64, current: f64) -> O
         .collect();
     seed_requirements.sort_by_key(|r| std::cmp::Reverse(r.total_seeds));
 
-    Some(GoalResult {
+    GoalResult {
         total_time,
         amount_produced,
         products,
         byproducts,
         seed_requirements,
-    })
+    }
 }

@@ -813,7 +813,8 @@ fn test_mineral_sand_target_picks_the_best_byproduct_item() {
 
 // The Aniimo working a facility sets its speed, relative to the level each recipe needs (see
 // `models::efficiency`). Copper ore needs Earth level 3, so a level-3 Aniimo runs it at 100%, and
-// the personality bonus makes that 120%: 1.2x the default, which times every recipe at 100%.
+// the personality bonus makes that 120%. At a gathering facility a level-3 recipe also gets
+// through 1.5 workload a second at 100% (`models::base_work_rate`), against the default's 1.
 #[test]
 fn test_aniimo_level_and_personality_bonus_speed_up_worked_facilities() {
     let data_dir = Path::new("data");
@@ -831,7 +832,7 @@ fn test_aniimo_level_and_personality_bonus_speed_up_worked_facilities() {
     workers.set("Mine", Worker::new(3, true));
     workers.apply(&load_aniimo_requirements(data_dir).unwrap(), &mut items);
     let fast = find_production_plan(&items, "mineral_sand", &counts, &modules, false).expect("plan should be feasible");
-    assert_rate(&fast, 5.0 * 56.0 * 1.2 / 2700.0);
+    assert_rate(&fast, 5.0 * 56.0 * 1.2 * 1.5 / 2700.0);
 }
 
 // A faster Aniimo means fewer processor units for the same supply. 400 bamboo plots make

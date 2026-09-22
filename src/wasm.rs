@@ -704,10 +704,11 @@ pub struct JsPlanInput {
     /// Recipes the plan may not use, for comparing against a plan someone suggests. Not on the page.
     #[serde(default)]
     pub exclude: Vec<String>,
-    /// A currency to maximize before earning `currency`: the plan makes as much of it as it can
-    /// ("aniimo_exp", "aniipods"), then earns as much `currency` as that leaves room for.
+    /// What to maximize, in order, before earning `currency` with what's left: each of "coins",
+    /// "aniimo_exp", "aniipods", "Wood Blocks" and "Mineral Sand", made as much as the ones
+    /// before it allow.
     #[serde(default)]
-    pub maximize_first: Option<String>,
+    pub priorities: Vec<String>,
 }
 
 impl JsPlanInput {
@@ -1066,10 +1067,20 @@ pub struct JsProductionPlan {
     /// Set for a level-up plan: how long the level-up takes.
     #[serde(default)]
     pub level_up: Option<JsLevelUpReport>,
-    /// Set when another currency was maximized first: `(currency, per second)`, e.g. the Aniimo
-    /// EXP a coin plan keeps up.
+    /// What the plan makes of each priority it was asked for, in order.
     #[serde(default)]
-    pub maximized: Option<(String, f64)>,
+    pub priorities: Vec<JsPriority>,
+}
+
+/// What a plan makes of one priority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsPriority {
+    /// "coins", "aniimo_exp", "aniipods", "Wood Blocks" or "Mineral Sand".
+    pub target: String,
+    pub per_second: f64,
+    /// For a currency other than coins, the items that make it and how many of each per second,
+    /// e.g. `[["growth_flower", 0.00093]]` behind Aniimo EXP.
+    pub items: Vec<(String, f64)>,
 }
 
 /// How long a level-up plan takes to cover the level-up's cost.
@@ -1114,7 +1125,7 @@ fn empty_production_plan(success: bool, error: Option<String>) -> JsProductionPl
         upper_bound: None,
         unverified: vec![],
         level_up: None,
-        maximized: None,
+        priorities: vec![],
     }
 }
 
@@ -1204,23 +1215,21 @@ pub fn exact_byproduct_problems(input_json: &str) -> String {
     serde_json::Value::Array(problems).to_string()
 }
 
-/// For a strategy that maximizes another currency first (Aniimo EXP, Aniipods), the model for the
-/// most of it this homeland can make: `{"lp", "variables"}` as in [`exact_problem`]. The caller
-/// solves it and passes `[[currency, per second]]` to [`exact_problem`] as a floor, so the coin
-/// solve keeps that much. `lp` is empty when no currency is being maximized first.
+/// The model for the most of one priority `target` (see [`JsPlanInput::priorities`]) this
+/// homeland can make while keeping every floor in `stage_json` (the priorities before it):
+/// `{"lp", "variables"}` as in [`exact_problem`]. The caller solves it and adds
+/// `[target, per second]` to the floors for the next priority and the final coin solve.
 #[wasm_bindgen]
-pub fn exact_currency_problem(input_json: &str) -> String {
+pub fn exact_priority_problem(input_json: &str, stage_json: &str, target: &str) -> String {
+    let stage: JsStage = serde_json::from_str(stage_json).unwrap_or_default();
     let lp = match PreparedInput::from_json(input_json) {
-        Ok(prepared) => match &prepared.input.maximize_first {
-            Some(target) if !target.is_empty() => crate::exact::write_lp(
-                &prepared.items,
-                target,
-                &prepared.facility_counts,
-                &prepared.module_levels,
-                crate::exact::Goal::Earn { floors: &[] },
-            ),
-            _ => (String::new(), 0),
-        },
+        Ok(prepared) => crate::exact::write_lp(
+            &prepared.items,
+            target,
+            &prepared.facility_counts,
+            &prepared.module_levels,
+            crate::exact::Goal::Earn { floors: &stage.floors },
+        ),
         Err(_) => (String::new(), 0),
     };
     serde_json::json!({ "lp": lp.0, "variables": lp.1 }).to_string()
@@ -1352,9 +1361,16 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
     let plan = crate::exact::to_production_plan(&exact, &prepared.items, &currency, &prepared.facility_counts);
     let mut js = prepared.to_js(plan, Some(proof));
     js.level_up = report;
-    js.maximized = prepared.input.maximize_first.as_ref().filter(|t| !t.is_empty()).map(|target| {
-        (target.clone(), crate::exact::currency_rate(&exact, &prepared.items, target))
-    });
+    js.priorities = prepared
+        .input
+        .priorities
+        .iter()
+        .map(|target| JsPriority {
+            target: target.clone(),
+            per_second: crate::exact::target_rate(&exact, &prepared.items, target),
+            items: crate::exact::target_items(&exact, &prepared.items, target),
+        })
+        .collect();
     serde_json::to_string(&js).unwrap_or_default()
 }
 
@@ -1504,7 +1520,7 @@ impl PreparedInput {
             upper_bound: proof.map(|(_, bound)| bound),
             unverified,
             level_up: None,
-            maximized: None,
+            priorities: vec![],
         }
     }
 }
@@ -1514,9 +1530,14 @@ impl PreparedInput {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JsGoalInput {
     pub plan: JsProductionPlan,
+    #[serde(default)]
     pub target: f64,
     #[serde(default)]
     pub current: f64,
+    /// Instead of a coin target: what the plan makes in this many seconds (a goal for something
+    /// other than coins, whose time the page works out from its rate).
+    #[serde(default)]
+    pub seconds: Option<f64>,
 }
 
 /// JavaScript-friendly form of `crate::models::SeedRequirement`; how many times a Farmland or
@@ -1600,7 +1621,11 @@ pub fn time_to_reach(input_json: &str) -> String {
     }
 
     let plan = input.plan.into_plan();
-    match time_to_reach_goal(&plan, input.target, input.current) {
+    let goal = match input.seconds {
+        Some(seconds) => Some(crate::optimizer::production_over(&plan, seconds.max(0.0))),
+        None => time_to_reach_goal(&plan, input.target, input.current),
+    };
+    match goal {
         Some(goal) => {
             let result = JsGoalResult {
                 success: true,

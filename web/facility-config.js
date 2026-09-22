@@ -252,9 +252,6 @@ function atHomeLevel(list, homeLevel) {
 // unknown).
 export const ANIIMO_MAX = [null, 8, 11, 14, 17, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 43, 44, 45];
 
-// Highest RV level whose building counts have been confirmed in game.
-export const COUNTS_CONFIRMED_UP_TO = 8;
-
 // Everything a player at `homeLevel` could have: each facility at its highest unlocked level, as
 // many as that RV level allows (see `counts`), and every module at its cap for that RV level. Returns the same shapes simple
 // mode sends to the solver: `{ facilities: { name: [{count, level}] }, modules }`.
