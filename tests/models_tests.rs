@@ -240,6 +240,8 @@ fn timers_match_the_game() {
         ("Growth Flower", "Dance Pad Polisher", false, 3000.0, 2, 3, false, 28.0 * 60.0 + 34.0),
         ("Clay", "Mine", true, 2250.0, 2, 3, false, 21.0 * 60.0 + 26.0),
         ("Sea Salt", "Tidewhisper Sandcastle", true, 1800.0, 1, 1, false, 1800.0),
+        ("Well Water", "Well", true, 1800.0, 1, 2, false, 20.0 * 60.0),
+        ("Plain Fresh Water", "Well", true, 2250.0, 2, 2, false, 30.0 * 60.0),
         ("Coarse-Sifted Ore", "Chimney Kiln", false, 34.0, 2, 2, false, 34.0),
         // 360% and the game shows 37s.
         ("Salted Cherry Blossom", "Pickling Jar", false, 135.0, 2, 3, true, 37.5),
