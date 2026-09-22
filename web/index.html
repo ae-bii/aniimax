@@ -18,14 +18,14 @@
         </div>
     </header>
     <p class="subtitle">aniimo homeland production optimizer</p>
-    <p class="disclaimer"><span class="disclaimer-icon" aria-hidden="true">⚠</span>Game data for the full release is still being filled in, so some facilities and items are missing.</p>
+    <p class="disclaimer"><span class="disclaimer-icon" aria-hidden="true">⚠</span>A few recipes and facility levels haven't been confirmed in game yet.</p>
 
     <div class="container">
 
         <main>
             <section class="card config-section">
                 <div class="card-head">
-                    <h2>Your homeland</h2>
+                    <h2>Your Homeland</h2>
                     <button type="button" id="clear-saved-btn" class="toggle-button small" title="Your inputs are saved in this browser automatically.">Clear saved values</button>
                 </div>
 
@@ -42,8 +42,10 @@
                         </div>
                     </div>
                     <p class="hint">Assumes you've built and upgraded everything your RV level allows.</p>
-                    <div id="simple-summary"></div>
-                    <p class="hint small"><button type="button" id="customize-btn" class="toggle-button">Customize in Advanced</button> to change any count or level.</p>
+                    <details class="explain simple-details">
+                        <summary id="simple-summary-title">Facilities and modules</summary>
+                        <div id="simple-summary"></div>
+                    </details>
                 </div>
 
                 <div id="advanced-config">
@@ -103,17 +105,12 @@
                     <h3>Strategy</h3>
                     <div class="tabs" role="radiogroup" aria-label="Strategy">
                         <label><input type="radio" name="strategy" id="strategy-level-up" value="level-up" checked> Level up</label>
-                        <label><input type="radio" name="strategy" id="strategy-coins" value="coins"> Most coins</label>
-                        <label><input type="radio" name="strategy" id="strategy-exp" value="exp"> Most Aniimo EXP</label>
-                        <label><input type="radio" name="strategy" id="strategy-aniipods" value="aniipods"> Most Aniipods</label>
+                        <label><input type="radio" name="strategy" id="strategy-priorities" value="priorities"> Priorities</label>
                     </div>
 
-                    <div id="exp-config" style="display: none;">
-                        <p class="hint">Makes as much Aniimo EXP an hour as your facilities can, from the Dance Pad Polisher's Growth items, then earns as many coins as that leaves room for.</p>
-                    </div>
-
-                    <div id="aniipods-config" style="display: none;">
-                        <p class="hint" id="aniipods-hint"></p>
+                    <div id="priorities-config" style="display: none;">
+                        <p class="hint">Switch on what you want and drag to rank it. The plan makes as much of the first as it can, then as much of the next as that allows, and so on. Whatever's left always goes to coins.</p>
+                        <ol class="priority-list" id="priority-list"></ol>
                     </div>
 
                     <div id="level-up-config">
@@ -131,26 +128,14 @@
                             <div class="stock-grid" id="level-up-stock-grid"></div>
                         </details>
                     </div>
-
-                    <div id="coins-config" style="display: none;">
-                        <div class="checkbox-field">
-                            <label>
-                                <input type="checkbox" id="prioritize-byproducts" checked>
-                                Prioritize Wood Blocks and Mineral Sand
-                            </label>
-                            <span class="info-icon" data-tooltip="Make as much Wood Blocks and Mineral Sand as possible first, then as many coins as that allows. Leave unticked to go purely for coins.">?</span>
-                        </div>
-                    </div>
                 </div>
 
-                <div class="special-recipes" id="special-recipes">
-                    <h3>Special recipes</h3>
+                <details class="explain recipes-section" id="recipes-section">
+                    <summary>Recipes<span class="skip-count" id="recipe-count"></span></summary>
+                    <p class="assume-title">Special recipes</p>
                     <p class="hint small">These take a rare currency to unlock. Plans only use the ones you tick.</p>
                     <div class="special-grid" id="special-grid"></div>
-                </div>
-
-                <details class="explain skip-recipes" id="skip-recipes">
-                    <summary>Recipes to skip<span class="skip-count" id="skip-count"></span></summary>
+                    <p class="assume-title">Recipes to skip</p>
                     <p class="hint small">Plans won't use these, e.g. recipes behind unlocks you don't have yet. You can also skip one straight from a plan with its ✕.</p>
                     <div class="skip-add">
                         <input type="text" id="skip-input" list="skip-options" placeholder="Search recipes" autocomplete="off" aria-label="Recipe to skip">
@@ -159,7 +144,6 @@
                     <datalist id="skip-options"></datalist>
                     <div class="skip-chips" id="skip-chips"></div>
                 </details>
-
                 <button id="optimize-btn" class="optimize-btn">
                     <span class="btn-text">Find the best plan</span>
                     <span class="btn-loading" style="display: none;">Solving...</span>
@@ -198,31 +182,41 @@
                         </div>
                     </div>
 
-                    <div class="card level-up-card" id="level-up-card" style="display: none;">
-                        <span class="summary-label" id="level-up-label">Level-up</span>
-                        <div class="summary-value" id="level-up-time">-</div>
-                        <div id="level-up-lines"></div>
-                    </div>
-
                     <div class="card rate-card">
-                        <span class="summary-label">Your rate</span>
-                        <div class="rate-line">
+                        <!-- A level-up plan leads with the level-up, and its table's rate column
+                             takes over the unit select and the coin rate below. -->
+                        <div class="level-up-card" id="level-up-card" style="display: none;">
+                            <span class="summary-label" id="level-up-label">Level-up</span>
+                            <div class="summary-value" id="level-up-time">-</div>
+                            <div id="level-up-lines"></div>
+                        </div>
+                        <div id="rate-block">
+                        <span class="summary-label" id="rate-label">Your rate</span>
+                        <div class="rate-line" id="rate-line">
                             <span class="summary-value" id="plan-rate">-</span>
                             <select id="rate-unit" class="rate-unit-select" aria-label="Rate unit">
                                 <option value="second">per second</option>
+                                <option value="minute">per minute</option>
                                 <option value="hour">per hour</option>
                                 <option value="day">per day</option>
                             </select>
                         </div>
-                        <p class="plan-alongside" id="plan-alongside" style="display: none;"></p>
+                        <div id="priority-rates"></div>
+                        </div>
                         <p class="plan-proof" id="plan-explored-hint"></p>
                         <p class="plan-unverified" id="plan-unverified" style="display: none;"></p>
                         <p class="plan-skipped" id="plan-skipped" style="display: none;"></p>
                     </div>
 
+                    <div class="card production-steps" id="seed-card" style="display: none;">
+                        <h2>Seeds to plant</h2>
+                        <p class="hint" id="seed-card-unit"></p>
+                        <div class="seed-table" id="seed-table"></div>
+                    </div>
+
                     <div class="card production-steps" id="profit-card" style="display: none;">
                         <h2>Profit by product</h2>
-                        <p class="hint">Net of seed costs. "By the level-up" is what each earns before the level-up is ready.</p>
+                        <p class="hint">Net of seed costs.</p>
                         <div id="profit-breakdown"></div>
                     </div>
 
@@ -246,6 +240,10 @@
                         <div class="config-group">
                             <div class="input-row">
                                 <div class="input-field">
+                                    <label for="goal-target">Goal</label>
+                                    <select id="goal-target"></select>
+                                </div>
+                                <div class="input-field">
                                     <label for="target-amount" id="target-amount-label">Target Coins</label>
                                     <input type="number" id="target-amount" value="1000" min="0">
                                 </div>
@@ -268,6 +266,7 @@
                                 </div>
                             </div>
                         </div>
+                        <p class="level-up-coins" id="goal-also" style="display: none;"></p>
 
                         <div class="production-steps" id="product-breakdown-section" style="display: none;">
                             <h3>Product breakdown</h3>
@@ -350,9 +349,10 @@
                 <p>HiGHS proves the plan is the best possible. On the rare setup where that takes longer than 30 seconds, it stops with the best plan so far and the results say how far from the best it could be. Every plan is then re-checked on its own before it's shown.</p>
 
                 <h3>Time per batch</h3>
-                <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo's Efficiency, which the facility screen shows: at 100%, one workload takes one second.</p>
-                <div class="math-block">\[ t = \frac{\text{workload}}{e \times 1.2^{\,\text{personality}}} \]</div>
-                <p>Efficiency \(e\) depends on the Aniimo's ability level compared with the level the recipe needs. At exactly the needed level it's 100%. At a processor, one level above the recipe's need is 300%, and each level after that adds 100% (400%, 500%). At a gathering facility (Well, Mine, Sandcastle, Dewy House and the like), each level above adds 50% on a level-1 recipe and 40% on a harder one. The personality term counts only when the Aniimo has the facility's personality (+20%).</p>
+                <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo's Efficiency \(e\), which the facility screen shows, and a base rate \(r\):</p>
+                <div class="math-block">\[ t = \frac{\text{workload}}{r \times e \times 1.2^{\,\text{personality}}} \]</div>
+                <p>At a processor, \(r\) is one workload a second. At a gathering facility (Well, Mine, Sandcastle, Dewy House and the like) and at the Dance Pad Polisher and Aniipod Maker, it's higher on recipes needing a higher ability level: 1 a second at level 1, 1.25 at level 2 and 1.5 at level 3. A Growth Fruit, 5,400 workload, takes an hour at 100%.</p>
+                <p>Efficiency \(e\) depends on the Aniimo's ability level compared with the level the recipe needs. At exactly the needed level it's 100%. At a processor, one level above the recipe's need is 300%, and each level after that adds 100% (400%, 500%). At a gathering facility, each level above adds 50% on a level-1 recipe and 40% on a harder one; the Dance Pad Polisher and Aniipod Maker add 40% a level. The personality term counts only when the Aniimo has the facility's personality (+20%); the Polisher and Aniipod Maker have none.</p>
 
                 <h3>Environment coverage</h3>
                 <p>Each Heat Furnace, Cooling Unit and Sunlamp is 2×2 tiles and covers a 9×9 area centered on it. A plot counts as covered if any part of it is inside, and everything snaps to quarter tiles. Every useful way one building can cover a mix of Farmland, Woodland and the rest is worked out once by exact packing; the plan then picks a mode and one of those mixes for each building.</p>
@@ -363,8 +363,8 @@
                 <p>(\(\text{made}_j\) per second), so the level-up takes \(1/\lambda\) days. Stock of anything lower in a chain (Wood Blocks, Mineral Sand, a lower tier) counts toward what's made, since the Bench and Kiln process it up. Two more solves follow, each keeping what the last one found: the most coins at that pace, then as much extra of the level-up items as spare Bench and Kiln time allows. That's why ore often finishes before wood and shows up as surplus.</p>
                 <p>Each tier takes 8 of the tier below (4 for the last), so the Bench and Kiln switch between tiers rather than running one recipe like other processors.</p>
 
-                <h3>Prioritizing Wood Blocks and Mineral Sand</h3>
-                <p>With Most coins and this ticked, the plan first finds the most Wood Blocks, and the most Mineral Sand, your facilities can make per second. It then earns as many coins as it can while still making that much of each.</p>
+                <h3>Priorities</h3>
+                <p>The plan solves once per ticked priority, in your order. Each solve makes as much of its priority as it can while keeping at least what the earlier ones reached; a last solve then earns as many coins as all of those leave room for. Aniimo EXP and Aniipods count as their own currencies, so the same model handles them like coins.</p>
 
                 <h3>Time to reach a goal</h3>
                 <p>Each product starts adding up once its first batch clears its ingredient chain (its lead time), then keeps its steady rate:</p>
@@ -386,14 +386,13 @@
             </div>
             <div class="modal-body">
                 <h3>1. Tell it what you've built</h3>
-                <p><strong>Simple</strong>: pick your RV level, and the calculator assumes you've built and upgraded everything that level allows. <strong>Advanced</strong>: set the count and level of every facility and upgrade module yourself. "Customize in Advanced" copies the Simple setup over as a starting point, and "Fill from RV level" in Advanced does the same at any time.</p>
-                <p><strong>Special recipes</strong> (Rose Shortbread, Potato Kvass and a few others) take a rare currency to unlock, so plans leave them out until you tick the ones you have.</p>
-                <p>Under <strong>Recipes to skip</strong>, add anything you can't make yet, such as recipes behind unlocks you don't have. Plans won't use them. The ✕ next to a product in a plan skips it and plans again.</p>
+                <p><strong>Simple</strong>: pick your RV level, and the calculator assumes you've built and upgraded everything that level allows. <strong>Advanced</strong>: set the count and level of every facility and upgrade module yourself. In Advanced, "Fill from RV level" sets everything to what an RV level allows, as a starting point.</p>
+                <p>Under <strong>Recipes</strong>, special recipes (Rose Shortbread, Potato Kvass and a few others) take a rare currency to unlock, so plans leave them out until you tick the ones you have.</p>
+                <p>Also under <strong>Recipes</strong>, add anything you can't make yet, such as recipes behind unlocks you don't have. Plans won't use them. The ✕ next to a product in a plan skips it and plans again.</p>
 
                 <h3>2. Pick a strategy</h3>
                 <p><strong>Level up</strong> gets everything your next RV level costs as soon as possible: its coins plus Wood Blocks and Mineral Sand, or from RV 7 a Woodworking Bench item and a Chimney Kiln item. Under "What you already have", enter what you've got; Wood Blocks, Mineral Sand and lower tiers count too, since the Bench and Kiln process them up. The plan still earns as many coins as it can on the way. In Advanced you can pick which RV level to plan for.</p>
-                <p><strong>Most coins</strong> goes for coins alone. Ticking "Prioritize Wood Blocks and Mineral Sand" makes as much of those as possible first, then as many coins as that allows.</p>
-                <p><strong>Most Aniimo EXP</strong> turns crops into Growth Buds, Flowers and Fruit at the Dance Pad Polisher, which feed your Aniimo instead of selling. <strong>Most Aniipods</strong> makes as many as it can of the best Aniipod your Aniipod Maker can reach, since a better Aniipod catches better. Both settle their own total first and then earn as many coins as the rest of your homeland allows, so the rate card shows both numbers.</p>
+                <p><strong>Priorities</strong> ranks what you want: coins, Aniimo EXP (Growth items from the Dance Pad Polisher), Aniipods (the best tier your Aniipod Maker can reach, since a better one catches better), Wood Blocks and Mineral Sand. Switch on the ones you want and drag them into order; the plan makes as much of the first as it can, then as much of the next as that allows, and whatever's left goes to coins. The rate card shows each one.</p>
 
                 <h3>3. Find the best plan</h3>
                 <p>Click "Find the best plan" to see how long the level-up takes (or your best rate) and what each facility should make. Set it up once and leave it running. Everything you enter is saved in your browser; "Clear saved values" resets it.</p>
@@ -404,11 +403,12 @@
                 <h3>Understanding the results</h3>
                 <ul>
                     <li><strong>Aniimo team</strong>: which Aniimo to keep on your homeland, for the fastest setup (Best) or the least you can get by with (Minimum). Open it for the full list.</li>
-                    <li><strong>Level-up</strong>: how soon you'll have everything the level-up costs, and how fast each cost comes in. The slowest one is in bold. Surplus is what's left over when it's ready, such as extra coins or ore.</li>
-                    <li><strong>Your rate</strong>: coins per second, hour or day.</li>
-                    <li><strong>Profit by product</strong>: with Level up, what each product earns per hour and by the time the level-up is ready.</li>
+                    <li><strong>Level-up</strong>: how soon you'll have everything the level-up costs, and how fast each cost comes in (pick the unit at the top of that column). The slowest one is in bold. Surplus is what's left over when it's ready, such as extra coins or ore.</li>
+                    <li><strong>Your rates</strong>: with Priorities, what the plan makes of each priority in your order, then coins from what's left, per second, minute, hour or day.</li>
+                    <li><strong>Seeds to plant</strong>: the seeds your Farmland and Woodland go through and what they cost, in total until the level-up with Level up, or at the chosen rate with Priorities.</li>
+                    <li><strong>Profit by product</strong>: with Level up, what each product earns per hour and in total until the level-up is ready.</li>
                     <li><strong>What each facility should do</strong>: what to set each facility to, all running at once. Recipes tagged "unverified" haven't been checked in game yet.</li>
-                    <li><strong>Set a goal</strong>: with Most coins, how long a target amount takes and what gets made along the way.</li>
+                    <li><strong>Set a goal</strong>: with Priorities, how long it takes to reach a target amount of coins or any priority that's on, and what else you'll have by then.</li>
                 </ul>
             </div>
         </div>

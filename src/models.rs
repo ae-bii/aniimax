@@ -157,6 +157,34 @@ pub fn has_personality_bonus(facility: &str) -> bool {
     !FACILITIES_WITHOUT_PERSONALITY.contains(&facility)
 }
 
+/// Efficiency at a facility without a personality ([`FACILITIES_WITHOUT_PERSONALITY`]): 100% at
+/// the level the recipe needs, then +40% a level, whatever level the recipe needs. A level-3
+/// Aniimo reads 180%, 140% and 100% on the Dance Pad Polisher's Growth Bud, Flower and Fruit
+/// (from a player's screenshots), and 140% on the Aniipod Maker's Aniipod Pro.
+///
+/// ```
+/// use aniimax::models::no_personality_efficiency;
+///
+/// assert!((no_personality_efficiency(3, 1) - 1.8).abs() < 1e-12);
+/// assert!((no_personality_efficiency(3, 2) - 1.4).abs() < 1e-12);
+/// assert_eq!(no_personality_efficiency(3, 3), 1.0);
+/// ```
+pub fn no_personality_efficiency(level: u32, required: u32) -> f64 {
+    let required = required.max(1);
+    1.0 + 0.4 * (level.clamp(1, 4).max(required) - required) as f64
+}
+
+/// Workload an Aniimo gets through per second at 100% efficiency on a gathering facility or one
+/// without a personality, for a recipe needing ability level `required`: 1 at level 1, then 0.25
+/// more a level. Timed in game: Clay (level 2, 2250 workload) takes 21m 26s at 140%, and the
+/// Dance Pad Polisher's Growth Flower (level 2, 3000) 28m 34s at 140% and Growth Fruit (level 3,
+/// 5400) an hour at 100%. Processors with a personality always get through 1 a second: Milled
+/// Rice, Dried Lemon Slices and Coarse-Sifted Ore (which needs level 2) all take their workload in
+/// seconds at 100%.
+pub fn base_work_rate(required: u32) -> f64 {
+    1.0 + 0.25 * (required.max(1) - 1) as f64
+}
+
 /// Speed multiplier when the working Aniimo has the facility's personality bonus. The game
 /// describes it as +20% work efficiency, and it multiplies: a level-2 Aniimo on a level-1 recipe
 /// goes from 300% to 360% (a 108-workload recipe takes 30s instead of 36s).
@@ -208,21 +236,25 @@ impl Worker {
     }
 
     /// Seconds this Aniimo takes to finish `workload` on a recipe needing ability level
-    /// `required`, at a gathering facility or a processor.
+    /// `required`, at a gathering facility or a processor (see [`base_work_rate`]).
     pub fn seconds_for(&self, workload: f64, required: u32, gathering: bool) -> f64 {
-        workload / self.speed(required, gathering)
+        let base = if gathering { base_work_rate(required) } else { 1.0 };
+        workload / (self.speed(required, gathering) * base)
     }
 
     /// Seconds this Aniimo takes on one batch of `item`, which needs ability level `required`.
     /// A recipe with no ingredients is gathered; one with ingredients is processed.
     pub fn seconds_for_item(&self, item: &ProductionItem, workload: f64, required: u32) -> f64 {
+        if !has_personality_bonus(&item.facility) {
+            return workload / (no_personality_efficiency(self.suitability, required) * base_work_rate(required));
+        }
         self.seconds_for(workload, required, item.raw_materials.is_none())
     }
 }
 
 /// The [`Worker`] on each workload-based facility type. Facilities not set get
-/// [`Worker::default`] (level 1, no bonus). The data loaders time every recipe at 100%, which is
-/// an Aniimo at exactly the level the recipe needs.
+/// [`Worker::default`] (level 1, no bonus). The data loaders time every recipe at one workload a
+/// second; [`Workers::apply`] retimes them for the Aniimo actually working them.
 ///
 /// ```
 /// use aniimax::models::{Worker, Workers};

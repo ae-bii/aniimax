@@ -128,6 +128,10 @@ impl LevelUp {
 /// rather than near 1e-6, where a solver's absolute tolerances would swamp it.
 pub const PACE_UNIT: f64 = 86_400.0;
 
+/// The weight of coins per second in the level-up stock solve, whose goal is extra level-up items:
+/// enough to sell what would otherwise be left over, nowhere near enough to trade an item for.
+const STOCK_UP_COIN_WEIGHT: f64 = 1e-6;
+
 /// The highest pace the model allows (a level-up every second), so a level-up the stock already
 /// covers doesn't leave the model unbounded.
 const MAX_PACE: f64 = PACE_UNIT;
@@ -340,7 +344,11 @@ fn build_model<'a>(
                 model.objective[pace] = 1.0;
             }
             Goal::StockUp(..) => {
-                model.objective.iter_mut().for_each(|c| *c = 0.0);
+                // Coins only break ties, so anything spare (clay a Mine makes beyond what's used,
+                // say) still sells instead of piling up; far too little to cost a level-up item.
+                for (c, &earned) in model.objective.iter_mut().zip(&model.earnings) {
+                    *c = earned * STOCK_UP_COIN_WEIGHT;
+                }
                 for (name, need) in &level_up.cost {
                     if let Some(terms) = balance.get_mut(name.as_str()).filter(|_| *need > 0.0) {
                         // Per day, as a share of the cost: comparable across costs.
@@ -444,11 +452,23 @@ fn build_model<'a>(
                     model.constrain(byproduct, ComparisonOp::Ge, floor * (1.0 - 1e-6));
                     continue;
                 }
-                // Otherwise it's a currency: everything sold for it, at its value.
-                let sold: Vec<(usize, f64)> =
+                // Otherwise it's a currency: everything sold for it, at its value, less seed costs
+                // for coins (seeds are paid in coins).
+                let mut sold: Vec<(usize, f64)> =
                     sold_of.iter().filter(|(_, c, _)| c == resource).map(|&(v, _, value)| (v, value)).collect();
+                if resource == "coins" {
+                    sold.extend(rate_of.iter().filter(|(r, _)| r.cost.unwrap_or(0.0) > 0.0).map(|&(r, v)| (v, -r.cost.unwrap_or(0.0))));
+                }
                 if !sold.is_empty() {
                     model.constrain(sold, ComparisonOp::Ge, floor * (1.0 - 1e-4));
+                }
+            }
+            // Maximizing a byproduct (Wood Blocks, Mineral Sand) rather than a currency.
+            let byproduct = byproduct_terms(currency);
+            if !byproduct.is_empty() {
+                model.objective.iter_mut().for_each(|c| *c = 0.0);
+                for (v, amount) in byproduct {
+                    model.objective[v] += amount;
                 }
             }
         }
@@ -943,6 +963,42 @@ pub fn currency_rate(exact: &ExactPlan, items: &[ProductionItem], currency: &str
         .sum()
 }
 
+/// The items `exact` makes for a priority `target` that's a currency, with how many per second:
+/// the Growth items behind Aniimo EXP, or the Aniipods. Empty for coins and byproducts.
+pub fn target_items(exact: &ExactPlan, items: &[ProductionItem], target: &str) -> Vec<(String, f64)> {
+    if target == "coins" {
+        return Vec::new();
+    }
+    items
+        .iter()
+        .filter(|item| item.sell_currency == target)
+        .filter_map(|item| exact.sold.get(&item.name).filter(|&&n| n > 1e-9).map(|&n| (item.name.clone(), n)))
+        .collect()
+}
+
+/// What `exact` makes per second of a priority `target`: coins (net of seed costs), another
+/// currency ("aniimo_exp", "aniipods"), or a byproduct ("Wood Blocks", "Mineral Sand").
+pub fn target_rate(exact: &ExactPlan, items: &[ProductionItem], target: &str) -> f64 {
+    let all: HashMap<&str, &ProductionItem> = items.iter().map(|i| (i.name.as_str(), i)).collect();
+    let byproduct: f64 = exact
+        .recipe_rates
+        .iter()
+        .filter_map(|(name, rate)| match &all.get(name.as_str())?.byproduct {
+            Some((resource, amount)) if resource == target => Some(rate * *amount as f64),
+            _ => None,
+        })
+        .sum();
+    if byproduct > 0.0 {
+        return byproduct;
+    }
+    let seeds: f64 = if target == "coins" {
+        exact.recipe_rates.iter().filter_map(|(name, rate)| Some(rate * all.get(name.as_str())?.cost.unwrap_or(0.0))).sum()
+    } else {
+        0.0
+    };
+    currency_rate(exact, items, target) - seeds
+}
+
 /// Each item's rate per second made, less what the plan's recipes use and sell, including Wood
 /// Blocks and Mineral Sand (as `wood_block` and `mineral_sand`). Negative for an item drawn from
 /// stock.
@@ -967,6 +1023,56 @@ pub fn net_rates(exact: &ExactPlan, items: &[ProductionItem]) -> BTreeMap<String
         *net.entry(name.clone()).or_default() -= sold;
     }
     net
+}
+
+/// The seed cost in each unit of every item a plan uses, and the plan's total seed cost, both in
+/// coins per second. A crop's seeds are shared by every unit of it that's sold or used, and what's
+/// made from it carries its share on, so Rose Concentrate pays for the roses that go into it
+/// rather than the few roses sold raw.
+fn seed_costs_by_item<'a>(exact: &'a ExactPlan, all: &HashMap<&str, &'a ProductionItem>) -> (HashMap<&'a str, f64>, f64) {
+    // Units/sec of each item sold or used as an ingredient.
+    let mut used: HashMap<&str, f64> = HashMap::new();
+    for (name, &sold) in &exact.sold {
+        *used.entry(name.as_str()).or_default() += sold;
+    }
+    let recipes: Vec<(&ProductionItem, f64)> =
+        exact.recipe_rates.iter().filter_map(|(name, &rate)| Some((*all.get(name.as_str())?, rate))).collect();
+    for (recipe, rate) in &recipes {
+        if let (Some(inputs), Some(amounts)) = (&recipe.raw_materials, &recipe.required_amount) {
+            for (input, &amount) in inputs.iter().zip(amounts) {
+                *used.entry(input.as_str()).or_default() += rate * amount as f64;
+            }
+        }
+    }
+    let total = recipes.iter().map(|(recipe, rate)| recipe.cost.unwrap_or(0.0) * rate).sum();
+    // Recipes chain only a few deep, so passing costs along until nothing changes settles fast.
+    let mut per_unit: HashMap<&str, f64> = HashMap::new();
+    for _ in 0..32 {
+        let mut into: HashMap<&str, f64> = HashMap::new();
+        for (recipe, rate) in &recipes {
+            let mut cost = recipe.cost.unwrap_or(0.0) * rate;
+            if let (Some(inputs), Some(amounts)) = (&recipe.raw_materials, &recipe.required_amount) {
+                for (input, &amount) in inputs.iter().zip(amounts) {
+                    cost += rate * amount as f64 * per_unit.get(input.as_str()).copied().unwrap_or(0.0);
+                }
+            }
+            *into.entry(made_item(&recipe.name, all)).or_default() += cost;
+        }
+        let next: HashMap<&str, f64> = into
+            .into_iter()
+            .filter_map(|(item, cost)| {
+                let used = used.get(item).copied().unwrap_or(0.0);
+                (used > 1e-12 && cost > 0.0).then(|| (item, cost / used))
+            })
+            .collect();
+        let settled = next.len() == per_unit.len()
+            && next.iter().all(|(item, cost)| per_unit.get(item).is_some_and(|c| (c - cost).abs() <= 1e-12 * cost.max(1.0)));
+        per_unit = next;
+        if settled {
+            break;
+        }
+    }
+    (per_unit, total)
 }
 
 /// Turns an [`ExactPlan`] into the [`crate::models::ProductionPlan`] the rest of the app shows:
@@ -995,8 +1101,9 @@ pub fn to_production_plan(
         uses.sort_unstable();
         uses.dedup();
         let sells = exact.sold.get(made).is_some_and(|&s| s > 1e-9);
-        // Made but neither sold nor all used up: kept for the level-up.
-        let kept = exact.pace.is_some() && !sells && net_rates(exact, items).get(made).is_some_and(|&n| n > 1e-9);
+        // Made, not sold, not all used up and not sellable: kept for the level-up.
+        let sellable = all.get(made).is_some_and(|item| item.sell_currency != "none" && item.sell_value > 0.0);
+        let kept = exact.pace.is_some() && !sells && !sellable && net_rates(exact, items).get(made).is_some_and(|&n| n > 1e-9);
         match (uses.is_empty(), sells || kept) {
             (true, _) if kept => "For the level-up".to_string(),
             (true, _) => "Sells directly".to_string(),
@@ -1079,13 +1186,18 @@ pub fn to_production_plan(
         }
     }
 
-    // One income stream per item sold; seed costs come off the item grown with them (or, for a
-    // crop that's only used as an ingredient, off the biggest stream).
+    // One income stream per item sold, less the seed costs that went into it (see
+    // `seed_costs_by_item`).
     let mut income_streams: Vec<PlanProduct> = exact
         .sold
         .iter()
         .filter_map(|(name, &units)| {
             let item = all.get(name.as_str())?;
+            // Only what sells for the plan's currency is income; Growth items or Aniipods a plan
+            // also makes (for a priority) are counted separately, not as coins.
+            if item.sell_currency != currency {
+                return None;
+            }
             Some(PlanProduct {
                 item_name: name.clone(),
                 facility: item.facility.clone(),
@@ -1098,24 +1210,23 @@ pub fn to_production_plan(
             })
         })
         .collect();
-    for (name, &rate) in &exact.recipe_rates {
-        let Some(recipe) = all.get(name.as_str()) else { continue };
-        let cost = if currency == "coins" { recipe.cost.unwrap_or(0.0) * rate } else { 0.0 };
-        if cost <= 0.0 {
-            continue;
+    if currency == "coins" {
+        let (per_unit, total) = seed_costs_by_item(exact, &all);
+        let mut assigned = 0.0;
+        for stream in &mut income_streams {
+            let cost = stream.units_per_second * per_unit.get(stream.item_name.as_str()).copied().unwrap_or(0.0);
+            stream.rate_per_second -= cost;
+            assigned += cost;
         }
-        let made = made_item(name, &all);
-        let target = match income_streams.iter().position(|s| s.item_name == made) {
-            Some(i) => Some(i),
-            None => (0..income_streams.len()).max_by(|&a, &b| {
-                income_streams[a]
-                    .rate_per_second
-                    .partial_cmp(&income_streams[b].rate_per_second)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }),
-        };
-        if let Some(i) = target {
-            income_streams[i].rate_per_second -= cost;
+        // Seeds for anything not sold for coins (a crop only kept for a level-up, say) still come
+        // out of the coins; the biggest stream takes them, so the streams add up to the rate.
+        let rest = total - assigned;
+        if rest > 1e-9 {
+            if let Some(biggest) = income_streams.iter_mut().max_by(|a, b| {
+                a.rate_per_second.partial_cmp(&b.rate_per_second).unwrap_or(std::cmp::Ordering::Equal)
+            }) {
+                biggest.rate_per_second -= rest;
+            }
         }
     }
 
@@ -1173,6 +1284,21 @@ pub fn to_production_plan(
                         y: placement.y,
                         size: placement.size,
                     });
+                }
+                // Show a tidy arrangement of the same plots when one fits on whole tiles; the
+                // packing's own layout only matters for how many fit, not where they go.
+                let mut here: Vec<(String, u32)> = Vec::new();
+                for p in &layout {
+                    match here.iter_mut().find(|(f, _)| *f == p.facility) {
+                        Some((_, n)) => *n += 1,
+                        None => here.push((p.facility.clone(), 1)),
+                    }
+                }
+                if let Some(tidy) = crate::coverage::tidy_layout(&here) {
+                    layout = tidy
+                        .into_iter()
+                        .map(|p| FacilityPlacement { facility: p.facility, x: p.x, y: p.y, size: p.size })
+                        .collect();
                 }
                 layouts.push(layout);
             }
