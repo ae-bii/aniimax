@@ -35,8 +35,36 @@ use std::time::{Duration, Instant};
 
 use microlp::{ComparisonOp, OptimizationDirection, Problem};
 
-use crate::coverage::{facility_footprint, single_building_options, CoverageOption, ENVIRONMENT_GATED_FACILITIES};
+use crate::coverage::{
+    facility_footprint, mode_temperature, single_building_options, temperature_mode, CoverageOption,
+    pair_options_over_offsets, Offset, PairOption, Zone, ENVIRONMENT_GATED_FACILITIES,
+};
 use crate::models::{byproduct_item, FacilityCounts, ModuleLevels, ProductionItem};
+
+/// Whether plans may place two environment buildings to overlap, for the zone their temperatures
+/// make together. Confirmed in game: a plot reached by Scorching and Cool reads Warm and grows a
+/// Warm crop at 100%, and one reached by Warm and Cool reads Room temp, growing a Scorching crop
+/// at 50% and a Warm one at 80%.
+const OVERLAP_ZONES: bool = true;
+
+/// Switched on only to measure how much the coverage model could be leaving on the table. Every
+/// environment building and pair also gets the box that holds all of its arrangements at once
+/// (see [`crate::coverage::pair_upper_bound`]), which no real layout reaches, so the plan solves
+/// an easier problem than the game and earns at least what the true best possibly could. Off in
+/// every real plan; the `coverage_gap` test turns it on.
+static COVERAGE_RELAXED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[doc(hidden)]
+pub fn set_coverage_relaxed(on: bool) {
+    COVERAGE_RELAXED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn coverage_relaxed() -> bool {
+    // A wasm build has no switch to flip from the outside, so the measurement builds its own copy
+    // with `ANIIMAX_RELAX_COVERAGE` set and runs it through the same solver the app uses.
+    option_env!("ANIIMAX_RELAX_COVERAGE").is_some()
+        || COVERAGE_RELAXED.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Environment buildings and the modes each can run.
 const ENVIRONMENT_BUILDINGS: &[(&str, &[&str])] = &[
@@ -44,6 +72,23 @@ const ENVIRONMENT_BUILDINGS: &[(&str, &[&str])] = &[
     ("Cooling Unit", &["Cool", "Freeze"]),
     ("Sunlamp", &["Adequate"]),
 ];
+
+/// Two environment buildings placed to overlap, and what their three zones cover.
+#[derive(Debug, Clone)]
+pub struct ExactPair {
+    /// The two buildings, e.g. `("Cooling Unit", "Heat Furnace")`.
+    pub buildings: (String, String),
+    /// What each is set to, e.g. `("Freeze", "Warm")`.
+    pub modes: (String, String),
+    /// Where the second building sits relative to the first.
+    pub offset: Offset,
+    /// How many pairs like this the plan uses.
+    pub count: u32,
+    /// The mode each zone reads as: the first building's, the two added, then the second's.
+    pub zone_modes: [Option<String>; 3],
+    /// Plots covered per zone, as `(facility, count)`.
+    pub zone_covers: [Vec<(String, u32)>; 3],
+}
 
 /// How an environment building is set up in an exact plan.
 #[derive(Debug, Clone)]
@@ -78,6 +123,8 @@ pub struct ExactPlan {
     /// Units/sec sold of each item.
     pub sold: BTreeMap<String, f64>,
     pub environment: Vec<ExactEnvironment>,
+    /// Overlapping pairs of environment buildings (see [`ExactPair`]).
+    pub pairs: Vec<ExactPair>,
     /// Level-ups per day, for a level-up goal (see [`PACE_UNIT`]).
     pub pace: Option<f64>,
 }
@@ -151,8 +198,10 @@ pub fn takes_turns(recipe: &ProductionItem) -> bool {
     recipe.sell_currency == "none"
 }
 
-/// The item a recipe makes: a quick variant makes the regular item.
+/// The item a recipe makes: a quick variant makes the regular item, and an uncovered crop (see
+/// [`crate::models::add_uncovered_variants`]) makes the same crop, just slower.
 fn made_item<'a>(name: &'a str, all: &HashMap<&str, &ProductionItem>) -> &'a str {
+    let name = crate::models::base_item_name(name);
     match name.strip_prefix("quick_") {
         Some(base) if all.contains_key(base) => base,
         _ => name,
@@ -168,6 +217,13 @@ enum VarKind<'a> {
     /// Made beyond what the level-up needs, of one of its costs.
     Extra,
     Environment { building: &'a str, mode: &'a str, types: Vec<&'a str>, option: CoverageOption },
+    /// Two buildings placed to overlap, covering three zones at once.
+    EnvironmentPair {
+        buildings: (&'a str, &'a str),
+        modes: (&'a str, &'a str),
+        types: Vec<&'a str>,
+        option: PairOption,
+    },
 }
 
 /// One linear constraint: `(variable, coefficient)` terms, comparison, right-hand side.
@@ -194,7 +250,7 @@ impl<'a> Model<'a> {
         self.bounds.push(bounds);
         self.integer.push(integer);
         self.priority.push(match &kind {
-            VarKind::Environment { .. } => 0,
+            VarKind::Environment { .. } | VarKind::EnvironmentPair { .. } => 0,
             VarKind::Units(recipe) if recipe.raw_materials.is_none() => 1,
             _ => 2,
         });
@@ -391,27 +447,40 @@ fn build_model<'a>(
         }
     }
     let mut cover_terms: BTreeMap<(&str, &str), Vec<(usize, f64)>> = BTreeMap::new();
+    // Every building a variable uses, so no plan sets out more than are owned.
+    let mut usage: BTreeMap<&str, Vec<(usize, f64)>> = BTreeMap::new();
+    // The facility types wanting a given mode, largest footprint first (see
+    // `single_building_options`).
+    let types_for = |modes: &[&str]| -> Vec<&str> {
+        let mut types: Vec<&str> =
+            needs_cover.keys().filter(|(_, e)| modes.contains(e)).map(|(f, _)| *f).collect();
+        types.sort_unstable();
+        types.dedup();
+        types.sort_by(|a, b| {
+            let (fa, fb) = (facility_footprint(a).unwrap_or(0.0), facility_footprint(b).unwrap_or(0.0));
+            fb.partial_cmp(&fa).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(b))
+        });
+        types
+    };
     for &(building, modes) in ENVIRONMENT_BUILDINGS {
         let owned = facility_counts.get_count(building);
         if owned == 0 {
             continue;
         }
-        let mut building_terms: Vec<(usize, f64)> = Vec::new();
         for &mode in modes {
-            let mut types: Vec<&str> = needs_cover.keys().filter(|(_, e)| *e == mode).map(|(f, _)| *f).collect();
+            let types = types_for(&[mode]);
             if types.is_empty() {
                 continue;
             }
-            // Largest footprint first (see `single_building_options`).
-            types.sort_by(|a, b| {
-                let (fa, fb) = (facility_footprint(a).unwrap_or(0.0), facility_footprint(b).unwrap_or(0.0));
-                fb.partial_cmp(&fa).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(b))
-            });
-            for option in single_building_options(&types) {
+            let mut choices = single_building_options(&types);
+            if coverage_relaxed() {
+                choices.extend(crate::coverage::single_upper_bound(&choices));
+            }
+            for option in choices {
                 let counts = option.counts.clone();
                 let kind = VarKind::Environment { building, mode, types: types.clone(), option };
                 let count = model.add(0.0, (0.0, owned as f64), true, kind);
-                building_terms.push((count, 1.0));
+                usage.entry(building).or_default().push((count, 1.0));
                 for (t, &facility) in types.iter().enumerate() {
                     if counts[t] > 0 {
                         cover_terms.entry((facility, mode)).or_default().push((count, counts[t] as f64));
@@ -419,9 +488,61 @@ fn build_model<'a>(
                 }
             }
         }
-        if !building_terms.is_empty() {
-            model.constrain(building_terms, ComparisonOp::Le, owned as f64);
+    }
+    // Two buildings placed to overlap: where both reach, their temperatures add, giving a third
+    // zone. Only worth a variable when that zone is a mode some crop actually wants and neither
+    // building already provides it on its own.
+    for (i, &(first, first_modes)) in ENVIRONMENT_BUILDINGS.iter().enumerate().take(if OVERLAP_ZONES { usize::MAX } else { 0 }) {
+        for &(second, second_modes) in &ENVIRONMENT_BUILDINGS[i..] {
+            let (owned_first, owned_second) = (facility_counts.get_count(first), facility_counts.get_count(second));
+            let most = if first == second { owned_first / 2 } else { owned_first.min(owned_second) };
+            if most == 0 {
+                continue;
+            }
+            for &mode_a in first_modes {
+                for &mode_b in second_modes {
+                    let (Some(a), Some(b)) = (mode_temperature(mode_a), mode_temperature(mode_b)) else {
+                        continue; // the Sunlamp's Adequate is off the temperature line
+                    };
+                    let Some(middle) = temperature_mode(a + b) else { continue };
+                    if middle == mode_a || middle == mode_b || !needs_cover.keys().any(|(_, e)| *e == middle) {
+                        continue;
+                    }
+                    let types = types_for(&[mode_a, mode_b, middle]);
+                    if types.is_empty() {
+                        continue;
+                    }
+                    let mut choices = pair_options_over_offsets(&types);
+                    if coverage_relaxed() {
+                        choices.extend(crate::coverage::pair_upper_bound(&choices));
+                    }
+                    for option in choices {
+                        let zones = [(Zone::First, mode_a), (Zone::Both, middle), (Zone::Second, mode_b)];
+                        let counts = option.counts.clone();
+                        let kind = VarKind::EnvironmentPair {
+                            buildings: (first, second),
+                            modes: (mode_a, mode_b),
+                            types: types.clone(),
+                            option,
+                        };
+                        let count = model.add(0.0, (0.0, most as f64), true, kind);
+                        usage.entry(first).or_default().push((count, 1.0));
+                        usage.entry(second).or_default().push((count, 1.0));
+                        for (zone, mode) in zones {
+                            for (t, &facility) in types.iter().enumerate() {
+                                let covered = counts[zone as usize][t];
+                                if covered > 0 {
+                                    cover_terms.entry((facility, mode)).or_default().push((count, covered as f64));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+    for (building, terms) in usage {
+        model.constrain(terms, ComparisonOp::Le, facility_counts.get_count(building) as f64);
     }
     for (key, plots) in &needs_cover {
         let mut terms: Vec<(usize, f64)> = plots.iter().map(|v| (*v, 1.0)).collect();
@@ -541,6 +662,9 @@ pub fn solve_exact(
                 let label = match kind {
                     VarKind::Units(r) => format!("units {} ({})", r.name, r.facility),
                     VarKind::Environment { building, mode, option, .. } => format!("env {building} {mode} {:?}", option.counts),
+                    VarKind::EnvironmentPair { buildings, modes, option, .. } => {
+                        format!("env pair {}+{} {}+{} at {}", buildings.0, buildings.1, modes.0, modes.1, option.offset)
+                    }
                     _ => String::new(),
                 };
                 eprintln!("  fractional {v:.3} {label}");
@@ -674,7 +798,7 @@ fn start_bounds(model: &Model, plan: &crate::models::ProductionPlan) -> Option<V
             let count = units.get(recipe.name.as_str()).copied().unwrap_or(0);
             used.insert(recipe.name.as_str(), count);
             bounds[i] = (count as f64, count as f64);
-        } else if let VarKind::Environment { .. } = kind {
+        } else if let VarKind::Environment { .. } | VarKind::EnvironmentPair { .. } = kind {
             bounds[i] = (0.0, 0.0);
         }
     }
@@ -724,6 +848,7 @@ fn plan_from(model: &Model, value: f64, upper_bound: f64, proven_optimal: bool, 
     let mut units = BTreeMap::new();
     let mut sold = BTreeMap::new();
     let mut environment = Vec::new();
+    let mut pairs: Vec<ExactPair> = Vec::new();
     let mut pace = None;
     for (kind, &v) in model.kinds.iter().zip(values) {
         match kind {
@@ -741,6 +866,31 @@ fn plan_from(model: &Model, value: f64, upper_bound: f64, proven_optimal: bool, 
             VarKind::Sold(name) if v > 1e-9 => {
                 sold.insert(name.to_string(), v);
             }
+            VarKind::EnvironmentPair { buildings, modes, types, option } if v > 0.5 => {
+                let middle = crate::coverage::mode_temperature(modes.0)
+                    .zip(crate::coverage::mode_temperature(modes.1))
+                    .and_then(|(a, b)| temperature_mode(a + b));
+                let covers = |zone: Zone| -> Vec<(String, u32)> {
+                    types
+                        .iter()
+                        .enumerate()
+                        .filter(|(t, _)| option.counts[zone as usize][*t] > 0)
+                        .map(|(t, facility)| (facility.to_string(), option.counts[zone as usize][t]))
+                        .collect()
+                };
+                pairs.push(ExactPair {
+                    buildings: (buildings.0.to_string(), buildings.1.to_string()),
+                    modes: (modes.0.to_string(), modes.1.to_string()),
+                    offset: option.offset,
+                    count: v.round() as u32,
+                    zone_modes: [
+                        Some(modes.0.to_string()),
+                        middle.map(str::to_string),
+                        Some(modes.1.to_string()),
+                    ],
+                    zone_covers: [covers(Zone::First), covers(Zone::Both), covers(Zone::Second)],
+                });
+            }
             VarKind::Environment { building, mode, types, option } if v > 0.5 => environment.push(ExactEnvironment {
                 building: building.to_string(),
                 mode: mode.to_string(),
@@ -754,7 +904,19 @@ fn plan_from(model: &Model, value: f64, upper_bound: f64, proven_optimal: bool, 
     // Units set to a recipe that doesn't run are just idle.
     units.retain(|name, _| recipe_rates.contains_key(name));
     let rate_per_second = model.earnings.iter().zip(values).map(|(c, v)| c * v).sum();
-    ExactPlan { rate_per_second, objective: value, upper_bound, proven_optimal, nodes, recipe_rates, units, sold, environment, pace }
+    ExactPlan {
+        rate_per_second,
+        objective: value,
+        upper_bound,
+        proven_optimal,
+        nodes,
+        recipe_rates,
+        units,
+        sold,
+        environment,
+        pairs,
+        pace,
+    }
 }
 
 /// Re-checks an [`ExactPlan`] from scratch, independently of the solver: whole units, owned units
@@ -851,6 +1013,24 @@ pub fn check_plan(
         *buildings_used.entry(env.building.as_str()).or_default() += env.count;
         for (facility, count) in &env.covers {
             *covered.entry((facility.as_str(), env.mode.as_str())).or_default() += count * env.count;
+        }
+    }
+    // Overlapping pairs: each uses one of both buildings, and covers a zone per temperature.
+    for pair in &plan.pairs {
+        *buildings_used.entry(pair.buildings.0.as_str()).or_default() += pair.count;
+        *buildings_used.entry(pair.buildings.1.as_str()).or_default() += pair.count;
+        let middle = crate::coverage::mode_temperature(&pair.modes.0)
+            .zip(crate::coverage::mode_temperature(&pair.modes.1))
+            .and_then(|(a, b)| temperature_mode(a + b));
+        let modes = [Some(pair.modes.0.as_str()), middle, Some(pair.modes.1.as_str())];
+        for (zone, mode) in modes.iter().enumerate() {
+            let Some(mode) = mode else { continue };
+            if pair.zone_modes[zone].as_deref() != Some(mode) {
+                return Err(format!("pair zone {zone} says {:?}, not {mode}", pair.zone_modes[zone]));
+            }
+            for (facility, count) in &pair.zone_covers[zone] {
+                *covered.entry((facility.as_str(), mode)).or_default() += count * pair.count;
+            }
         }
     }
     for (building, used) in buildings_used {
@@ -1096,7 +1276,7 @@ pub fn to_production_plan(
             .keys()
             .filter_map(|name| all.get(name.as_str()))
             .filter(|r| r.raw_materials.as_ref().is_some_and(|inputs| inputs.iter().any(|i| i == made)))
-            .map(|r| r.name.as_str())
+            .map(|r| crate::models::base_item_name(&r.name))
             .collect();
         uses.sort_unstable();
         uses.dedup();
@@ -1137,7 +1317,7 @@ pub fn to_production_plan(
                 facility: facility.to_string(),
                 facility_count: owned,
                 status: PlanStepStatus::NothingAvailable,
-                reason: "No profitable item currently available".to_string(),
+                reason: "Nothing it can make helps this plan".to_string(),
                 is_grower: grower,
                 cycle_time: None,
                 environment: None,
@@ -1159,8 +1339,14 @@ pub fn to_production_plan(
                     reason = format!("{reason}; takes turns with {}", others.join(", "));
                 }
             }
+            if recipe.name.ends_with(crate::models::UNCOVERED_SUFFIX) {
+                let base = all.get(crate::models::base_item_name(&recipe.name)).and_then(|i| i.environment.as_deref());
+                let speed = base.and_then(crate::models::uncovered_efficiency).unwrap_or(1.0) * 100.0;
+                let wants = base.unwrap_or("its environment");
+                reason = format!("{reason}; grown without {wants} at {speed:.0}% speed");
+            }
             coin_items.push(PlanStep {
-                item_name: Some(recipe.name.clone()),
+                item_name: Some(crate::models::base_item_name(&recipe.name).to_string()),
                 facility: facility.to_string(),
                 facility_count: units,
                 status: PlanStepStatus::Producing,
@@ -1248,6 +1434,116 @@ pub fn to_production_plan(
             }
         }
     }
+    // Overlapping pairs show as one assignment per zone, all in the same frame so the diagram can
+    // draw both buildings. Worked out before the buildings standing on their own, so the plots
+    // they cover are taken off what those still have to cover.
+    let mut pair_assignments: Vec<EnvironmentAssignment> = Vec::new();
+    for pair in &exact.pairs {
+        // Only what the plan actually grows: a zone whose plots went unused isn't worth drawing,
+        // and a pair with nothing in the zone they share is really two separate buildings.
+        let used: [Vec<(String, u32)>; 3] = std::array::from_fn(|zone| {
+            let Some(mode) = pair.zone_modes[zone].clone() else { return Vec::new() };
+            pair.zone_covers[zone]
+                .iter()
+                .filter_map(|(facility, covered)| {
+                    let left = still_needed.entry((facility.clone(), mode.clone())).or_default();
+                    let take = (*covered * pair.count).min(*left);
+                    *left -= take;
+                    (take > 0).then(|| (facility.clone(), take))
+                })
+                .collect()
+        });
+        let holds = |zone: usize| used[zone].iter().map(|(_, n)| n).sum::<u32>() > 0;
+        let types: Vec<&str> = {
+            let mut names: Vec<&str> = used.iter().flatten().map(|(f, _)| f.as_str()).collect();
+            names.sort_unstable();
+            names.dedup();
+            names
+        };
+        let counts: [Vec<u32>; 3] = std::array::from_fn(|zone| {
+            types
+                .iter()
+                .map(|facility| used[zone].iter().find(|(f, _)| f == facility).map_or(0, |(_, n)| *n))
+                .collect()
+        });
+        // A plain arrangement of the same plots, for when the tidy one can't be worked out.
+        let plain = || {
+            crate::coverage::pair_layout_for(&types, pair.offset, &counts).unwrap_or_default()
+        };
+        // Standing two buildings a measured distance apart is fiddly, and it only buys anything
+        // while all three zones are growing something: with one of them empty the plan wants two
+        // temperatures, which two buildings give wherever they stand. So the pair is shown as
+        // separate buildings, each set to a zone that is in use, as long as each can be set to
+        // the mode it is being given (the shared zone's mode is one of theirs for every pair the
+        // plan can build; if some later building breaks that, the pair stands as it is).
+        let zones_used: Vec<usize> = (0..3).filter(|&zone| holds(zone)).collect();
+        let supports = |building: &String, mode: &String| {
+            ENVIRONMENT_BUILDINGS
+                .iter()
+                .find(|(name, _)| name == building)
+                .is_some_and(|(_, modes)| modes.contains(&mode.as_str()))
+        };
+        let apart: Option<Vec<(usize, &String, String)>> = (zones_used.len() < 3)
+            .then(|| {
+                let wanted: Vec<(usize, String)> = zones_used
+                    .iter()
+                    .filter_map(|&zone| pair.zone_modes[zone].clone().map(|mode| (zone, mode)))
+                    .collect();
+                let buildings = [&pair.buildings.0, &pair.buildings.1];
+                // At most two zones are in use, so either order of the two buildings will do.
+                [[0, 1], [1, 0]].into_iter().find_map(|order| {
+                    wanted
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (zone, mode))| {
+                            let building = buildings[order[i]];
+                            supports(building, mode).then(|| (*zone, building, mode.clone()))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                })
+            })
+            .flatten();
+        if let Some(apart) = apart {
+            for (zone, building, mode) in apart {
+                let layout = crate::coverage::tidy_layout(&used[zone])
+                    .unwrap_or_else(|| plain()[zone].clone())
+                    .into_iter()
+                    .map(|p| FacilityPlacement { facility: p.facility, x: p.x, y: p.y, size: p.size })
+                    .collect::<Vec<_>>();
+                pair_assignments.push(EnvironmentAssignment {
+                    building: building.clone(),
+                    mode,
+                    units: pair.count,
+                    covered: used[zone].clone(),
+                    layouts: vec![layout; pair.count as usize],
+                    partner: None,
+                    zone: None,
+                    pair_modes: None,
+                });
+            }
+            continue;
+        }
+        let layouts: [Vec<crate::coverage::Placement>; 3] =
+            crate::coverage::tidy_pair_layout(&types, pair.offset, &counts).unwrap_or_else(plain);
+        for zone in 0..3 {
+            let (Some(mode), true) = (pair.zone_modes[zone].clone(), holds(zone)) else { continue };
+            let layout: Vec<FacilityPlacement> = layouts[zone]
+                .iter()
+                .map(|p| FacilityPlacement { facility: p.facility.clone(), x: p.x, y: p.y, size: p.size })
+                .collect();
+            pair_assignments.push(EnvironmentAssignment {
+                building: pair.buildings.0.clone(),
+                mode,
+                units: pair.count,
+                covered: used[zone].clone(),
+                layouts: vec![layout; pair.count as usize],
+                partner: Some((pair.buildings.1.clone(), pair.offset.dx, pair.offset.dy)),
+                zone: Some(zone as u8),
+                pair_modes: Some((pair.modes.0.clone(), pair.modes.1.clone())),
+            });
+        }
+    }
+
     let environment_assignments: Vec<EnvironmentAssignment> = exact
         .environment
         .iter()
@@ -1302,9 +1598,19 @@ pub fn to_production_plan(
                 }
                 layouts.push(layout);
             }
-            EnvironmentAssignment { building: env.building.clone(), mode: env.mode.clone(), units: env.count, covered, layouts }
+            EnvironmentAssignment {
+                building: env.building.clone(),
+                mode: env.mode.clone(),
+                units: env.count,
+                covered,
+                layouts,
+                partner: None,
+                zone: None,
+                pair_modes: None,
+            }
         })
         .filter(|a| !a.covered.is_empty())
+        .chain(pair_assignments)
         .collect();
 
     crate::models::ProductionPlan {

@@ -284,6 +284,10 @@ function attachFacilityTierHandlers() {
 // hosted on GitHub Pages, since localStorage is scoped to the page's own origin.
 const STORAGE_KEY = 'aniimax-config-v1';
 
+// True once the player has picked a rate unit themselves this visit. Until then a fresh plan
+// picks the unit it reads best at; after it, their choice stands.
+let rateUnitChosen = false;
+
 // Every plain input ID whose value should be persisted (facility tiers are saved separately;
 // see `facilityTiers`/`initFacilityTiers`, since they're a dynamic list rather than one fixed
 // element per facility).
@@ -644,7 +648,7 @@ function attachSkipHandlers() {
 // --- Strategy ----------------------------------------------------------------------------
 // "Level up" plans the soonest next RV level-up (its coins plus Wood Blocks and Mineral Sand, or
 // from RV 7 a Woodworking Bench item and a Chimney Kiln item, less what's already in stock);
-// "Most coins" plans the most coins.
+// "Priorities" makes as much of each ticked priority as the ones above it allow.
 
 // What the player has toward a level-up, by item name ('coins' for coins).
 let levelUpStock = {};
@@ -654,6 +658,9 @@ const ITEM_NAMES = {
     wood_block: 'Wood Blocks',
     mineral_sand: 'Mineral Sand',
     coarse_sifted_ore: 'Coarse-Sifted Ore',
+    river_washed_stones: 'River-Washed Stones',
+    premium_river_washed_stones: 'Premium River-Washed Stones',
+    sugar_roasted_chestnuts: 'Sugar-Roasted Chestnuts',
     flowers_in_a_bottle: 'Flowers in a Bottle',
 };
 
@@ -942,10 +949,7 @@ function renderLevelUp(plan) {
     }
     time.textContent = `in ${formatDuration(report.seconds)}`;
     const { multiplier } = RATE_UNIT_SECONDS[select.value] || RATE_UNIT_SECONDS.second;
-    const perUnit = perSecond => {
-        const n = perSecond * multiplier;
-        return n < 10 ? formatNumber(Number(n.toFixed(2))) : formatNumber(Math.round(n));
-    };
+    const perUnit = perSecond => formatRate(perSecond * multiplier);
     const slowest = Math.max(...report.requirements.map(r => r.seconds ?? Infinity));
     const rows = report.requirements.map(r => {
         const ready = r.seconds === null ? 'never' : r.seconds === 0 ? 'have it' : formatDuration(r.seconds);
@@ -1001,8 +1005,7 @@ function renderSeedTable(plan) {
         card.style.display = 'none';
         return;
     }
-    // Two significant figures below 10, so a slow crop per second doesn't read 0.
-    const amount = n => n < 10 ? String(Number(n.toPrecision(2))) : formatNumber(Math.round(n));
+    const amount = formatRate;
     const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
     card.style.display = 'block';
     const per = levelUp
@@ -1023,7 +1026,7 @@ function renderSeedTable(plan) {
 }
 
 // What each product sold earns in a level-up plan, per hour and by the time the level-up is
-// ready. (Most coins plans show this in the goal card instead.)
+// ready. (Priorities plans show this in the goal card instead.)
 function renderProfitBreakdown(plan) {
     const card = document.getElementById('profit-card');
     const report = plan.level_up;
@@ -1138,6 +1141,12 @@ function formatNumber(num) {
     return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+// A rate at the chosen unit: a whole number once it's big enough to read that way, otherwise two
+// significant figures, so a slow trickle doesn't round away to zero.
+function formatRate(n) {
+    return n >= 10 ? formatNumber(Math.round(n)) : String(Number(n.toPrecision(2)));
+}
+
 // Show an error in the results section (plan-level failures only; goal-level failures are rare
 // and shown inline in the goal section instead, since the plan above it is still valid).
 function showError(message) {
@@ -1205,7 +1214,7 @@ function renderProductBreakdown(goalResult) {
             <td>${prettyItem(p.item_name)}</td>
             <td>${p.facility}</td>
             <td>${wholeAmount.toLocaleString()}</td>
-            <td>${formatNumber(p.rate_per_second * multiplier)}</td>
+            <td>${formatRate(p.rate_per_second * multiplier)}</td>
             <td>${formatNumber(worth)}</td>
         `;
         tbody.appendChild(row);
@@ -1325,6 +1334,15 @@ function taskLabel(task, facility, tagged = false) {
 }
 
 function facilityPlanTable(rows) {
+    return facilityPlanTableOf([{ rows }]);
+}
+
+// One table over several labelled groups, e.g. a paired environment's three zones: each group's
+// rows follow a band naming it, so the column headers are written once.
+function facilityPlanTableOf(groups) {
+    const body = groups
+        .map(group => (group.label ? `<tr class="facility-plan-group"><td colspan="5">${group.label}</td></tr>` : '') + planRows(group.rows))
+        .join('');
     return `
         <div class="table-wrapper">
             <table class="facility-plan-table">
@@ -1337,7 +1355,14 @@ function facilityPlanTable(rows) {
                         <th>Why</th>
                     </tr>
                 </thead>
-                <tbody>${rows.map(step => `
+                <tbody>${body}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function planRows(rows) {
+    return rows.map(step => `
                     <tr class="status-${step.status}">
                         <td data-label="Facility">${step.facility}</td>
                         <td data-label="Count">${step.facility_count}</td>
@@ -1345,16 +1370,47 @@ function facilityPlanTable(rows) {
                         <td data-label="Aniimo">${aniimoLabel(step)}</td>
                         <td data-label="Why">${prettyReason(step.reason)}</td>
                     </tr>
-                `).join('')}</tbody>
-            </table>
-        </div>
-    `;
+                `).join('');
+}
+
+// "Sowing", "Sowing and Collecting", "Reaping, Logging and Collecting".
+function listOf(items) {
+    if (items.length < 2) return items.join('');
+    return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+// Where to put the second building. The solver's offset runs corner to corner, so for two 2x2
+// buildings in a row the clear space between them is two tiles less; a diagonal one is easier to
+// follow as the corner position itself, which is also what the diagram draws.
+function gapText(dx, dy = 0) {
+    const tiles = n => `${n} tile${n === 1 ? '' : 's'}`;
+    if (dy === 0) {
+        const between = dx - 2;
+        return between <= 0 ? 'Side by side, touching.' : `In a row, ${tiles(between)} between them.`;
+    }
+    return `Corner to corner, the second sits ${tiles(dx)} along and ${tiles(dy)} up from the first.`;
+}
+
+
+// A growing environment named in its own colour.
+function modeTag(mode) {
+    const tint = ENVIRONMENT_MODE_COLORS[mode] || '#9aa0a8';
+    return `<span class="env-mode-tag" style="--tint:${tint}">${mode}</span>`;
+}
+
+// What a row's Aniimo work on: each growing job ("Sowing crops" when it covers both Farmland and
+// Woodland, "Reaping farmland" when it's one facility's), then the facilities.
+function whereText(g) {
+    return [...g.jobs]
+        .map(([job, at]) => `${job} ${at.size > 1 ? 'crops' : listOf([...at].map(facility => facility.toLowerCase()))}`)
+        .concat([...g.where.entries()].map(([place, n]) => `${n > 1 ? n + '× ' : ''}${place}`))
+        .join(', ');
 }
 
 // The Aniimo team the shown plan needs, one row per distinct ability / level / personality.
-// Aniimo move between any jobs they can do, so each row needs enough of them to cover the work
-// on average (a facility waiting on ingredients frees its Aniimo), rounded up. Facilities with a
-// resident Aniimo (Sandcastle and the like) are always busy, so they count one each.
+// A row asks for enough Aniimo to cover its work on average (a facility waiting on ingredients
+// frees its Aniimo), rounded up; facilities with a resident Aniimo (Sandcastle and the like) are
+// always busy, so they count one each.
 function renderAniimoSummary(plan) {
     const container = document.getElementById('aniimo-summary');
     const groups = new Map();
@@ -1362,27 +1418,52 @@ function renderAniimoSummary(plan) {
         (step.aniimo_tasks || []).forEach(task => {
             const key = taskLabel(task, step.facility);
             if (!groups.has(key)) {
-                groups.set(key, { label: key, ability: task.ability, level: task.level, bonus: task.personality_bonus, busy: 0, where: new Map() });
+                groups.set(key, { label: key, ability: task.ability, level: task.level, bonus: task.personality_bonus, busy: 0, where: new Map(), jobs: new Map() });
             }
             const g = groups.get(key);
             g.busy += task.busy;
+            // A growing job reads as the job itself, however many crops it covers.
+            if ((task.jobs || []).length) {
+                // Where a job happens matters: reaping is Farmland's, logging Woodland's.
+                task.jobs.forEach(job => {
+                    if (!g.jobs.has(job)) g.jobs.set(job, new Set());
+                    g.jobs.get(job).add(step.facility);
+                });
+                return;
+            }
             const place = `${step.facility} (${prettyItem(step.item_name)})`;
             g.where.set(place, (g.where.get(place) || 0) + step.facility_count);
         });
     });
     // Environment buildings in use each keep an Aniimo busy (abilities confirmed in game; whether
     // level or personality matters isn't known yet, so any level is shown).
-    (plan.environment_assignments || []).forEach(a => {
-        const ability = ENVIRONMENT_BUILDING_ABILITY[a.building];
-        if (!ability || !a.units) return;
+    const needsAniimo = (building, units, place) => {
+        const ability = ENVIRONMENT_BUILDING_ABILITY[building];
+        if (!ability || !units) return;
         const key = `${ability} (environment)`;
         if (!groups.has(key)) {
-            groups.set(key, { label: `${ability} any level`, ability, level: 1, bonus: false, busy: 0, where: new Map(), environment: true });
+            groups.set(key, { label: `${ability} any level`, ability, level: 1, bonus: false, busy: 0, where: new Map(), jobs: new Map(), environment: true });
         }
         const g = groups.get(key);
-        g.busy += a.units;
-        const place = `${a.building} (${a.mode})`;
-        g.where.set(place, (g.where.get(place) || 0) + a.units);
+        g.busy += units;
+        g.where.set(place, (g.where.get(place) || 0) + units);
+    };
+    // Two buildings placed to overlap report a zone each, all named after the first of them, so
+    // count the pair once and give each building its own Aniimo.
+    const pairUnits = new Map();
+    (plan.environment_assignments || []).forEach(a => {
+        if (a.partner) {
+            const key = `${a.building}|${a.partner[0]}`;
+            const seen = pairUnits.get(key);
+            pairUnits.set(key, { units: Math.max(seen ? seen.units : 0, a.units), modes: a.pair_modes || [a.mode, a.mode] });
+            return;
+        }
+        needsAniimo(a.building, a.units, `${a.building} (${a.mode})`);
+    });
+    pairUnits.forEach(({ units, modes }, key) => {
+        const [building, partner] = key.split('|');
+        needsAniimo(building, units, `${building} (${modes[0]})`);
+        needsAniimo(partner, units, `${partner} (${modes[1]})`);
     });
     const collapsedSummary = document.getElementById('aniimo-collapsed-summary');
     if (groups.size === 0) {
@@ -1391,29 +1472,44 @@ function renderAniimoSummary(plan) {
         document.getElementById('aniimo-abilities').innerHTML = '';
         return;
     }
-    // An Aniimo can do any job of its ability at or below its level, so work that fits in a
-    // higher-level row's spare time (e.g. Farmland jobs, which take any level) joins that row
-    // instead of calling for another Aniimo. Rows that count on a personality bonus stay separate.
-    const sorted = [...groups.values()].sort((a, b) => b.level - a.level || Number(b.bonus) - Number(a.bonus) || a.label.localeCompare(b.label));
-    const kept = [];
-    sorted.forEach(g => {
-        const host = g.bonus || g.environment ? null : kept.find(k => k.ability === g.ability && k.level >= g.level && k.spare >= g.busy - 1e-6);
-        if (host) {
-            host.spare -= g.busy;
-            host.busy += g.busy;
-            g.where.forEach((n, place) => host.where.set(place, (host.where.get(place) || 0) + n));
-            return;
-        }
-        g.count = Math.max(1, Math.ceil(g.busy - 1e-6));
-        g.spare = g.count - g.busy;
-        kept.push(g);
-    });
-    let total = 1; // the Hauling row below
+    // Each row gets its own Aniimo, which is the clearer team to keep. Only when that asks for
+    // more than the homeland holds does work that takes any level (the Farmland and Woodland jobs)
+    // move into another row's spare time, so a plot's watering is a job of its own where there's
+    // room for one. Rows that count on a personality bonus never merge.
+    const assign = share => {
+        const rows = [...groups.values()]
+            .map(g => ({ ...g, where: new Map(g.where), jobs: new Map([...g.jobs].map(([job, at]) => [job, new Set(at)])) }))
+            .sort((a, b) => b.level - a.level || Number(b.bonus) - Number(a.bonus) || a.label.localeCompare(b.label));
+        const kept = [];
+        rows.forEach(g => {
+            const host = share && !g.bonus && !g.environment
+                ? kept.find(k => k.ability === g.ability && k.level >= g.level && k.spare >= g.busy - 1e-6)
+                : null;
+            if (host) {
+                host.spare -= g.busy;
+                host.busy += g.busy;
+                g.where.forEach((n, place) => host.where.set(place, (host.where.get(place) || 0) + n));
+                g.jobs.forEach((at, job) => {
+                    if (!host.jobs.has(job)) host.jobs.set(job, new Set());
+                    at.forEach(facility => host.jobs.get(job).add(facility));
+                });
+                return;
+            }
+            g.count = Math.max(1, Math.ceil(g.busy - 1e-6));
+            g.spare = g.count - g.busy;
+            kept.push(g);
+        });
+        return { kept, total: kept.reduce((sum, g) => sum + g.count, 1) }; // 1 for the Hauling row
+    };
+    const homelandHolds = isSimpleMode() ? ANIIMO_MAX[selectedHomeLevel() - 1] : null;
+    const own = assign(false);
+    const { kept, total: assigned } = homelandHolds && own.total > homelandHolds ? assign(true) : own;
+    let total = assigned - kept.reduce((sum, g) => sum + g.count, 0); // the Hauling row
     const rows = kept
         .sort((a, b) => a.label.localeCompare(b.label))
         .map(g => {
             total += g.count;
-            const where = [...g.where.entries()].map(([place, n]) => `${n > 1 ? n + '× ' : ''}${place}`).join(', ');
+            const where = whereText(g);
             const rest = g.label.slice(g.ability.length).trim();
             return `<tr><td data-label="Aniimo">${abilityTag(g.ability)} ${rest}</td><td data-label="How many">${g.count}</td><td data-label="Busy on average">${g.busy.toFixed(1)}</td><td data-label="Where">${where}</td></tr>`;
         })
@@ -1421,7 +1517,7 @@ function renderAniimoSummary(plan) {
     const haulingRow = `<tr><td data-label="Aniimo">${abilityTag('Hauling')} any level</td><td data-label="How many">1+</td><td data-label="Busy on average">?</td><td data-label="Where">Carries produce to storage. How much work this is isn't known yet; add more if produce piles up.</td></tr>`;
 
     let capNote = '';
-    const cap = isSimpleMode() ? ANIIMO_MAX[selectedHomeLevel() - 1] : null;
+    const cap = homelandHolds;
     if (cap && total > cap) {
         capNote = `<p class="hint small">That's ${total} Aniimo, more than the ${cap} an RV level ${selectedHomeLevel()} homeland holds. Aniimo with more than one of these abilities can cover several rows.</p>`;
     } else if (cap) {
@@ -1443,7 +1539,7 @@ function renderAniimoSummary(plan) {
         return `<span class="ability-dot small${a && a.dark ? ' dark' : ''}${bonus ? ' bonus' : ''}" style="--ability:${a ? a.color : '#888888'}" title="${tip}" aria-label="${tip}">${text}</span>`;
     };
     const teamDots = g => {
-        const where = [...g.where.entries()].map(([place, n]) => `${n > 1 ? n + '× ' : ''}${place}`).join(', ');
+        const where = whereText(g);
         const tip = `${g.count > 1 ? `${g.count}× ` : ''}${g.label}${g.bonus ? ' (+20% speed)' : ''} · ${where}`;
         const times = g.count > 1 ? `<span class="ability-times">×${g.count}</span>` : '';
         return `<span class="ability-kind">${dot(g.ability, g.environment ? '·' : g.level, g.bonus, tip)}${times}</span>`;
@@ -1492,7 +1588,7 @@ function splitByEnvironmentUnit(rows, assignmentsForMode) {
             layout.forEach(p => {
                 remaining[p.facility] = (remaining[p.facility] || 0) + 1;
             });
-            units.push({ building: a.building, remaining, rows: [], layout });
+            units.push({ building: a.building, remaining, rows: [], layout, partner: a.partner || null, zone: a.zone ?? null, pairModes: a.pair_modes || null });
         });
     });
 
@@ -1539,7 +1635,7 @@ function splitByEnvironmentUnit(rows, assignmentsForMode) {
 // Fixed color per environment-gated facility type, used by the layout diagram below; purely
 // categorical (not theme-dependent), so it stays distinguishable in both light and dark mode.
 const ENVIRONMENT_FACILITY_COLORS = {
-    'Farmland': '#c9a24d',
+    'Farmland': '#8b5e34',
     'Woodland': '#4caf50',
     'Starfall Hammock': '#42a5f5',
     'Tidewhisper Sandcastle': '#26c6da',
@@ -1553,11 +1649,14 @@ const ENVIRONMENT_BUILDING_SIZE = 2.0;
 const ENVIRONMENT_COVERAGE_RADIUS = 4.5;
 
 // Coverage tint for each growing environment, used to shade a building's coverage area.
+// Adequate's yellow carries further than the others at the same opacity, so it's laid on lighter.
+const ENVIRONMENT_MODE_SHADE = { Adequate: 0.55 };
+
 const ENVIRONMENT_MODE_COLORS = {
     Warm: '#f59e0b',
     Scorching: '#ef4444',
-    Cool: '#60a5fa',
-    Freeze: '#67e8f9',
+    Cool: '#67e8f9',
+    Freeze: '#2563eb',
     Adequate: '#facc15',
 };
 
@@ -1567,7 +1666,60 @@ const ENVIRONMENT_MODE_COLORS = {
 // hovering a plot names its crop, and when one facility type grows more than one crop here (so
 // color alone can't tell them apart) each plot shows its crop's number from the legend.
 // Positions are the solver's own, in game tiles.
-function renderEnvironmentDiagram(layout, mode, building, rows = []) {
+// What each environment building does, drawn on it in the layout diagram, after the game's own
+// symbols: a flame for Warm and two for Scorching, a six-armed snowflake for Cool and two for
+// Freeze, a sun for Adequate. Paths rather than emoji, which some systems render in their own
+// colours.
+const ENVIRONMENT_ICON_INK = 'rgba(255, 255, 255, 0.92)';
+
+function flameIcon(cx, cy, size) {
+    const s = size;
+    return `<path d="M ${cx} ${cy - 0.62 * s}
+                     C ${cx + 0.12 * s} ${cy - 0.3 * s} ${cx + 0.42 * s} ${cy - 0.16 * s} ${cx + 0.4 * s} ${cy + 0.12 * s}
+                     C ${cx + 0.38 * s} ${cy + 0.42 * s} ${cx + 0.16 * s} ${cy + 0.6 * s} ${cx} ${cy + 0.6 * s}
+                     C ${cx - 0.16 * s} ${cy + 0.6 * s} ${cx - 0.4 * s} ${cy + 0.42 * s} ${cx - 0.4 * s} ${cy + 0.1 * s}
+                     C ${cx - 0.4 * s} ${cy - 0.1 * s} ${cx - 0.24 * s} ${cy - 0.18 * s} ${cx - 0.18 * s} ${cy - 0.36 * s}
+                     C ${cx - 0.1 * s} ${cy - 0.22 * s} ${cx - 0.04 * s} ${cy - 0.3 * s} ${cx} ${cy - 0.62 * s} Z"
+                   fill="${ENVIRONMENT_ICON_INK}" />`;
+}
+
+function snowflakeIcon(cx, cy, size) {
+    const arms = [0, 60, 120].map(angle => {
+        const radians = angle * Math.PI / 180;
+        const [dx, dy] = [Math.cos(radians) * 0.62 * size, Math.sin(radians) * 0.62 * size];
+        return `<line x1="${cx - dx}" y1="${cy - dy}" x2="${cx + dx}" y2="${cy + dy}" />`;
+    }).join('');
+    return `<g stroke="${ENVIRONMENT_ICON_INK}" stroke-width="${0.17 * size}" stroke-linecap="round">${arms}</g>`;
+}
+
+function sunIcon(cx, cy, size) {
+    const rays = [0, 45, 90, 135, 180, 225, 270, 315].map(angle => {
+        const radians = angle * Math.PI / 180;
+        const [dx, dy] = [Math.cos(radians), Math.sin(radians)];
+        return `<line x1="${cx + dx * 0.42 * size}" y1="${cy + dy * 0.42 * size}"
+                      x2="${cx + dx * 0.64 * size}" y2="${cy + dy * 0.64 * size}" />`;
+    }).join('');
+    return `<circle cx="${cx}" cy="${cy}" r="${0.28 * size}" fill="${ENVIRONMENT_ICON_INK}" />
+            <g stroke="${ENVIRONMENT_ICON_INK}" stroke-width="${0.15 * size}" stroke-linecap="round">${rays}</g>`;
+}
+
+function environmentBuildingIcon(building, mode, cx, cy) {
+    // The stronger of a building's two modes shows its symbol twice, as the game does: the main
+    // one low and left, a smaller one off its top right, both clear of the building's edge.
+    const twice = draw => `${draw(cx - 0.12, cy + 0.14, 0.92)}${draw(cx + 0.38, cy - 0.32, 0.56)}`;
+    if (building === 'Heat Furnace') {
+        return mode === 'Scorching' ? twice(flameIcon) : flameIcon(cx, cy, 1.0);
+    }
+    if (building === 'Cooling Unit') {
+        return mode === 'Freeze' ? twice(snowflakeIcon) : snowflakeIcon(cx, cy, 1.0);
+    }
+    if (building === 'Sunlamp') {
+        return sunIcon(cx, cy, 1.0);
+    }
+    return '';
+}
+
+function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null, zones = null) {
     if (!layout || layout.length === 0) return '';
     const margin = 5;
     const half = ENVIRONMENT_COVERAGE_RADIUS + margin;
@@ -1578,33 +1730,63 @@ function renderEnvironmentDiagram(layout, mode, building, rows = []) {
     const coverageMin = buildingCenter - ENVIRONMENT_COVERAGE_RADIUS;
     const coverageSize = ENVIRONMENT_COVERAGE_RADIUS * 2;
     const tint = ENVIRONMENT_MODE_COLORS[mode] || '#9aa0a8';
+    // Two buildings placed to overlap: the plots shown are one of the three zones they make, in
+    // a frame with this building at the origin and its partner dx tiles along and dy tiles up.
+    const dx = unit && unit.partner ? unit.partner[1] : 0;
+    const dy = unit && unit.partner ? unit.partner[2] : 0;
+    const zone = unit && unit.partner ? unit.zone : null;
+    const viewWidth = viewSize + dx;
+    const viewHeight = viewSize + dy;
+    // Each building covers its own 9x9 square; this zone is the part of them that gives this
+    // temperature: only the first's, only the second's, or where the two meet.
+    const modes = unit && unit.pairModes ? unit.pairModes : null;
+    const tintOf = m => ENVIRONMENT_MODE_COLORS[m] || '#9aa0a8';
+    const shadeOf = (m, opacity) => (opacity * (ENVIRONMENT_MODE_SHADE[m] ?? 1)).toFixed(3);
+    // Where the two coverage squares cross. It is always a rectangle; each building's own zone is
+    // its square with that rectangle taken out, which is an L unless the buildings line up.
+    const shared = { x: coverageMin + dx, y: coverageMin + dy, w: coverageSize - dx, h: coverageSize - dy };
+    const box = (x, y, w, h) => `M${x} ${y}h${w}v${h}h${-w}Z`;
+    // A zone as one path: the shared rectangle on its own, or a square with it cut out (two
+    // subpaths, which the even-odd rule reads as the difference).
+    const zonePath = z => {
+        if (z === 1) return box(shared.x, shared.y, shared.w, shared.h);
+        const own = z === 2 ? box(coverageMin + dx, coverageMin + dy, coverageSize, coverageSize)
+            : box(coverageMin, coverageMin, coverageSize, coverageSize);
+        return `${own}${box(shared.x, shared.y, shared.w, shared.h)}`;
+    };
 
     // Gridlines like the game's: stronger on whole tiles, very faint on the quarter tiles
     // facilities snap to.
     const gridLines = [];
-    for (let t = Math.ceil(viewMin * 4) / 4; t <= viewMin + viewSize; t += 0.25) {
+    for (let t = Math.ceil(viewMin * 4) / 4; t <= viewMin + Math.max(viewWidth, viewHeight); t += 0.25) {
         // Every other tile line is a major one, in step with the 2x2 buildings.
         const cls = !Number.isInteger(t) ? 'quarter' : t % 2 === 0 ? 'tile major' : 'tile';
-        gridLines.push(`<line class="${cls}" x1="${t}" y1="${viewMin}" x2="${t}" y2="${viewMin + viewSize}" />`);
-        gridLines.push(`<line class="${cls}" x1="${viewMin}" y1="${t}" x2="${viewMin + viewSize}" y2="${t}" />`);
+        if (t <= viewMin + viewWidth) {
+            gridLines.push(`<line class="${cls}" x1="${t}" y1="${viewMin}" x2="${t}" y2="${viewMin + viewHeight}" />`);
+        }
+        if (t <= viewMin + viewHeight) {
+            gridLines.push(`<line class="${cls}" x1="${viewMin}" y1="${t}" x2="${viewMin + viewWidth}" y2="${t}" />`);
+        }
     }
 
-    // Plots nearest the building first, each matched to a plan row of its facility type.
+    // Plots nearest the building first, each matched to a plan row of its facility type. On a
+    // shared map every zone matches its own rows to its own plots.
     const distance = p => Math.hypot(p.x + p.size / 2 - buildingCenter, p.y + p.size / 2 - buildingCenter);
-    const plots = [...layout].sort((a, b) => distance(a) - distance(b));
-    const queue = {};
-    rows.forEach(r => {
-        if (!r.item_name) return;
-        (queue[r.facility] = queue[r.facility] || []).push({ item: r.item_name, left: r.facility_count });
-    });
-    const cropOf = p => {
-        const q = queue[p.facility];
-        while (q && q.length && q[0].left <= 0) q.shift();
-        if (!q || !q.length) return null;
-        q[0].left--;
-        return q[0].item;
+    const matchCrops = (plots, plotRows) => {
+        const queue = {};
+        plotRows.forEach(r => {
+            if (!r.item_name) return;
+            (queue[r.facility] = queue[r.facility] || []).push({ item: r.item_name, left: r.facility_count });
+        });
+        return [...plots].sort((a, b) => distance(a) - distance(b)).map(p => {
+            const q = queue[p.facility];
+            while (q && q.length && q[0].left <= 0) q.shift();
+            if (!q || !q.length) return { ...p, crop: null };
+            q[0].left--;
+            return { ...p, crop: q[0].item };
+        });
     };
-    const assigned = plots.map(p => ({ ...p, crop: cropOf(p) }));
+    const assigned = zones ? zones.flatMap(z => matchCrops(z.layout, z.rows)) : matchCrops(layout, rows);
     const crops = [...new Set(assigned.map(p => `${p.facility}|${p.crop}`))];
     const cropsPerFacility = {};
     crops.forEach(key => {
@@ -1627,39 +1809,72 @@ function renderEnvironmentDiagram(layout, mode, building, rows = []) {
             <rect x="${p.x + inset}" y="${p.y + inset}" width="${size}" height="${size}" rx="0.25" fill="${color}" fill-opacity="0.85" stroke="${color}" stroke-width="0.06" />${initials}</g>`;
     }).join('');
 
-    // Legend: the coverage, then each crop with how many plots it gets here.
     const counts = {};
     assigned.forEach(p => {
         const key = `${p.facility}|${p.crop}`;
         counts[key] = (counts[key] || 0) + 1;
     });
-    const legend = [`
+    // What the colours mean: the coverage, then each crop with how many plots it gets here.
+    const swatch = (color, label) => `
         <span class="env-legend-item">
-            <span class="env-legend-swatch coverage" style="background:${tint}33;border-color:${tint}"></span>${mode} coverage
-        </span>`].concat(Object.entries(counts).map(([key, n]) => {
+            <span class="env-legend-swatch coverage" style="background:${color}33;border-color:${color}"></span>${label}
+        </span>`;
+    // On a shared map the heading already names both buildings and what they're set to; the
+    // legend only has to say what the middle is and which crop is which.
+    const coverageLegend = modes
+        ? (zones
+            ? []
+            : [
+                swatch(tintOf(modes[0]), `${building}: ${modes[0]}`),
+                swatch(tintOf(modes[1]), `${unit.partner[0]}: ${modes[1]}`),
+                swatch(tint, zone === 1 ? `${mode} where both reach` : `${mode}, this plan's plots`),
+            ])
+        : [swatch(tint, `${mode} coverage`)];
+    const legend = coverageLegend.concat(Object.entries(counts).map(([key, n]) => {
         const [facility, crop] = key.split('|');
-        const name = crop && crop !== 'null' ? `${facility}: ${prettyItem(crop)}` : facility;
+        // The number a plot carries in the diagram reads as part of the facility's name, as the
+        // plots themselves do: "Farmland 1: Sugarcane".
+        const named = `${facility}${numbered ? ` <b>${numberOf(key)}</b>` : ''}`;
+        const name = crop && crop !== 'null' ? `${named}: ${prettyItem(crop)}` : named;
         return `
         <span class="env-legend-item">
-            <span class="env-legend-swatch" style="background:${ENVIRONMENT_FACILITY_COLORS[facility] || '#888888'}"></span>${numbered ? `<b>${numberOf(key)}</b> ` : ''}${name} ×${n}
+            <span class="env-legend-swatch" style="background:${ENVIRONMENT_FACILITY_COLORS[facility] || '#888888'}"></span>${name} ×${n}
         </span>`;
     })).join('');
 
     return `
         <div class="env-diagram">
-            <svg viewBox="${viewMin} ${viewMin} ${viewSize} ${viewSize}" role="img" aria-label="${building} layout, ${mode} coverage">
+            <svg viewBox="${viewMin} ${viewMin} ${viewWidth} ${viewHeight}" role="img" aria-label="${building} layout, ${mode} coverage">
                 <g class="env-grid">${gridLines.join('')}</g>
                 <rect x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}"
-                      fill="${tint}" fill-opacity="0.12" />
+                      fill="${modes ? tintOf(modes[0]) : tint}" fill-opacity="${shadeOf(modes ? modes[0] : mode, 0.12)}" />
+                ${modes ? `<rect x="${coverageMin + dx}" y="${coverageMin + dy}" width="${coverageSize}" height="${coverageSize}"
+                      fill="${tintOf(modes[1])}" fill-opacity="${shadeOf(modes[1], 0.12)}" />` : ''}
                 ${rects}
-                <rect class="env-coverage-top" x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}"
-                      fill="${tint}" fill-opacity="0.3" stroke="${tint}" stroke-opacity="0.9" stroke-dasharray="0.35,0.25" stroke-width="0.1" />
-                <g class="env-building"><title>${building} (${mode})</title>
-                    <rect x="0.05" y="0.05" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3" fill="${tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
+                ${(zones || [{ mode, zone }]).map(z => {
+                    const path = z.zone === null || z.zone === undefined
+                        ? box(coverageMin, coverageMin, coverageSize, coverageSize)
+                        : zonePath(z.zone);
+                    const zoneTint = tintOf(z.mode);
+                    return `<path class="env-coverage-top" d="${path}" fill-rule="evenodd"
+                      fill="${zoneTint}" fill-opacity="${shadeOf(z.mode, 0.3)}" stroke="${zoneTint}" stroke-opacity="0.9" stroke-dasharray="0.35,0.25" stroke-width="0.1" />`;
+                }).join('')}
+                ${modes ? `<rect x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}" fill="none"
+                      stroke="${tintOf(modes[0])}" stroke-opacity="0.55" stroke-width="0.07" />
+                    <rect x="${coverageMin + dx}" y="${coverageMin + dy}" width="${coverageSize}" height="${coverageSize}" fill="none"
+                      stroke="${tintOf(modes[1])}" stroke-opacity="0.55" stroke-width="0.07" />` : ''}
+                <g class="env-building"><title>${building} (${modes ? modes[0] : mode})</title>
+                    <rect x="0.05" y="0.05" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3"
+                          fill="${modes ? tintOf(modes[0]) : tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
+                    ${environmentBuildingIcon(building, modes ? modes[0] : mode, buildingCenter, buildingCenter)}
                 </g>
+                ${unit && unit.partner ? `<g class="env-building"><title>${unit.partner[0]} (${modes ? modes[1] : mode})</title>
+                    <rect x="${dx + 0.05}" y="${dy + 0.05}" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3"
+                          fill="${modes ? tintOf(modes[1]) : tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
+                    ${environmentBuildingIcon(unit.partner[0], modes ? modes[1] : mode, dx + buildingCenter, dy + buildingCenter)}
+                </g>` : ''}
             </svg>
             <div class="env-legend">${legend}</div>
-            <p class="env-note">A plot counts as covered if any part of it is inside the dashed area.</p>
         </div>
     `;
 }
@@ -1693,27 +1908,74 @@ function renderFacilityPlan(plan) {
     });
 
     const assignments = plan.environment_assignments || [];
-    const environmentSections = ENVIRONMENT_MODE_ORDER.filter(mode => envGroups.has(mode)).map(mode => {
-        const assignmentsForMode = assignments.filter(a => a.mode === mode);
-        const units = splitByEnvironmentUnit(envGroups.get(mode), assignmentsForMode);
+    // Split every mode's crops across the buildings covering them, then show one map per
+    // building: two that overlap share a single map, since they're one place on the homeland.
+    const byMode = new Map();
+    ENVIRONMENT_MODE_ORDER.filter(mode => envGroups.has(mode)).forEach(mode => {
+        byMode.set(mode, splitByEnvironmentUnit(envGroups.get(mode), assignments.filter(a => a.mode === mode)));
+    });
+    const pairs = new Map();
+    const singles = [];
+    byMode.forEach((units, mode) => {
+        units.forEach(unit => {
+            if (!unit.partner) {
+                singles.push({ mode, unit });
+                return;
+            }
+            const key = `${unit.building}|${unit.partner[0]}|${unit.partner[1]},${unit.partner[2]}`;
+            if (!pairs.has(key)) pairs.set(key, { unit, zones: [] });
+            pairs.get(key).zones.push({ mode, layout: unit.layout, rows: unit.rows, zone: unit.zone });
+        });
+    });
 
-        const unitTables = units.length === 0
-            ? facilityPlanTable(envGroups.get(mode))
-            : units.map((unit, i) => `
-                ${units.length > 1 ? `<p class="hint small">${unit.building} ${i + 1}</p>` : ''}
-                <div class="env-unit">
-                    ${renderEnvironmentDiagram(unit.layout, mode, unit.building, unit.rows)}
-                    <div class="env-unit-table">${facilityPlanTable(unit.rows)}</div>
-                </div>
-            `).join('');
-
+    const pairSections = [...pairs.values()].map(({ unit, zones }) => {
+        zones.sort((a, b) => a.zone - b.zone);
+        const modes = unit.pairModes || [unit.mode, unit.mode];
+        const middle = zones.find(z => z.zone === 1)?.mode;
         return `
             <div class="facility-category">
-                <h4 class="facility-category-title">Environment: ${mode}</h4>
-                ${unitTables}
+                <h4 class="facility-category-title">${unit.building} ${modeTag(modes[0])}<span class="env-head-sep">|</span>${unit.partner[0]} ${modeTag(modes[1])}${middle ? `<span class="env-head-sep">|</span>Overlap ${modeTag(middle)}` : ''}</h4>
+                <p class="hint small">${gapText(unit.partner[1], unit.partner[2])}</p>
+                <div class="env-unit">
+                    ${renderEnvironmentDiagram(zones.flatMap(z => z.layout), zones[0].mode, unit.building, zones.flatMap(z => z.rows), unit, zones)}
+                    <div class="env-unit-table">${facilityPlanTableOf(zones.map(z => ({ label: modeTag(z.mode), rows: z.rows })))}</div>
+                </div>
             </div>
         `;
     }).join('');
+
+    const modeSections = ENVIRONMENT_MODE_ORDER.map(mode => {
+        const units = singles.filter(s => s.mode === mode).map(s => s.unit);
+        if (units.length === 0) {
+            // Crops wanting this mode that no building's map accounted for, if any: the units
+            // hold copies of each row, so compare by how many plots each one placed.
+            const placed = {};
+            (byMode.get(mode) || []).forEach(u => u.rows.forEach(r => {
+                placed[`${r.facility}|${r.item_name}`] = (placed[`${r.facility}|${r.item_name}`] || 0) + r.facility_count;
+            }));
+            const orphans = (envGroups.get(mode) || [])
+                .map(step => ({ ...step, facility_count: step.facility_count - (placed[`${step.facility}|${step.item_name}`] || 0) }))
+                .filter(step => step.facility_count > 0);
+            return orphans.length === 0 ? '' : `
+                <div class="facility-category">
+                    <h4 class="facility-category-title">${modeTag(mode)}</h4>
+                    ${facilityPlanTable(orphans)}
+                </div>`;
+        }
+        return `
+            <div class="facility-category">
+                <h4 class="facility-category-title">${units[0].building} ${modeTag(mode)}</h4>
+                ${units.map((unit, i) => `
+                    ${units.length > 1 ? `<p class="hint small">${unit.building} ${i + 1}</p>` : ''}
+                    <div class="env-unit">
+                        ${renderEnvironmentDiagram(unit.layout, mode, unit.building, unit.rows, unit)}
+                        <div class="env-unit-table">${facilityPlanTable(unit.rows)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }).join('');
+    const environmentSections = pairSections + modeSections;
 
     const byCategory = new Map(FACILITY_CATEGORIES.map(c => [c, []]));
     ungatedSteps.forEach(step => {
@@ -1737,8 +1999,10 @@ function renderFacilityPlan(plan) {
 
 // Re-renders "Your Rate" from `lastPlan` at whichever unit is currently selected in the
 // `#rate-unit` dropdown; called after a fresh plan and again whenever the user switches units, so
-// switching units never needs a facility-allocation re-solve.
-function updateRateDisplay() {
+// switching units never needs a facility-allocation re-solve. `pickUnit` is for a fresh plan
+// only: it chooses the unit the plan reads best at. Switching units must never do that, or the
+// choice would be undone the moment it's made.
+function updateRateDisplay(pickUnit = false) {
     if (!lastPlan || !lastPlan.success) return;
     const select = document.getElementById('rate-unit');
     const rows = planContext && !planContext.levelUp ? priorityRows(lastPlan) : null;
@@ -1748,7 +2012,7 @@ function updateRateDisplay() {
     const rates = (rows ? rows.map(r => r.perSecond) : costRates).filter(r => r > 1e-9);
     const smallest = rates.length ? Math.min(...rates) : lastPlan.rate_per_second;
     const least = rates.length ? 1 : 0.05;
-    while (smallest * RATE_UNIT_SECONDS[select.value].multiplier < least) {
+    while (pickUnit && smallest * RATE_UNIT_SECONDS[select.value].multiplier < least) {
         const next = { second: 'minute', minute: 'hour', hour: 'day' }[select.value];
         if (!next) break;
         select.value = next;
@@ -1766,7 +2030,7 @@ function updateRateDisplay() {
         return;
     }
     // Priorities: one row each, in the player's order, at the selected unit.
-    const amount = n => n < 10 ? String(Number(n.toPrecision(2))) : formatNumber(Math.round(n));
+    const amount = formatRate;
     const body = rows.map(r => {
         const why = r.perSecond <= 1e-9 && r.missing ? `<span class="hint small">${r.missing}</span>` : '';
         // Aniimo EXP names the Growth items making it; an Aniipod row is already named by tier.
@@ -1847,7 +2111,7 @@ function displayPlan(plan, scroll = true) {
     // A level-up plan's own card says how long it takes; the goal is for coin plans.
     goalSection.style.display = plan.level_up ? 'none' : 'block';
 
-    updateRateDisplay();
+    updateRateDisplay(!rateUnitChosen);
     renderGoalTargets(plan);
 
     // Said only when the plan might not be the best: the solver ran out of time, or the backup
@@ -2102,10 +2366,16 @@ function formatRecipeYield(recipe) {
 // Aniimo for it. Crops and trees list the ability of each job (sowing, reaping and so on).
 function formatRecipeAniimo(recipe, facility) {
     if (!recipe.aniimo) {
-        const jobs = recipe.jobs || [];
+        const jobs = [];
+        (recipe.jobs || []).forEach(job => {
+            const last = jobs[jobs.length - 1];
+            // Watering is listed once per time it happens; show it as one job done twice.
+            if (last && last.job[0] === job[0]) last.times += 1;
+            else jobs.push({ job, times: 1 });
+        });
         if (jobs.length === 0) return '-';
-        return `<span class="job-list">${jobs.map(([step, ability, level]) =>
-            `<span class="job"><span class="job-step">${step}</span> ${abilityTag(ability)}${level > 1 ? ` Lv.${level}+` : ''}</span>`).join('')}</span>`;
+        return `<span class="job-list">${jobs.map(({ job: [step, ability, level], times }) =>
+            `<span class="job"><span class="job-step">${step}${times > 1 ? ` &times;${times}` : ''}</span> ${abilityTag(ability)}${level > 1 ? ` Lv.${level}+` : ''}</span>`).join('')}</span>`;
     }
     const [ability, minLevel] = recipe.aniimo;
     const best = `best Lv.3${facility.personality ? ' ' + facility.personality : ''}`;
@@ -2171,7 +2441,7 @@ function renderRecipeTables(recipes) {
                                     <th>Level</th>
                                     <th>Inputs</th>
                                     <th>Yield</th>
-                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees. Everything else lists workload: at 100% Efficiency one workload takes one second. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above, then +100% per level; at gathering facilities like the Well, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
+                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees, before watering takes an eighth off it twice. Everything else lists workload: at 100% Efficiency a processor gets through one workload a second, a gathering facility 1.25 on a level-2 recipe and 1.5 on a level-3 one. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above, then +100% per level; at gathering facilities, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
                                     <th>Sell</th>
                                     <th>Module</th>
                                     <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 3 with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>
@@ -2244,7 +2514,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('optimize-btn').addEventListener('click', runFindPlan);
     document.getElementById('clear-saved-btn').addEventListener('click', clearSavedInputs);
-    document.getElementById('rate-unit').addEventListener('change', updateRateUnitDisplays);
+    document.getElementById('rate-unit').addEventListener('change', () => {
+        rateUnitChosen = true;
+        updateRateUnitDisplays();
+    });
     document.getElementById('aniimo-best').addEventListener('change', () => showSelectedPlan(false));
     document.getElementById('aniimo-toggle').addEventListener('click', () => {
         const toggle = document.getElementById('aniimo-toggle');

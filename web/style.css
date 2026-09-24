@@ -857,13 +857,6 @@ tbody tr:first-child td {
     border: 1px dashed;
 }
 
-.env-note {
-    max-width: 280px;
-    margin: 0.4rem 0 0;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-}
-
 /* Recipe reference tables (facility recipe modal): one table per facility, listed row order
    reflects level/name sort, not importance, same override as the facility-plan table above. */
 .recipe-table tbody tr:first-child td {
@@ -2252,4 +2245,40 @@ tr:hover .skip-row,
 /* Simple mode's facility list, collapsed by default. */
 .simple-details {
     margin-top: 0.75rem;
+}
+
+
+/* A growing environment's name, in its own colour. */
+.env-mode-tag {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--tint);
+    background: color-mix(in srgb, var(--tint) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tint) 40%, transparent);
+    vertical-align: middle;
+}
+
+/* Between the parts of a paired environment's heading. */
+.env-head-sep {
+    margin: 0 0.6rem;
+    color: var(--border);
+}
+
+/* Names the group of rows under it, so one table can cover a pair's three zones. */
+.facility-plan-group td {
+    padding: 0.85rem 0 0.35rem;
+    border-top: none;
+    text-align: left;
+}
+
+.facility-plan-group td::before {
+    content: none; /* the band names itself; the stacked layout's labels don't apply */
+}
+
+.facility-plan-table tbody tr:first-child.facility-plan-group td {
+    padding-top: 0.25rem;
 }

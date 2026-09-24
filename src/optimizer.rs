@@ -4142,7 +4142,7 @@ pub fn find_production_plan_with_progress(
                         facility: name.to_string(),
                         facility_count: total_owned,
                         status: PlanStepStatus::NothingAvailable,
-                        reason: "No profitable item currently available".to_string(),
+                        reason: "Nothing it can make helps this plan".to_string(),
                         is_grower: true,
                         cycle_time: None,
                         environment: None,
@@ -4159,7 +4159,7 @@ pub fn find_production_plan_with_progress(
                     };
                     let item = item_map.get(item_name);
                     steps.push(PlanStep {
-                        item_name: Some(item_name.to_string()),
+                        item_name: Some(crate::models::base_item_name(item_name).to_string()),
                         facility: name.to_string(),
                         facility_count: count,
                         status: PlanStepStatus::Producing,
@@ -4208,7 +4208,7 @@ pub fn find_production_plan_with_progress(
                     facility: name.to_string(),
                     facility_count: facility_counts.get_count(name),
                     status: PlanStepStatus::NothingAvailable,
-                    reason: "No profitable item currently available".to_string(),
+                    reason: "Nothing it can make helps this plan".to_string(),
                     is_grower: false,
                     cycle_time: None,
                     environment: None,
@@ -4223,7 +4223,7 @@ pub fn find_production_plan_with_progress(
                 let count = (whole_units(units_needed)).min(remaining);
                 remaining -= count;
                 steps.push(PlanStep {
-                    item_name: Some(item_name.to_string()),
+                    item_name: Some(crate::models::base_item_name(item_name).to_string()),
                     facility: name.to_string(),
                     facility_count: count,
                     status: PlanStepStatus::Producing,
@@ -4280,7 +4280,16 @@ pub fn find_production_plan_with_progress(
                         .collect()
                 })
                 .collect();
-            EnvironmentAssignment { building: building.to_string(), mode: mode.to_string(), units, covered, layouts: building_layouts }
+            EnvironmentAssignment {
+                building: building.to_string(),
+                mode: mode.to_string(),
+                units,
+                covered,
+                layouts: building_layouts,
+                partner: None,
+                zone: None,
+                pair_modes: None,
+            }
         })
         .collect();
 

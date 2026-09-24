@@ -300,3 +300,36 @@ fn test_unverified_list_names_real_recipes() {
         assert_eq!(&item.facility, facility);
     }
 }
+
+// Every processor recipe takes its facility's own ability: a Crafting Table recipe needs
+// Artisanship, a Blazing Stove one Fire, and so on. The web's facility list is where those
+// abilities are written down, so the two are checked against each other. Crops are exempt; each
+// of their jobs (sowing, watering, reaping) has an ability of its own, in grower_steps.csv.
+#[test]
+fn test_recipes_take_their_facility_ability() {
+    let js = std::fs::read_to_string("web/facility-config.js").expect("the web facility list");
+    let mut ability_of: Vec<(String, String)> = Vec::new();
+    for entry in js.split("name: '").skip(1) {
+        let Some(facility) = entry.split('\'').next() else { continue };
+        // Only up to the end of this entry, so a facility without an ability doesn't borrow the
+        // next one's.
+        let entry = entry.split("\n    }").next().unwrap_or(entry);
+        if let Some(rest) = entry.split("ability: '").nth(1) {
+            if let Some(ability) = rest.split('\'').next() {
+                ability_of.push((facility.to_string(), ability.to_string()));
+            }
+        }
+    }
+    assert!(ability_of.len() > 10, "read {} facility abilities", ability_of.len());
+
+    let csv = std::fs::read_to_string("data/aniimo_requirements.csv").expect("aniimo_requirements.csv");
+    let mut checked = 0;
+    for line in csv.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+        let cols: Vec<&str> = line.split(',').map(str::trim).collect();
+        let [name, facility, ability, ..] = cols[..] else { continue };
+        let Some((_, wanted)) = ability_of.iter().find(|(f, _)| f == facility) else { continue };
+        assert_eq!(ability, wanted, "{name} at the {facility} needs {wanted}, not {ability}");
+        checked += 1;
+    }
+    assert!(checked > 100, "only checked {checked} recipes");
+}

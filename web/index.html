@@ -18,7 +18,7 @@
         </div>
     </header>
     <p class="subtitle">aniimo homeland production optimizer</p>
-    <p class="disclaimer"><span class="disclaimer-icon" aria-hidden="true">⚠</span>A few recipes and facility levels haven't been confirmed in game yet.</p>
+    <p class="disclaimer"><span class="disclaimer-icon" aria-hidden="true">⚠</span>A few recipes, facility levels and counts haven't been confirmed in game yet; they're marked where they're used.</p>
 
     <div class="container">
 
@@ -68,7 +68,7 @@
 
                     <div class="modules-grid">
                         <div class="module-card">
-                            <h4>Ecological Module <span class="info-icon" data-tooltip="Lv.1: quick wheat&#10;Lv.2: quick bamboo&#10;Lv.3: quick potato&#10;Lv.4: quick lemon&#10;Lv.5: quick rice&#10;Lv.6: quick maple syrup&#10;Lv.7: quick strawberry&#10;Lv.8: quick coconut">?</span></h4>
+                            <h4>Ecological Module <span class="info-icon" data-tooltip="Lv.1: Quick Wheat&#10;Lv.2: Quick Bamboo&#10;Lv.3: Quick Potato&#10;Lv.4: Quick Lemon&#10;Lv.5: Quick Rice&#10;Lv.6: Quick Maple Syrup&#10;Lv.7: Quick Strawberry&#10;Lv.8: Quick Coconut">?</span></h4>
                             <div class="input-field">
                                 <label for="ecological-module-level">Level</label>
                                 <input type="number" id="ecological-module-level" value="0" min="0" max="10">
@@ -76,7 +76,7 @@
                         </div>
 
                         <div class="module-card">
-                            <h4>Kitchen Module <span class="info-icon" data-tooltip="Lv.2: premium bread&#10;Lv.3: premium potato soup&#10;Lv.4: premium sweet rice wine&#10;Lv.5: premium salted lemon&#10;Lv.6: premium jello&#10;Lv.7: premium berry chocolate coconut pudding">?</span></h4>
+                            <h4>Kitchen Module <span class="info-icon" data-tooltip="Lv.2: Premium Bread&#10;Lv.3: Premium Potato Soup&#10;Lv.4: Premium Sweet Rice Wine&#10;Lv.5: Premium Salted Lemon&#10;Lv.6: Premium Jello&#10;Lv.7: Premium Berry Chocolate Coconut Pudding">?</span></h4>
                             <div class="input-field">
                                 <label for="kitchen-module-level">Level</label>
                                 <input type="number" id="kitchen-module-level" value="0" min="0" max="10">
@@ -84,7 +84,7 @@
                         </div>
 
                         <div class="module-card">
-                            <h4>Resource Detector <span class="info-icon" data-tooltip="Lv.1: quick well water&#10;Lv.2: quick sea salt&#10;Lv.3: quick aromathyst&#10;Lv.4: quick fresh water&#10;Lv.5: quick wool&#10;Lv.6: quick deep rock spring water&#10;Lv.7: quick natural mineral spring water&#10;Lv.8: quick scales">?</span></h4>
+                            <h4>Resource Detector <span class="info-icon" data-tooltip="Lv.1: Quick Well Water&#10;Lv.2: Quick Sea Salt&#10;Lv.3: Quick Aromathyst&#10;Lv.4: Quick Fresh Water&#10;Lv.5: Quick Wool&#10;Lv.6: Quick Deep Rock Spring Water&#10;Lv.7: Quick Natural Mineral Spring Water&#10;Lv.8: Quick Scales">?</span></h4>
                             <div class="input-field">
                                 <label for="resource-detector-level">Level</label>
                                 <input type="number" id="resource-detector-level" value="0" min="0" max="10">
@@ -92,7 +92,7 @@
                         </div>
 
                         <div class="module-card">
-                            <h4>Crafting Module <span class="info-icon" data-tooltip="Lv.1: premium river-washed stones&#10;Lv.2: premium rose freshener&#10;Lv.3: advanced lemon incense&#10;Lv.4: advanced wind chime&#10;Lv.5: premium soap&#10;Lv.6: advanced gemstone dust&#10;Lv.7: premium mixed perfume">?</span></h4>
+                            <h4>Crafting Module <span class="info-icon" data-tooltip="Lv.1: Premium River-Washed Stones&#10;Lv.2: Premium Rose Freshener&#10;Lv.3: Advanced Lemon Incense&#10;Lv.4: Advanced Wind Chime&#10;Lv.5: Premium Soap&#10;Lv.6: Advanced Gemstone Dust&#10;Lv.7: Premium Mixed Perfume">?</span></h4>
                             <div class="input-field">
                                 <label for="crafting-module-level">Level</label>
                                 <input type="number" id="crafting-module-level" value="0" min="0" max="10">
@@ -176,7 +176,7 @@
                             <details class="explain">
                                 <summary>How the team is worked out</summary>
                                 <p><strong>Best</strong> puts a level-3 Aniimo with the facility's personality on every job. <strong>Minimum</strong> uses the lowest ability level each recipe accepts, with no personality bonus: slower, but it's what you need at the very least. An Aniimo is fastest on recipes below its level: a level-3 one works a processor's level-1 recipe at 400% and a level-2 one at 300%, but a Well's level-1 recipe at 200%. The plan below follows whichever is picked.</p>
-                                <p>Aniimo move between any jobs they can do, so the counts cover the work on average rather than one per facility; Farmland and Woodland jobs are included. Facilities with a resident Aniimo (Sandcastle, Dewy House and the like) need one each, and so does each Heat Furnace (Fire), Cooling Unit (Ice) and Sunlamp (Light) in use. Whether an environment building's Aniimo level or personality matters isn't known yet. Each recipe's minimum ability level and the Farmland/Woodland jobs haven't been checked in game yet.</p>
+                                <p>Every row in the plan below gets its own Aniimo, so jobs like watering have someone on them. Where that asks for more Aniimo than your homeland holds, the Farmland and Woodland jobs, which any ability level can do, double up in another Aniimo's spare time. Facilities with a resident Aniimo (Sandcastle, Dewy House and the like) need one each, and so does each Heat Furnace (Fire), Cooling Unit (Ice) and Sunlamp (Light) in use. Whether an environment building's Aniimo level or personality matters isn't known yet. Each recipe's minimum ability level and the Farmland/Woodland jobs haven't been checked in game yet.</p>
                             </details>
                             <div id="aniimo-summary"></div>
                         </div>
@@ -344,21 +344,24 @@
                     <li><strong>Whole units.</strong> \(b_r \, t_r \le u_r\), with \(u_r\) a whole number and \(t_r\) the time per batch. A unit runs one recipe and is left running.</li>
                     <li><strong>Item balance.</strong> Everything made covers what other recipes use plus what's sold. A quick variant makes the same item as the regular one.</li>
                     <li><strong>What you own.</strong> For every facility and level \(L\), the units on recipes needing level \(L\) or higher add up to at most what you own at that level. A higher-level plot can run a lower-level recipe.</li>
-                    <li><strong>Growing environments.</strong> Plots of a crop needing Cool, Warm, Freeze, Scorching or Adequate must be covered by a Heat Furnace, Cooling Unit or Sunlamp set to that mode (see below).</li>
+                    <li><strong>Growing environments.</strong> A crop wanting Cool, Warm, Freeze or Scorching grows at full speed on a plot covered by a Heat Furnace or Cooling Unit set to that mode, and more slowly on an uncovered one (see below). An Adequate crop needs a Sunlamp and grows nowhere else.</li>
                 </ul>
                 <p>HiGHS proves the plan is the best possible. On the rare setup where that takes longer than 30 seconds, it stops with the best plan so far and the results say how far from the best it could be. Every plan is then re-checked on its own before it's shown.</p>
 
                 <h3>Time per batch</h3>
-                <p>Crops and trees take their grow time. Everything else has a workload, and how long it takes depends on the Aniimo's Efficiency \(e\), which the facility screen shows, and a base rate \(r\):</p>
+                <p>Crops and trees take their grow time, less the Aniimo's watering: a plot asks for water twice as it grows, at two thirds and at one third of its time left, and each watering takes an eighth of the crop's own time off. A 40-minute crop comes in at 30 and a 4-minute one at 3. A crop short of its environment grows slower but still loses the same minutes, so a Warm crop with no building takes 50 minutes and is watered down to 40; that part isn't checked in game yet.</p>
+                <p>Everything else has a workload, and how long it takes depends on the Aniimo's Efficiency \(e\), which the facility screen shows, and a base rate \(r\):</p>
                 <div class="math-block">\[ t = \frac{\text{workload}}{r \times e \times 1.2^{\,\text{personality}}} \]</div>
                 <p>At a processor, \(r\) is one workload a second. At a gathering facility (Well, Mine, Sandcastle, Dewy House and the like) and at the Dance Pad Polisher and Aniipod Maker, it's higher on recipes needing a higher ability level: 1 a second at level 1, 1.25 at level 2 and 1.5 at level 3. A Growth Fruit, 5,400 workload, takes an hour at 100%.</p>
                 <p>Efficiency \(e\) depends on the Aniimo's ability level compared with the level the recipe needs. At exactly the needed level it's 100%. At a processor, one level above the recipe's need is 300%, and each level after that adds 100% (400%, 500%). At a gathering facility, each level above adds 50% on a level-1 recipe and 40% on a harder one; the Dance Pad Polisher and Aniipod Maker add 40% a level. The personality term counts only when the Aniimo has the facility's personality (+20%); the Polisher and Aniipod Maker have none.</p>
 
                 <h3>Environment coverage</h3>
+                <p>Environments are steps of temperature: Freeze -2, Cool -1, no building 0, Warm +1, Scorching +2. A crop grows at 100% at its own, 80% one step away, 50% two steps and 20% beyond that. An uncovered plot is neutral, so a Cool or Warm crop still manages 80% and a Freeze or Scorching one 50%, which is why plans sometimes grow them with no building at all. Adequate is separate: those crops need a Sunlamp. Efficiency stretches the grow time, so a Rose at 80% takes 50m instead of 40m for the same 8 roses, before watering.</p>
+                <p>Temperatures add where two buildings both reach a plot, capped at -2 and +2, and the game shows the result on the plot itself: Scorching and Cool together read Warm, Warm and Cool read Room temp. Plans use that, so a Heat Furnace on Scorching with four tiles of space to a Cooling Unit on Cool covers three zones at once, Scorching, Warm between them and Cool. Where the second building sits decides the split: every placement whose coverage still overlaps the first is worked out, in a row or on the diagonal, from touching (6 plots, 24 in the middle and 6, for Farmland) out to a corner's worth of overlap (22, 10 and 22). Two buildings this close cover fewer plots in total than two standing apart, so a plan only does it when the third zone is worth more. Place the pair exactly as the plan's diagram shows, and keep any other building's area clear of them.</p>
                 <p>Each Heat Furnace, Cooling Unit and Sunlamp is 2×2 tiles and covers a 9×9 area centered on it. A plot counts as covered if any part of it is inside, and everything snaps to quarter tiles. Every useful way one building can cover a mix of Farmland, Woodland and the rest is worked out once by exact packing; the plan then picks a mode and one of those mixes for each building.</p>
 
                 <h3>Level up</h3>
-                <p>A level-up costs coins \(C_0\) plus a Woodworking Bench item and a Chimney Kiln item, \(C_1\) and \(C_2\), and you may already have some of each, \(S_j\). The plan finds the most level-ups per day, \(\lambda\), it could keep up, where for coins and each item:</p>
+                <p>A level-up costs coins \(C_0\) plus the materials it asks for, \(C_1\) and \(C_2\) (raw Wood Blocks and Mineral Sand up to RV 6, a Woodworking Bench item and a Chimney Kiln item from RV 7), and you may already have some of each, \(S_j\). The plan finds the most level-ups per day, \(\lambda\), it could keep up, where for coins and each item:</p>
                 <div class="math-block">\[ \text{made}_j \ \ge\ \frac{\lambda \, (C_j - S_j)}{86400} \]</div>
                 <p>(\(\text{made}_j\) per second), so the level-up takes \(1/\lambda\) days. Stock of anything lower in a chain (Wood Blocks, Mineral Sand, a lower tier) counts toward what's made, since the Bench and Kiln process it up. Two more solves follow, each keeping what the last one found: the most coins at that pace, then as much extra of the level-up items as spare Bench and Kiln time allows. That's why ore often finishes before wood and shows up as surplus.</p>
                 <p>Each tier takes 8 of the tier below (4 for the last), so the Bench and Kiln switch between tiers rather than running one recipe like other processors.</p>
@@ -398,7 +401,7 @@
                 <p>Click "Find the best plan" to see how long the level-up takes (or your best rate) and what each facility should make. Set it up once and leave it running. Everything you enter is saved in your browser; "Clear saved values" resets it.</p>
 
                 <h3>4. Set a goal (optional)</h3>
-                <p>With Most coins, enter a target amount and your current balance to see how long it will take. This updates instantly as you type.</p>
+                <p>Pick what you're aiming for, enter the target amount and what you have now, and the card says how long it takes and what else you'll have by then. It updates instantly as you type.</p>
 
                 <h3>Understanding the results</h3>
                 <ul>

@@ -30,35 +30,36 @@ fn solve_and_check(items: &[ProductionItem], counts: &FacilityCounts, modules: &
     plan
 }
 
-// Six Farmland at level 2 with nothing else: wheat (5 per 240s, sells for 1) earns 6 x 5/240 =
-// 0.125/sec; potato (2 per 640s, sells for 8, seed 1) earns 6 x 15/640 = 0.1406; quick_wheat needs
-// Ecological Module 1, which isn't owned. Potato wins.
+// Six Farmland at level 2 with nothing else: watering takes a quarter off both, so wheat (5 per
+// 180s, sells for 1) earns 6 x 5/180 = 0.1667/sec and potato (2 per 480s, sells for 8, seed 1)
+// earns 6 x 15/480 = 0.1875; quick_wheat needs Ecological Module 1, which isn't owned. Potato wins.
 #[test]
 fn exact_picks_the_best_crop_on_its_own() {
     let Some(items) = load_items() else { return };
     let counts = FacilityCounts::only(&[("Farmland", 6, 2)]);
     let plan = solve_and_check(&items, &counts, &ModuleLevels::default());
-    assert!((plan.rate_per_second - 6.0 * 15.0 / 640.0).abs() < 1e-9, "got {}", plan.rate_per_second);
+    assert!((plan.rate_per_second - 6.0 * 15.0 / 480.0).abs() < 1e-9, "got {}", plan.rate_per_second);
     assert_eq!(plan.units.get("potato"), Some(&6));
 }
 
 // rice_drink (Carousel Mill) needs milled_rice made at a Carousel Mill too; with two Mills, one
-// makes each. 3 rice plots -> 0.000625 rice_drink/sec x (1860 - 2 x 12 seed) = 1.1475; 4 Wells with
-// level-1 Aniimo make 0.014222 fresh_water/sec, rice_drink uses 0.01 and the rest sells:
-// 0.004222 x 46 = 0.19422. Total 1.34172.
+// makes each. 3 rice plots, watered, make a rice drink every 1200s: 0.000833/sec x (1860 - 2 x 12
+// seed) = 1.53; 4 Wells with level-1 Aniimo make 0.014222 fresh_water/sec, the drinks use 16 each
+// and the rest sells at 46.
 #[test]
 fn exact_matches_the_hand_worked_rice_drink_plan() {
     let Some(items) = load_items() else { return };
     let counts = FacilityCounts::only(&[("Farmland", 3, 3), ("Well", 4, 2), ("Carousel Mill", 2, 4)]);
     let plan = solve_and_check(&items, &counts, &ModuleLevels::default());
-    let expected = 3.0 * 18.0 / 2400.0 / 18.0 / 2.0 * (1860.0 - 24.0) + (4.0 * 8.0 / 2250.0 - 0.01) * 46.0;
+    let drinks = 3.0 * 18.0 / 1800.0 / 18.0 / 2.0;
+    let expected = drinks * (1860.0 - 24.0) + (4.0 * 8.0 / 2250.0 - 16.0 * drinks) * 46.0;
     assert!((plan.rate_per_second - expected).abs() < 1e-6, "got {}, expected {expected}", plan.rate_per_second);
     assert_eq!(plan.units.get("rice_drink"), Some(&1));
     assert_eq!(plan.units.get("milled_rice"), Some(&1));
     // The rice seeds come off the rice drink they end up in.
     let shown = to_production_plan(&plan, &items, "coins", &counts);
     let drink = shown.income_streams.iter().find(|s| s.item_name == "rice_drink").expect("rice drink sold");
-    assert!((drink.rate_per_second - 0.000625 * (1860.0 - 24.0)).abs() < 1e-9, "rice drink earns {}", drink.rate_per_second);
+    assert!((drink.rate_per_second - drinks * (1860.0 - 24.0)).abs() < 1e-9, "rice drink earns {}", drink.rate_per_second);
 }
 
 // A mid-game setup with an Aniimo setup applied and a Cooling Unit, so environment coverage and
@@ -121,6 +122,30 @@ fn exact_keeps_prioritized_byproducts_at_their_maximum() {
     assert!(made >= most.objective * (1.0 - 1e-5), "made {made}, most {}", most.objective);
     let unfloored = solve_exact(&items, "coins", &counts, &modules, Goal::Earn { floors: &[] }, None, None).unwrap();
     assert!(plan.rate_per_second <= unfloored.rate_per_second + 1e-9);
+}
+
+// A crop grows without its environment building, just slower: chestnut (Warm) grows in 3000s
+// rather than 2400s at 80% speed, which watering brings to 2400s and 1800s, and it still beats
+// every crop that wants no environment.
+#[test]
+fn exact_grows_crops_without_their_environment() {
+    let Some(items) = load_items() else { return };
+    let counts = FacilityCounts::only(&[("Woodland", 4, 4)]);
+    let plan = solve_and_check(&items, &counts, &ModuleLevels::default());
+    assert!((plan.rate_per_second - 4.0 * 653.0 / 2400.0).abs() < 1e-9, "got {}", plan.rate_per_second);
+    assert_eq!(plan.units.get("chestnut__uncovered"), Some(&4));
+
+    // A Heat Furnace covers all four plots, and palm bark (Scorching, 673 a harvest over 1800s
+    // once watered) is the best thing to put under it.
+    let warmed = FacilityCounts::only(&[("Woodland", 4, 4), ("Heat Furnace", 1, 1)]);
+    let covered = solve_and_check(&items, &warmed, &ModuleLevels::default());
+    assert!((covered.rate_per_second - 4.0 * 673.0 / 1800.0).abs() < 1e-9, "got {}", covered.rate_per_second);
+    assert_eq!(covered.units.get("palm_bark"), Some(&4));
+
+    // Adequate crops still need their Sunlamp: walnut is worth more than chestnut but can't grow
+    // without one.
+    assert_eq!(plan.units.get("walnut__uncovered"), None);
+    assert_eq!(plan.units.get("walnut"), None);
 }
 
 fn level_up(cost: &[(&str, f64)], stock: &[(&str, f64)]) -> LevelUp {
@@ -190,10 +215,14 @@ fn exact_level_up_makes_its_items_from_byproducts() {
     assert!(net["coarse_sifted_ore"] * seconds >= 360.0 * (1.0 - 2e-4));
     assert!(plan.rate_per_second * seconds >= 69000.0 * (1.0 - 2e-4));
 
-    // Wood Blocks in stock cut the time.
-    let stocked = level_up(&[("coins", 69000.0), ("rough_lumber", 290.0), ("coarse_sifted_ore", 360.0)], &[("wood_block", 2320.0)]);
+    // Items in stock cut the time. Wood Blocks and Mineral Sand wouldn't: the Woodland and Mine
+    // make plenty of both, and what sets the pace is the Bench and Kiln time to work them up.
+    let stocked = level_up(
+        &[("coins", 69000.0), ("rough_lumber", 290.0), ("coarse_sifted_ore", 360.0)],
+        &[("rough_lumber", 145.0), ("coarse_sifted_ore", 180.0)],
+    );
     let (_, sooner) = solve_level_up(&items, &counts, &stocked);
-    assert!(sooner < seconds, "{sooner}s with Wood Blocks in stock, {seconds}s without");
+    assert!(sooner < seconds, "{sooner}s with half the items in stock, {seconds}s without");
 
     // Without the Bench the items can't be made at all.
     let no_bench = FacilityCounts::only(&[("Farmland", 6, 2), ("Woodland", 3, 2), ("Mine", 2, 2), ("Chimney Kiln", 1, 1)]);
