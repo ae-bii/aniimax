@@ -66,7 +66,7 @@ pub fn parse_grower_steps(csv_text: &str) -> Result<GrowerSteps, Box<dyn Error>>
 
 /// Loads `grower_steps.csv` from the data directory; see [`parse_grower_steps`].
 pub fn load_grower_steps(data_dir: &Path) -> Result<GrowerSteps, Box<dyn Error>> {
-    parse_grower_steps(&std::fs::read_to_string(data_dir.join("grower_steps.csv"))?)
+    Ok(parse_grower_steps(&std::fs::read_to_string(data_dir.join("grower_steps.csv"))?)?.with_watering())
 }
 
 /// One row of `unverified.csv`.
@@ -476,6 +476,8 @@ pub fn load_all_data(data_dir: &Path) -> Result<Vec<ProductionItem>, Box<dyn Err
         all_items.extend(load_processing_no_energy(&data_dir.join(file), facility)?);
     }
 
+    crate::models::add_uncovered_variants(&mut all_items);
+    crate::models::apply_watering(&mut all_items);
     Ok(all_items)
 }
 

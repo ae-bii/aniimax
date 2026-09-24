@@ -174,6 +174,98 @@ pub fn no_personality_efficiency(level: u32, required: u32) -> f64 {
     1.0 + 0.4 * (level.clamp(1, 4).max(required) - required) as f64
 }
 
+/// Marks a crop grown without its growing environment, e.g. `rose__uncovered` (see
+/// [`add_uncovered_variants`]).
+pub const UNCOVERED_SUFFIX: &str = "__uncovered";
+
+/// The crop behind an item name, which is the name itself unless it's an uncovered variant.
+pub fn base_item_name(name: &str) -> &str {
+    name.strip_suffix(UNCOVERED_SUFFIX).unwrap_or(name)
+}
+
+/// How fast a crop needing `environment` grows with no environment building over it. Environments
+/// are steps of temperature (Freeze -2, Cool -1, none 0, Warm +1, Scorching +2), and a crop grows
+/// at 100% at its own, 80% one step away, 50% two and 20% three or more. An uncovered plot is
+/// neutral, so Cool and Warm crops manage 80% and Freeze and Scorching ones 50%. Adequate is
+/// separate: those crops need a Sunlamp and grow nowhere else.
+pub fn uncovered_efficiency(environment: &str) -> Option<f64> {
+    match environment {
+        "Cool" | "Warm" => Some(0.8),
+        "Freeze" | "Scorching" => Some(0.5),
+        _ => None,
+    }
+}
+
+/// The ability an Aniimo needs to water a plot.
+pub const WATERING_ABILITY: &str = "Water";
+
+/// How many times a plot asks for water as it grows.
+pub const WATERINGS_PER_CYCLE: u32 = 2;
+
+/// What each watering takes off a crop's timer, as a share of its own grow time: an eighth, twice
+/// over. A 40-minute crop loses 5 minutes at each, and a 4-minute one about 30 seconds, both seen
+/// in game.
+pub const WATERING_SAVES: f64 = 0.125;
+
+/// How long a crop takes once the Aniimo have watered it. A plot asks for water twice as it grows,
+/// at two thirds and at one third of its time left, and each watering takes an eighth off, so a
+/// 40-minute crop comes in at 30 and a 4-minute one at 3. `at_full_speed` is the crop's own grow
+/// time, which is what the waterings are measured against; a plot short of its environment takes
+/// longer but still loses the same minutes, not more. That part isn't checked in game yet.
+///
+/// ```
+/// use aniimax::models::watered_time;
+///
+/// assert_eq!(watered_time(2400.0, 2400.0), 1800.0); // 40 minutes becomes 30
+/// assert_eq!(watered_time(240.0, 240.0), 180.0);    // 4 minutes becomes 3
+/// // A Warm crop with no building: 50 minutes, still losing the 40-minute crop's 10.
+/// assert_eq!(watered_time(3000.0, 2400.0), 2400.0);
+/// ```
+pub fn watered_time(seconds: f64, at_full_speed: f64) -> f64 {
+    (seconds - 2.0 * WATERING_SAVES * at_full_speed).max(0.0)
+}
+
+/// Adds a slower, uncovered copy of every crop that wants a growing environment, so plans can grow
+/// one without the building at the cost of speed (see [`uncovered_efficiency`]). A plot never sits
+/// under the wrong environment, since plans choose where plots go.
+pub fn add_uncovered_variants(items: &mut Vec<ProductionItem>) {
+    let mut variants = Vec::new();
+    for item in items.iter() {
+        let Some(environment) = item.environment.as_deref() else { continue };
+        // Only crops and trees, which grow on their own; a facility's recipes are worked by an
+        // Aniimo and haven't been checked without their environment.
+        if item.workload.is_some() || item.production_time <= 0.0 {
+            continue;
+        }
+        let Some(efficiency) = uncovered_efficiency(environment) else { continue };
+        variants.push(ProductionItem {
+            name: format!("{}{}", item.name, UNCOVERED_SUFFIX),
+            production_time: item.production_time / efficiency,
+            environment: None,
+            ..item.clone()
+        });
+    }
+    items.extend(variants);
+}
+
+/// Takes the Aniimo's watering off every crop's grow time (see [`watered_time`]). Only crops and
+/// trees are watered; a facility's recipes are worked, not grown. An uncovered crop loses the same
+/// minutes its covered self does, so the waterings are measured against the crop's own grow time.
+pub fn apply_watering(items: &mut [ProductionItem]) {
+    let full_speed: std::collections::HashMap<String, f64> = items
+        .iter()
+        .filter(|item| !item.name.ends_with(UNCOVERED_SUFFIX))
+        .map(|item| (item.name.clone(), item.production_time))
+        .collect();
+    for item in items.iter_mut() {
+        if item.workload.is_some() || item.production_time <= 0.0 {
+            continue;
+        }
+        let at_full_speed = full_speed.get(base_item_name(&item.name)).copied().unwrap_or(item.production_time);
+        item.production_time = watered_time(item.production_time, at_full_speed);
+    }
+}
+
 /// Workload an Aniimo gets through per second at 100% efficiency on a gathering facility or one
 /// without a personality, for a recipe needing ability level `required`: 1 at level 1, then 0.25
 /// more a level. Timed in game: Clay (level 2, 2250 workload) takes 21m 26s at 140%, and the
@@ -399,9 +491,38 @@ impl GrowerSteps {
         self
     }
 
-    /// `item`'s jobs in growing order; empty for anything that isn't a crop or tree.
+    /// `item`'s jobs in growing order; empty for anything that isn't a crop or tree. An uncovered
+    /// crop takes the same jobs as the crop itself (see [`add_uncovered_variants`]).
     pub fn get(&self, item: &str) -> &[GrowerStep] {
-        self.by_item.get(item).map_or(&[], Vec::as_slice)
+        self.by_item.get(base_item_name(item)).map_or(&[], Vec::as_slice)
+    }
+
+    /// Adds the two waterings every crop asks for as it grows (see [`watered_time`]), so the
+    /// Aniimo who come over are part of the team. The ability is the one the watering icon shows;
+    /// what level it wants and how long it takes them haven't been checked in game, so it's
+    /// counted at level 1 and at the same few seconds the other jobs take.
+    pub fn with_watering(mut self) -> Self {
+        for jobs in self.by_item.values_mut() {
+            // A plot asks for water while it grows, so the jobs read Reclaiming, Sowing,
+            // Watering, then the harvest.
+            let at = jobs
+                .iter()
+                .position(|job| job.step == "Sowing")
+                .map(|i| i + 1)
+                .unwrap_or_else(|| jobs.len().min(1));
+            for offset in 0..WATERINGS_PER_CYCLE as usize {
+                jobs.insert(
+                    at + offset,
+                    GrowerStep {
+                        step: "Watering".to_string(),
+                        ability: WATERING_ABILITY.to_string(),
+                        min_level: 1,
+                        workload: 3.0,
+                    },
+                );
+            }
+        }
+        self
     }
 }
 
@@ -631,6 +752,16 @@ pub struct EnvironmentAssignment {
     /// specific building's exact facility layout; for the frontend's per-building table and
     /// visual diagram.
     pub layouts: Vec<Vec<FacilityPlacement>>,
+    /// Set when this is one zone of two overlapping buildings: the other building, then how many
+    /// tiles along and up its near corner sits from this one's. The layout is in a frame with
+    /// this building at the origin, so the diagram can draw both.
+    pub partner: Option<(String, u32, u32)>,
+    /// Which of the pair's zones this is: 0 the first building's own, 1 where both reach, 2 the
+    /// second's own. `None` for a building on its own.
+    pub zone: Option<u8>,
+    /// What each of the pair is set to, e.g. `("Scorching", "Cool")`, so both coverage squares can
+    /// be drawn in their own colours.
+    pub pair_modes: Option<(String, String)>,
 }
 
 /// The provably-optimal simultaneous use of every owned facility for one target, a currency

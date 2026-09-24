@@ -226,8 +226,8 @@ fn test_parallel_production_increases_efficiency() {
 // second item rather than left unused.
 
 // bouquet (Crafting Table) needs 8 rose and 7 lavender, both grown on the same Farmland. Each is
-// one full planting (2400s), so a bouquet costs 4800 plot-seconds and 21 + 32 = 53 in seeds:
-// 20 plots -> 20/4800 bouquets/sec x (1120 - 53) = 4.4458/sec, with a 10/10 split. If each branch
+// one full planting (1800s once watered), so a bouquet costs 3600 plot-seconds and 21 + 32 = 53 in seeds:
+// 20 plots -> 20/3600 bouquets/sec x (1120 - 53) = 4.4458/sec, with a 10/10 split. If each branch
 // assumed it had all 20 plots to itself, the rate would roughly double.
 #[test]
 fn test_find_coin_plan_shares_grower_capacity_across_branches() {
@@ -248,17 +248,17 @@ fn test_find_coin_plan_shares_grower_capacity_across_branches() {
     assert!(produces(&plan, "bouquet"), "bouquet should be produced, got: {:?}", plan.coin_items);
     assert_eq!(count_of(&plan, "Farmland", "rose"), 10);
     assert_eq!(count_of(&plan, "Farmland", "lavender"), 10);
-    assert_rate(&plan, 20.0 / 4800.0 * (1120.0 - 53.0));
+    assert_rate(&plan, 20.0 / 3600.0 * (1120.0 - 53.0));
 
     let result = time_to_reach_goal(&plan, 1_000_000.0, 0.0).expect("goal should be reachable");
     let bouquet = result.products.iter().find(|p| p.item_name == "bouquet").unwrap();
-    assert!((bouquet.rate_per_second - 4.445833333333333).abs() < 1e-6);
+    assert!((bouquet.rate_per_second - 20.0 / 3600.0 * (1120.0 - 53.0)).abs() < 1e-6);
 }
 
 // caramel_nut_chips needs nuts (chestnut + walnut) and maple_syrup, all three grown on Woodland;
 // the plan must show every one of them, not just the first item found for that facility. Each
 // caramel_nut_chips batch uses one full planting of each (7 chestnut, 6 walnut, 9 maple_syrup at
-// 2400s), so 12 plots split evenly 4/4/4: 12/7200 batches/sec x (3130 - 47 - 47 - 21) = 5.025.
+// 1800s once watered), so 12 plots split evenly 4/4/4: 12/5400 batches/sec x (3130 - 47 - 47 - 21) = 5.025.
 #[test]
 fn test_multi_ingredient_chain_shows_every_grower_item_it_needs() {
     let data_dir = Path::new("data");
@@ -291,7 +291,7 @@ fn test_multi_ingredient_chain_shows_every_grower_item_it_needs() {
         assert_eq!(step.reason, reason);
         assert_eq!(step.facility_count, 4, "expected an even 4/4/4 split, got: {woodland_steps:?}");
     }
-    assert_rate(&plan, 12.0 / 7200.0 * (3130.0 - 47.0 - 47.0 - 21.0));
+    assert_rate(&plan, 12.0 / 5400.0 * (3130.0 - 47.0 - 47.0 - 21.0));
 }
 
 // A grown crop's row names what it's directly used for, not the chain's final product: quick_wheat
@@ -359,12 +359,12 @@ fn test_two_chains_sharing_a_grower_facility_settle_on_the_more_profitable_split
         !normal.coin_items.iter().any(|s| s.item_name.as_deref() == Some("ginseng")),
         "ginseng should be fully out-competed, not kept with a token plot"
     );
-    assert_rate(&normal, 12.0 / 2400.0 * (1210.0 - 56.0));
+    assert_rate(&normal, 12.0 / 1800.0 * (1210.0 - 56.0));
 }
 
 // With only 4 Woodland plots, caramel_nut_chips can run 1/1/1 plus one leftover plot:
-// 3/7200 x 3015 + 673/2400 (walnut on the 4th plot) = 1.537. Dropping the maple_syrup leg and
-// selling nuts instead (2 chestnut + 2 walnut) is worth more: 4/4800 x (1980 - 94) = 1.5717.
+// 3/5400 x 3015 + 673/1800 (walnut on the 4th plot) = 1.537. Dropping the maple_syrup leg and
+// selling nuts instead (2 chestnut + 2 walnut) is worth more: 4/3600 x (1980 - 94) = 1.5717.
 // The Cooling Unit only matters for maple_syrup's Freeze, so once caramel_nut_chips is dropped it
 // shouldn't be configured at all.
 #[test]
@@ -396,7 +396,7 @@ fn test_single_chain_using_multiple_grower_items_settles_on_the_more_profitable_
     assert!(!normal.coin_items.iter().any(|s| s.item_name.as_deref() == Some("maple_syrup")));
     assert_eq!(count_of(&normal, "Woodland", "chestnut"), 2);
     assert_eq!(count_of(&normal, "Woodland", "walnut"), 2);
-    assert_rate(&normal, 4.0 / 4800.0 * (1980.0 - 94.0));
+    assert_rate(&normal, 4.0 / 3600.0 * (1980.0 - 94.0));
 
     assert!(
         normal.environment_assignments.iter().all(|a| a.building != "Cooling Unit"),
@@ -471,7 +471,7 @@ fn test_find_coin_plan_solo_processor_contributor_reports_true_need_not_full_own
     assert_eq!(producing[0].item_name.as_deref(), Some("bamboo_ware"));
     assert_eq!(producing[0].facility_count, 1, "bamboo_ware needs only 1 of the 2 tables, got: {table_steps:?}");
     assert_eq!(idle, 1, "the other table should be idle, got: {table_steps:?}");
-    assert_rate(&plan, 2.0 / 2400.0 * (190.0 - 8.0));
+    assert_rate(&plan, 2.0 / 1800.0 * (190.0 - 8.0));
 }
 
 // Seeds needed: one seed per planting, so over the goal's total_time a grower plot needs
@@ -658,8 +658,8 @@ fn test_environment_gated_item_unavailable_with_zero_matching_buildings() {
 }
 
 // 14 Woodland plots but one Sunlamp: walnut (Adequate) caps at the Sunlamp's 12-plot Woodland
-// coverage and the other 2 plots fall back to bamboo.
-// 12 x (120 x 6 - 47)/2400 + 2 x (13 x 10 - 8)/2400 = 3.365 + 0.10167.
+// coverage and the other 2 plots grow chestnut (Warm) uncovered, at 80% speed: 3000s a harvest
+// rather than 2400s. 12 x (120 x 6 - 47)/2400 + 2 x (100 x 7 - 47)/3000.
 #[test]
 fn test_environment_gated_item_capped_by_single_building_coverage() {
     let data_dir = Path::new("data");
@@ -672,8 +672,8 @@ fn test_environment_gated_item_capped_by_single_building_coverage() {
         .expect("plan should be feasible");
 
     assert_eq!(count_of(&plan, "Woodland", "walnut"), 12, "got: {:?}", plan.coin_items);
-    assert_eq!(count_of(&plan, "Woodland", "bamboo"), 2, "got: {:?}", plan.coin_items);
-    assert_rate(&plan, 12.0 * 673.0 / 2400.0 + 2.0 * 122.0 / 2400.0);
+    assert_eq!(count_of(&plan, "Woodland", "chestnut"), 2, "got: {:?}", plan.coin_items);
+    assert_rate(&plan, 12.0 * 673.0 / 1800.0 + 2.0 * 653.0 / 2400.0);
 
     assert_eq!(plan.environment_assignments.len(), 1);
     let assignment = &plan.environment_assignments[0];
@@ -747,11 +747,11 @@ fn test_wood_blocks_target_picks_the_best_byproduct_item() {
 
     // The target IS the byproduct, so the passive byproduct_rates side channel stays empty.
     assert!(plan.byproduct_rates.is_empty(), "got: {:?}", plan.byproduct_rates);
-    assert_rate(&plan, 10.0 * 21.0 / 2400.0);
+    assert_rate(&plan, 10.0 * 21.0 / 1800.0);
 }
 
 // Same Sunlamp cap as above with Wood Blocks as the target: walnut (47 per batch) caps at 12
-// plots and the last 2 fall back to bamboo (8). (12 x 47 + 2 x 8)/2400 = 0.24167/sec.
+// plots and the last 2 grow uncovered chestnut, also 47 a batch but over 3000s.
 #[test]
 fn test_wood_blocks_target_respects_environment_coverage() {
     let data_dir = Path::new("data");
@@ -771,7 +771,7 @@ fn test_wood_blocks_target_respects_environment_coverage() {
         .sum();
     assert_eq!(total_woodland, 14, "the remaining 2 plots should still produce something");
     assert!(plan.byproduct_rates.is_empty());
-    assert_rate(&plan, (12.0 * 47.0 + 2.0 * 8.0) / 2400.0);
+    assert_rate(&plan, 12.0 * 47.0 / 1800.0 + 2.0 * 47.0 / 2400.0);
 
     assert_eq!(plan.environment_assignments.len(), 1);
     assert_eq!(plan.environment_assignments[0].covered, vec![("Woodland".to_string(), 12)]);
@@ -858,7 +858,7 @@ fn test_faster_aniimo_needs_fewer_processor_units() {
     let fast = find_production_plan(&items, "coins", &counts, &modules, false).expect("plan should be feasible");
     assert_eq!(count_of(&fast, "Crafting Table", "bamboo_ware"), 3, "got: {:?}", fast.coin_items);
     assert_eq!(count_of(&fast, "Woodland", "bamboo"), 400, "got: {:?}", fast.coin_items);
-    assert_rate(&fast, 400.0 / 2400.0 * (190.0 - 8.0));
+    assert_rate(&fast, 400.0 / 1800.0 * (190.0 - 8.0));
 }
 
 #[test]
@@ -905,7 +905,7 @@ fn test_environment_coverage_uses_multiple_owned_buildings_when_one_is_not_enoug
         "2 Cooling Units should cover all 40 ginseng plots, not cap at one unit's 32, got: {farmland_steps:?}"
     );
     assert!(!farmland_steps.iter().any(|s| s.status == PlanStepStatus::Idle));
-    assert_rate(&plan, 40.0 * 784.0 / 2400.0);
+    assert_rate(&plan, 40.0 * 784.0 / 1800.0);
 
     let cooling_units_used: u32 = plan
         .environment_assignments
@@ -949,8 +949,10 @@ fn test_processor_facility_dedicates_a_separate_unit_to_its_own_intermediate_ste
     assert_eq!(intermediate_step.facility_count, 1);
 
     assert_eq!(count_of(&plan, "Well", "fresh_water"), 4);
-    let well_sale = (4.0 * 8.0 / 2250.0 - 0.01) * 46.0;
-    assert_rate(&plan, 3.0 * 18.0 / 2400.0 / 18.0 / 2.0 * (1860.0 - 24.0) + well_sale);
+    // Each rice drink drinks 16 fresh water; the rest of the Wells' output sells.
+    let drinks = 3.0 * 18.0 / 1800.0 / 18.0 / 2.0;
+    let well_sale = (4.0 * 8.0 / 2250.0 - 16.0 * drinks) * 46.0;
+    assert_rate(&plan, drinks * (1860.0 - 24.0) + well_sale);
 }
 
 // With only one Carousel Mill, rice_drink can't be made at all (it needs two dedicated units). The
@@ -979,7 +981,7 @@ fn test_two_hop_chain_is_infeasible_with_only_one_unit_of_its_shared_facility() 
     assert_eq!(producing[0].facility_count, 1);
 
     let well_sale = 4.0 * 8.0 / 2250.0 * 46.0;
-    assert_rate(&plan, 3.0 * 18.0 / 2400.0 / 18.0 * (240.0 - 12.0) + well_sale);
+    assert_rate(&plan, 3.0 * 18.0 / 1800.0 / 18.0 * (240.0 - 12.0) + well_sale);
 }
 
 // A player often upgrades some but not all plots. 5 Farmland at level 3 plus 4 at level 6:
@@ -1008,7 +1010,7 @@ fn test_mixed_level_tiers_split_capacity_by_what_each_tier_can_actually_run() {
     assert_eq!(count_of(&plan, "Farmland", "rice"), 5, "got: {:?}", plan.coin_items);
     let farmland_total: u32 = steps_at(&plan, "Farmland").iter().map(|s| s.facility_count).sum();
     assert_eq!(farmland_total, 9);
-    assert_rate(&plan, 4.0 * 784.0 / 2400.0 + 5.0 * 168.0 / 2400.0);
+    assert_rate(&plan, 4.0 * 784.0 / 1800.0 + 5.0 * 168.0 / 1800.0);
 }
 
 // `prioritize_byproducts` puts a floor on Wood Blocks output before maximizing coins. The
@@ -1037,11 +1039,11 @@ fn test_prioritize_byproducts_forces_max_wood_blocks_rate_at_a_real_coin_cost() 
     let max_wood_blocks_rate = find_production_plan(&items, "wood_blocks", &counts, &modules, false)
         .expect("wood_blocks plan should be feasible")
         .rate_per_second;
-    assert!((max_wood_blocks_rate - 12.0 * 47.0 / 2400.0).abs() < 1e-9);
+    assert!((max_wood_blocks_rate - 12.0 * 47.0 / 1800.0).abs() < 1e-9);
 
     let normal_plan = find_production_plan(&items, "coins", &counts, &modules, false).expect("plan should be feasible");
-    assert!((wood_blocks_rate(&normal_plan) - (8.0 * 47.0 + 4.0 * 21.0) / 2400.0).abs() < 1e-9);
-    assert_rate(&normal_plan, 12.0 / 7200.0 * 3015.0);
+    assert!((wood_blocks_rate(&normal_plan) - (8.0 * 47.0 + 4.0 * 21.0) / 1800.0).abs() < 1e-9);
+    assert_rate(&normal_plan, 12.0 / 5400.0 * 3015.0);
 
     let prioritized_plan =
         find_production_plan(&items, "coins", &counts, &modules, true).expect("prioritized plan should be feasible");
@@ -1051,7 +1053,7 @@ fn test_prioritize_byproducts_forces_max_wood_blocks_rate_at_a_real_coin_cost() 
         wood_blocks_rate(&prioritized_plan)
     );
     assert!(!prioritized_plan.coin_items.iter().any(|s| s.item_name.as_deref() == Some("maple_syrup")));
-    assert_rate(&prioritized_plan, 12.0 / 4800.0 * 1886.0);
+    assert_rate(&prioritized_plan, 12.0 / 3600.0 * 1886.0);
 }
 
 // The Wood Blocks floor must reflect what walnut can actually get once coin-priced candidates
@@ -1077,9 +1079,19 @@ fn test_prioritize_byproducts_remains_feasible_and_does_not_reduce_byproduct_out
 
     let unprioritized =
         find_production_plan(&items, "coins", &counts, &modules, false).expect("plan should be feasible");
-    // lavender_powder from 28 plots, walnut on the 4 Woodland plots the Sunlamp still reaches,
-    // bamboo on the other 10: 28 x 618/2400 + 4 x 673/2400 + 10 x 122/2400 = 8.84.
-    assert_rate(&unprioritized, (28.0 * 618.0 + 4.0 * 673.0 + 10.0 * 122.0) / 2400.0);
+    // The one Mill turns out a lavender_powder every 68s, which is all 28 watered plots can keep
+    // up with bar a little lavender that sells as it is; walnut takes the 4 Woodland plots the
+    // Sunlamp still reaches, and uncovered chestnut the other 10 at 80% speed.
+    let powder = 1.0 / 68.0;
+    let lavender = 28.0 * 7.0 / 1800.0;
+    let expected = powder * 650.0 + (lavender - 7.0 * powder) * 69.0 - 28.0 * 32.0 / 1800.0
+        + 4.0 * (6.0 * 120.0 - 47.0) / 1800.0
+        + 10.0 * (7.0 * 100.0 - 47.0) / 2400.0;
+    assert!(
+        (unprioritized.rate_per_second - expected).abs() < 1e-4,
+        "expected {expected}/sec, got {}",
+        unprioritized.rate_per_second
+    );
 
     let prioritized = find_production_plan(&items, "coins", &counts, &modules, true)
         .expect("prioritizing byproducts should never turn a feasible plan into a reported failure");
@@ -1203,7 +1215,7 @@ fn test_environment_coverage_choice_does_not_settle_for_a_worse_joint_split() {
     assert_eq!(count_of(&plan, "Woodland", "walnut"), 6, "got: {:?}", plan.coin_items);
     assert!(produces(&plan, "dried_grapes"));
     assert!(!plan.coin_items.iter().any(|s| s.item_name.as_deref() == Some("ginseng")));
-    assert_rate(&plan, 12.0 / 2400.0 * 1154.0 + 6.0 * 673.0 / 2400.0);
+    assert_rate(&plan, 12.0 / 1800.0 * 1154.0 + 6.0 * 673.0 / 1800.0);
 
     assert_eq!(plan.environment_assignments.len(), 1, "got: {:?}", plan.environment_assignments);
     let sunlamp = &plan.environment_assignments[0];

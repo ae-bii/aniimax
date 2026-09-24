@@ -36,20 +36,25 @@ async function newHighs() {
 // Seconds HiGHS may search before settling for the best plan found so far.
 const EXACT_TIME_LIMIT = 30;
 
-// HiGHS options for every solve. The tighter feasibility tolerance keeps its answers from leaning
-// on rounding noise (a hair of negative production making something from nothing), which the
-// plan rebuilt from them can't match; seen at RV 9 with Coins then Aniimo EXP.
-const SOLVE_OPTIONS = { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT, mip_feasibility_tolerance: 1e-9 };
+// HiGHS options for every solve.
+const SOLVE_OPTIONS = { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT };
+
+// A tighter feasibility tolerance, used only to solve again when the plan built from an answer
+// doesn't hold up: HiGHS can otherwise lean on rounding noise, a hair of negative production
+// making something from nothing (seen at RV 9 with Coins then Aniimo EXP). It isn't the default
+// because on a big model it can have HiGHS call a perfectly feasible plan infeasible (seen on the
+// RV 17 level-up).
+const STRICT_OPTIONS = { ...SOLVE_OPTIONS, mip_feasibility_tolerance: 1e-9 };
 
 // Solves one exact-planner model with HiGHS: `{ values, proven, objective }`, or null if HiGHS
 // found no plan at all.
-async function solveModel(problem) {
-    let result = (await newHighs()).solve(problem.lp, SOLVE_OPTIONS);
+async function solveModel(problem, options = SOLVE_OPTIONS) {
+    let result = (await newHighs()).solve(problem.lp, options);
     if (result.Status === 'Infeasible') {
         // HiGHS's presolve can call a tightly constrained model infeasible when it isn't (seen on
         // the level-up stock solve, whose floors come from earlier solves); solving without it
         // settles it.
-        result = (await newHighs()).solve(problem.lp, { ...SOLVE_OPTIONS, presolve: 'off' });
+        result = (await newHighs()).solve(problem.lp, { ...options, presolve: 'off' });
     }
     const proven = result.Status === 'Optimal';
     if (!proven && result.Status !== 'Time limit reached') return null;
@@ -123,8 +128,17 @@ async function exactPlanJson(pkg, payload) {
         }
         console.warn('Level-up stock solve found no usable plan; keeping the plan without it.');
     }
-    const json = exact_plan(payload, stageJson, JSON.stringify({ values: solved.values, proven, bound }));
-    const plan = JSON.parse(json);
+    let json = exact_plan(payload, stageJson, JSON.stringify({ values: solved.values, proven, bound }));
+    let plan = JSON.parse(json);
+    if (!plan.success) {
+        // The answer didn't survive being rebuilt exactly; solve again, this time refusing the
+        // rounding noise it may have leaned on.
+        const strict = await solveModel(problem, STRICT_OPTIONS);
+        if (strict) {
+            json = exact_plan(payload, stageJson, JSON.stringify({ values: strict.values, proven: strict.proven && allProven, bound }));
+            plan = JSON.parse(json);
+        }
+    }
     if (!plan.success) throw new Error(plan.error || 'the plan failed its check');
     if (!levelUpNote) return json;
     plan.level_up_note = levelUpNote;

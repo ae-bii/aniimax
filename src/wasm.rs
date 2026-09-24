@@ -480,6 +480,8 @@ fn get_embedded_items() -> Vec<ProductionItem> {
 
     // Only facilities verified against the full release are embedded; see `crate::data::load_all_data`.
 
+    crate::models::add_uncovered_variants(&mut items);
+    crate::models::apply_watering(&mut items);
     items
 }
 
@@ -762,6 +764,10 @@ pub struct JsAniimoTask {
     pub level: u32,
     pub personality_bonus: bool,
     pub busy: f64,
+    /// The growing jobs behind this task, e.g. `["Sowing", "Collecting"]`. Those read as the job
+    /// itself across every crop rather than a line per plot; empty for a worked facility.
+    #[serde(default)]
+    pub jobs: Vec<String>,
 }
 
 /// Recipes not yet checked in game, embedded in the web build; see `data/unverified.csv`.
@@ -780,6 +786,7 @@ pub struct JsUnverified {
 fn embedded_grower_steps() -> crate::models::GrowerSteps {
     crate::data::parse_grower_steps(include_str!("../data/grower_steps.csv"))
         .expect("embedded grower_steps.csv is valid")
+        .with_watering()
 }
 
 /// The Aniimo work one producing row creates. A worked facility keeps one Aniimo busy per busy
@@ -806,6 +813,7 @@ fn aniimo_tasks_for(
             level: worker.suitability,
             personality_bonus: worker.personality_bonus,
             busy: step.busy_units.unwrap_or(step.facility_count as f64),
+            jobs: Vec::new(),
         }];
     }
     let Some(cycle_time) = step.cycle_time.filter(|t| *t > 0.0) else {
@@ -820,12 +828,16 @@ fn aniimo_tasks_for(
             Some(task) => {
                 task.level = task.level.max(level);
                 task.busy += busy;
+                if !task.jobs.contains(&job.step) {
+                    task.jobs.push(job.step.clone());
+                }
             }
             None => tasks.push(JsAniimoTask {
                 ability: job.ability.clone(),
                 level,
                 personality_bonus: false,
                 busy,
+                jobs: vec![job.step.clone()],
             }),
         }
     }
@@ -991,6 +1003,16 @@ pub struct JsEnvironmentAssignment {
     pub units: u32,
     pub covered: Vec<JsFacilityCoverage>,
     pub layouts: Vec<Vec<JsFacilityPlacement>>,
+    /// Set when this zone belongs to two overlapping buildings: the other building's name, then
+    /// how many tiles along and up it sits from this one.
+    #[serde(default)]
+    pub partner: Option<(String, u32, u32)>,
+    /// Which zone of the pair: 0 the first building's own, 1 the overlap, 2 the second's.
+    #[serde(default)]
+    pub zone: Option<u8>,
+    /// What each of the pair is set to, e.g. `("Scorching", "Cool")`.
+    #[serde(default)]
+    pub pair_modes: Option<(String, String)>,
 }
 
 impl From<crate::models::EnvironmentAssignment> for JsEnvironmentAssignment {
@@ -999,6 +1021,9 @@ impl From<crate::models::EnvironmentAssignment> for JsEnvironmentAssignment {
             building: a.building,
             mode: a.mode,
             units: a.units,
+            partner: a.partner,
+            zone: a.zone,
+            pair_modes: a.pair_modes,
             covered: a
                 .covered
                 .into_iter()
@@ -1019,6 +1044,9 @@ impl From<JsEnvironmentAssignment> for crate::models::EnvironmentAssignment {
             building: a.building,
             mode: a.mode,
             units: a.units,
+            partner: a.partner,
+            zone: a.zone,
+            pair_modes: a.pair_modes,
             covered: a.covered.into_iter().map(|c| (c.facility, c.count)).collect(),
             layouts: a
                 .layouts
@@ -1453,7 +1481,7 @@ impl PreparedInput {
             crafting_module: input.modules.crafting_module,
         };
         let mut items = get_embedded_items();
-        items.retain(|item| !input.exclude.contains(&item.name));
+        items.retain(|item| !input.exclude.iter().any(|name| name == crate::models::base_item_name(&item.name)));
         let setup = input.aniimo.as_deref().and_then(aniimo_setup_from);
         let requirements = embedded_aniimo_requirements();
         match setup {
@@ -1726,6 +1754,7 @@ pub fn get_all_items() -> String {
     let grower_steps = embedded_grower_steps();
     let recipes: Vec<RecipeInfo> = items
         .iter()
+        .filter(|item| !item.name.ends_with(crate::models::UNCOVERED_SUFFIX))
         .map(|item| RecipeInfo {
             name: item.name.clone(),
             facility: item.facility.clone(),
