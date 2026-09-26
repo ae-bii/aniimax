@@ -862,7 +862,9 @@ fn embedded_aniimo_requirements() -> crate::models::AniimoRequirements {
 fn aniimo_setup_from(name: &str) -> Option<crate::models::AniimoSetup> {
     match name {
         "minimum" => Some(crate::models::AniimoSetup::Minimum),
-        "best" => Some(crate::models::AniimoSetup::Best),
+        // "best" plans for the top ability level; "best3" for a player without level-4 Aniimo.
+        "best" => Some(crate::models::AniimoSetup::Best(crate::models::MAX_ANIIMO_LEVEL)),
+        "best3" => Some(crate::models::AniimoSetup::Best(3)),
         _ => None,
     }
 }

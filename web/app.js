@@ -3,7 +3,7 @@
 import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME,
     MAX_HOME_LEVEL, ANIIMO_MAX, simpleSetup,
-    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, ANIIPOD_TIERS,
+    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, ANIIPOD_TIERS, personalityLetter, opposedPersonality,
 } from './facility-config.js';
 
 let wasmReady = false;
@@ -116,10 +116,35 @@ let plansBySetup = {};
 let planRunId = 0;
 
 function selectedAniimoSetup() {
-    return document.getElementById('aniimo-minimum').checked ? 'minimum' : 'best';
+    if (document.getElementById('aniimo-minimum').checked) return 'minimum';
+    return bestAniimoLevel() === MAX_ANIIMO_LEVEL ? 'best' : 'best3';
 }
 
-// Shows the plan for the selected Aniimo setup, or a "still working" note if Minimum isn't ready.
+// What the last plan was solved from, so switching setup can work out another one without the
+// player filling the form in again.
+let lastPlanInput = null;
+
+// Solves for `setup` if it isn't already worked out, and shows it when it lands if that's still
+// what's selected. A run id guards against a newer Find the best plan click.
+function ensurePlanFor(setup) {
+    if (plansBySetup[setup] || !lastPlanInput) return;
+    const runId = planRunId;
+    callWorker('find_plan', JSON.stringify({ ...lastPlanInput, aniimo: setup }))
+        .then(json => {
+            if (runId !== planRunId) return;
+            plansBySetup[setup] = JSON.parse(json);
+            if (selectedAniimoSetup() === setup) showSelectedPlan(false);
+        })
+        .catch(error => console.warn('Could not work out the', setup, 'setup:', error));
+}
+
+// Shows the selected setup, and works it out first if this is the first time it's been asked for.
+function switchAniimoSetup() {
+    showSelectedPlan(false);
+    ensurePlanFor(selectedAniimoSetup());
+}
+
+// Shows the plan for the selected Aniimo setup, or a "still working" note if it isn't ready.
 function showSelectedPlan(scroll) {
     const setup = selectedAniimoSetup();
     const plan = plansBySetup[setup];
@@ -298,7 +323,7 @@ function getPersistedFieldIds() {
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
-        'rate-unit'
+        'rate-unit', 'has-level-four'
     ];
 }
 
@@ -652,6 +677,15 @@ function attachSkipHandlers() {
 
 // What the player has toward a level-up, by item name ('coins' for coins).
 let levelUpStock = {};
+
+// The highest ability level an Aniimo reaches; mirrors `MAX_ANIIMO_LEVEL` in models.rs.
+const MAX_ANIIMO_LEVEL = 4;
+
+// The best ability level to plan for. Level-4 Aniimo take some getting, so a player who hasn't
+// got one plans for level 3 instead (see `aniimo_setup_from` in wasm.rs for the names).
+function bestAniimoLevel() {
+    return document.getElementById('has-level-four')?.checked === false ? 3 : MAX_ANIIMO_LEVEL;
+}
 
 const ITEM_NAMES = {
     coins: 'Coins',
@@ -1264,7 +1298,7 @@ function renderSeedsNeeded(goalResult) {
 // optimizer.rs (Heat Furnace's two modes, then Cooling Unit's two, then Sunlamp's one).
 const ENVIRONMENT_MODE_ORDER = ['Warm', 'Scorching', 'Cool', 'Freeze', 'Adequate'];
 
-// "Fire Lv.3 · Practical" for a row that needs a specific Aniimo, or '-' when it doesn't (crops,
+// "Fire Lv.4 · Practical" for a row that needs a specific Aniimo, or '-' when it doesn't (crops,
 // trees, idle facilities).
 // Every Aniimo ability in the game's own order, with its in-game color and what it's for.
 // `dark` marks colors light enough to need dark text.
@@ -1324,13 +1358,17 @@ function aniimoLabel(step) {
     return `<span class="ability-dots">${abilityDot(a.ability, a.level, note)}</span>`;
 }
 
-// "Fire Lv.3 · Practical": one kind of Aniimo, with the facility's personality when the plan
+// "Fire Lv.4 · Practical": one kind of Aniimo, with the facility's personality when the plan
 // counts on its bonus. `tagged` shows the ability as a colored tag.
 function taskLabel(task, facility, tagged = false) {
     const ability = tagged ? abilityTag(task.ability) : task.ability;
     if (!task.personality_bonus) return `${ability} Lv.${task.level}`;
     const personality = FACILITIES.find(f => f.name === facility)?.personality;
-    return `${ability} Lv.${task.level} · ${personality || 'matching personality'}`;
+    if (!personality) return `${ability} Lv.${task.level} · matching personality`;
+    // The letter the game shows over an Aniimo's portrait, so a player can read a team off the
+    // four it carries.
+    const letter = personalityLetter(personality);
+    return `${ability} Lv.${task.level} · ${personality}${letter ? ` (${letter})` : ''}`;
 }
 
 function facilityPlanTable(rows) {
@@ -1407,6 +1445,18 @@ function whereText(g) {
         .join(', ');
 }
 
+// What one Aniimo of a team row has to be: its level, then every personality it carries, each
+// with the letter the game shows. "Lv.4 · Judicious (J), Faithful (F)" is one Aniimo working a
+// Nimbus Bed and a Starfall Hammock, which it can because those never want opposites.
+function aniimoNeeds(g) {
+    if (g.environment) return g.label.slice(g.ability.length).trim();
+    const personalities = [...g.personalities]
+        .sort()
+        .map(name => `${name} (${personalityLetter(name)})`)
+        .join(', ');
+    return `Lv.${g.level}${personalities ? ` · ${personalities}` : ''}`;
+}
+
 // The Aniimo team the shown plan needs, one row per distinct ability / level / personality.
 // A row asks for enough Aniimo to cover its work on average (a facility waiting on ingredients
 // frees its Aniimo), rounded up; facilities with a resident Aniimo (Sandcastle and the like) are
@@ -1418,7 +1468,10 @@ function renderAniimoSummary(plan) {
         (step.aniimo_tasks || []).forEach(task => {
             const key = taskLabel(task, step.facility);
             if (!groups.has(key)) {
-                groups.set(key, { label: key, ability: task.ability, level: task.level, bonus: task.personality_bonus, busy: 0, where: new Map(), jobs: new Map() });
+                const personality = task.personality_bonus
+                    ? FACILITIES.find(f => f.name === step.facility)?.personality ?? null
+                    : null;
+                groups.set(key, { label: key, ability: task.ability, level: task.level, bonus: task.personality_bonus, personality, busy: 0, where: new Map(), jobs: new Map() });
             }
             const g = groups.get(key);
             g.busy += task.busy;
@@ -1475,19 +1528,28 @@ function renderAniimoSummary(plan) {
     // Each row gets its own Aniimo, which is the clearer team to keep. Only when that asks for
     // more than the homeland holds does work that takes any level (the Farmland and Woodland jobs)
     // move into another row's spare time, so a plot's watering is a job of its own where there's
-    // room for one. Rows that count on a personality bonus never merge.
-    const assign = share => {
+    // room for one.
+    //
+    // An Aniimo carries four personalities, one from each opposed pair, so one can hold the bonus
+    // at several facilities at once as long as none of them want opposites and there are hours
+    // left in its day. The team is the best combination that allows: each Aniimo is listed with
+    // every personality it has to have.
+    const assign = () => {
         const rows = [...groups.values()]
             .map(g => ({ ...g, where: new Map(g.where), jobs: new Map([...g.jobs].map(([job, at]) => [job, new Set(at)])) }))
             .sort((a, b) => b.level - a.level || Number(b.bonus) - Number(a.bonus) || a.label.localeCompare(b.label));
         const kept = [];
+        // One Aniimo can take another row's work when it has the ability at a high enough level,
+        // hours to spare, and nothing on it already wanting the opposite personality.
+        const holds = (host, g) => host.ability === g.ability && host.level >= g.level && host.spare >= g.busy - 1e-6
+            && (!g.personality || !host.personalities.has(opposedPersonality(g.personality)));
         rows.forEach(g => {
-            const host = share && !g.bonus && !g.environment
-                ? kept.find(k => k.ability === g.ability && k.level >= g.level && k.spare >= g.busy - 1e-6)
-                : null;
+            // A facility with a resident Aniimo keeps it to itself.
+            const host = g.environment ? null : kept.find(k => holds(k, g));
             if (host) {
                 host.spare -= g.busy;
                 host.busy += g.busy;
+                if (g.personality) host.personalities.add(g.personality);
                 g.where.forEach((n, place) => host.where.set(place, (host.where.get(place) || 0) + n));
                 g.jobs.forEach((at, job) => {
                     if (!host.jobs.has(job)) host.jobs.set(job, new Set());
@@ -1497,21 +1559,20 @@ function renderAniimoSummary(plan) {
             }
             g.count = Math.max(1, Math.ceil(g.busy - 1e-6));
             g.spare = g.count - g.busy;
+            g.personalities = new Set(g.personality ? [g.personality] : []);
             kept.push(g);
         });
         return { kept, total: kept.reduce((sum, g) => sum + g.count, 1) }; // 1 for the Hauling row
     };
     const homelandHolds = isSimpleMode() ? ANIIMO_MAX[selectedHomeLevel() - 1] : null;
-    const own = assign(false);
-    const { kept, total: assigned } = homelandHolds && own.total > homelandHolds ? assign(true) : own;
+    const { kept, total: assigned } = assign();
     let total = assigned - kept.reduce((sum, g) => sum + g.count, 0); // the Hauling row
     const rows = kept
         .sort((a, b) => a.label.localeCompare(b.label))
         .map(g => {
             total += g.count;
             const where = whereText(g);
-            const rest = g.label.slice(g.ability.length).trim();
-            return `<tr><td data-label="Aniimo">${abilityTag(g.ability)} ${rest}</td><td data-label="How many">${g.count}</td><td data-label="Busy on average">${g.busy.toFixed(1)}</td><td data-label="Where">${where}</td></tr>`;
+            return `<tr><td data-label="Aniimo">${abilityTag(g.ability)} ${aniimoNeeds(g)}</td><td data-label="How many">${g.count}</td><td data-label="Busy on average">${g.busy.toFixed(1)}</td><td data-label="Where">${where}</td></tr>`;
         })
         .join('');
     const haulingRow = `<tr><td data-label="Aniimo">${abilityTag('Hauling')} any level</td><td data-label="How many">1+</td><td data-label="Busy on average">?</td><td data-label="Where">Carries produce to storage. How much work this is isn't known yet; add more if produce piles up.</td></tr>`;
@@ -1519,15 +1580,15 @@ function renderAniimoSummary(plan) {
     let capNote = '';
     const cap = homelandHolds;
     if (cap && total > cap) {
-        capNote = `<p class="hint small">That's ${total} Aniimo, more than the ${cap} an RV level ${selectedHomeLevel()} homeland holds. Aniimo with more than one of these abilities can cover several rows.</p>`;
+        capNote = `<p class="hint small">That's ${total} Aniimo, more than the ${cap} an RV level ${selectedHomeLevel()} homeland holds.</p>`;
     } else if (cap) {
         capNote = `<p class="hint small">That's ${total} Aniimo; an RV level ${selectedHomeLevel()} homeland holds ${cap}.</p>`;
     } else {
-        capNote = `<p class="hint small">That's ${total} Aniimo at most; ones with more than one of these abilities can cover several rows.</p>`;
+        capNote = `<p class="hint small">That's ${total} Aniimo.</p>`;
     }
     collapsedSummary.textContent = cap
         ? `${total} Aniimo · your homeland holds ${cap}${total > cap ? ' (too many; see the list)' : ''}`
-        : `${total} Aniimo at most`;
+        : `${total} Aniimo`;
     // How many of each ability the plan needs, in the game's order, like its Abilities screen.
     const needed = new Map(ABILITIES.map(a => [a.name, 0]));
     kept.forEach(g => needed.set(g.ability, (needed.get(g.ability) || 0) + g.count));
@@ -1645,7 +1706,13 @@ const ENVIRONMENT_FACILITY_COLORS = {
 
 // Matches the confirmed geometry in src/coverage.rs: every environment building is a 2x2
 // footprint, radiating coverage as a square of side 2*radius centered on its own center.
-const ENVIRONMENT_BUILDING_SIZE = 2.0;
+// Footprints, matching `ENVIRONMENT_BUILDING_SIZES` in coverage.rs: a Cooling Unit takes a 2x2
+// like a Farmland, a Heat Furnace and a Sunlamp a single tile. All three cover the same 9x9 from
+// their own center, so the smaller ones' squares land on tile lines and the Cooling Unit's sits
+// half a tile off.
+const ENVIRONMENT_BUILDING_SIZES = { 'Heat Furnace': 1.0, 'Cooling Unit': 2.0, 'Sunlamp': 1.0 };
+const DEFAULT_ENVIRONMENT_BUILDING_SIZE = 2.0;
+const environmentBuildingSize = name => ENVIRONMENT_BUILDING_SIZES[name] ?? DEFAULT_ENVIRONMENT_BUILDING_SIZE;
 const ENVIRONMENT_COVERAGE_RADIUS = 4.5;
 
 // Coverage tint for each growing environment, used to shade a building's coverage area.
@@ -1703,18 +1770,21 @@ function sunIcon(cx, cy, size) {
             <g stroke="${ENVIRONMENT_ICON_INK}" stroke-width="${0.15 * size}" stroke-linecap="round">${rays}</g>`;
 }
 
+// A building's symbol, drawn to fit whatever footprint it has: a Heat Furnace and a Sunlamp sit
+// on one tile, so their symbols are half the size of a Cooling Unit's.
 function environmentBuildingIcon(building, mode, cx, cy) {
+    const scale = environmentBuildingSize(building) / 2;
     // The stronger of a building's two modes shows its symbol twice, as the game does: the main
     // one low and left, a smaller one off its top right, both clear of the building's edge.
-    const twice = draw => `${draw(cx - 0.12, cy + 0.14, 0.92)}${draw(cx + 0.38, cy - 0.32, 0.56)}`;
+    const twice = draw => `${draw(cx - 0.12 * scale, cy + 0.14 * scale, 0.92 * scale)}${draw(cx + 0.38 * scale, cy - 0.32 * scale, 0.56 * scale)}`;
     if (building === 'Heat Furnace') {
-        return mode === 'Scorching' ? twice(flameIcon) : flameIcon(cx, cy, 1.0);
+        return mode === 'Scorching' ? twice(flameIcon) : flameIcon(cx, cy, scale);
     }
     if (building === 'Cooling Unit') {
-        return mode === 'Freeze' ? twice(snowflakeIcon) : snowflakeIcon(cx, cy, 1.0);
+        return mode === 'Freeze' ? twice(snowflakeIcon) : snowflakeIcon(cx, cy, scale);
     }
     if (building === 'Sunlamp') {
-        return sunIcon(cx, cy, 1.0);
+        return sunIcon(cx, cy, scale);
     }
     return '';
 }
@@ -1723,7 +1793,8 @@ function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null
     if (!layout || layout.length === 0) return '';
     const margin = 5;
     const half = ENVIRONMENT_COVERAGE_RADIUS + margin;
-    const buildingCenter = ENVIRONMENT_BUILDING_SIZE / 2;
+    const buildingSize = environmentBuildingSize(building);
+    const buildingCenter = buildingSize / 2;
     // Centered on the building's own center (it sits at (0,0)-(size,size)), not world origin.
     const viewMin = buildingCenter - half;
     const viewSize = half * 2;
@@ -1735,8 +1806,14 @@ function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null
     const dx = unit && unit.partner ? unit.partner[1] : 0;
     const dy = unit && unit.partner ? unit.partner[2] : 0;
     const zone = unit && unit.partner ? unit.zone : null;
-    const viewWidth = viewSize + dx;
-    const viewHeight = viewSize + dy;
+    const partnerSize = unit && unit.partner ? environmentBuildingSize(unit.partner[0]) : buildingSize;
+    const partnerCenter = partnerSize / 2;
+    const partnerMin = {
+        x: partnerCenter - ENVIRONMENT_COVERAGE_RADIUS + dx,
+        y: partnerCenter - ENVIRONMENT_COVERAGE_RADIUS + dy,
+    };
+    const viewWidth = Math.max(viewSize, partnerMin.x + coverageSize + margin - viewMin);
+    const viewHeight = Math.max(viewSize, partnerMin.y + coverageSize + margin - viewMin);
     // Each building covers its own 9x9 square; this zone is the part of them that gives this
     // temperature: only the first's, only the second's, or where the two meet.
     const modes = unit && unit.pairModes ? unit.pairModes : null;
@@ -1744,13 +1821,18 @@ function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null
     const shadeOf = (m, opacity) => (opacity * (ENVIRONMENT_MODE_SHADE[m] ?? 1)).toFixed(3);
     // Where the two coverage squares cross. It is always a rectangle; each building's own zone is
     // its square with that rectangle taken out, which is an L unless the buildings line up.
-    const shared = { x: coverageMin + dx, y: coverageMin + dy, w: coverageSize - dx, h: coverageSize - dy };
+    const shared = {
+        x: Math.max(coverageMin, partnerMin.x),
+        y: Math.max(coverageMin, partnerMin.y),
+        w: Math.min(coverageMin, partnerMin.x) + coverageSize - Math.max(coverageMin, partnerMin.x),
+        h: Math.min(coverageMin, partnerMin.y) + coverageSize - Math.max(coverageMin, partnerMin.y),
+    };
     const box = (x, y, w, h) => `M${x} ${y}h${w}v${h}h${-w}Z`;
     // A zone as one path: the shared rectangle on its own, or a square with it cut out (two
     // subpaths, which the even-odd rule reads as the difference).
     const zonePath = z => {
         if (z === 1) return box(shared.x, shared.y, shared.w, shared.h);
-        const own = z === 2 ? box(coverageMin + dx, coverageMin + dy, coverageSize, coverageSize)
+        const own = z === 2 ? box(partnerMin.x, partnerMin.y, coverageSize, coverageSize)
             : box(coverageMin, coverageMin, coverageSize, coverageSize);
         return `${own}${box(shared.x, shared.y, shared.w, shared.h)}`;
     };
@@ -1848,7 +1930,7 @@ function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null
                 <g class="env-grid">${gridLines.join('')}</g>
                 <rect x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}"
                       fill="${modes ? tintOf(modes[0]) : tint}" fill-opacity="${shadeOf(modes ? modes[0] : mode, 0.12)}" />
-                ${modes ? `<rect x="${coverageMin + dx}" y="${coverageMin + dy}" width="${coverageSize}" height="${coverageSize}"
+                ${modes ? `<rect x="${partnerMin.x}" y="${partnerMin.y}" width="${coverageSize}" height="${coverageSize}"
                       fill="${tintOf(modes[1])}" fill-opacity="${shadeOf(modes[1], 0.12)}" />` : ''}
                 ${rects}
                 ${(zones || [{ mode, zone }]).map(z => {
@@ -1861,17 +1943,17 @@ function renderEnvironmentDiagram(layout, mode, building, rows = [], unit = null
                 }).join('')}
                 ${modes ? `<rect x="${coverageMin}" y="${coverageMin}" width="${coverageSize}" height="${coverageSize}" fill="none"
                       stroke="${tintOf(modes[0])}" stroke-opacity="0.55" stroke-width="0.07" />
-                    <rect x="${coverageMin + dx}" y="${coverageMin + dy}" width="${coverageSize}" height="${coverageSize}" fill="none"
+                    <rect x="${partnerMin.x}" y="${partnerMin.y}" width="${coverageSize}" height="${coverageSize}" fill="none"
                       stroke="${tintOf(modes[1])}" stroke-opacity="0.55" stroke-width="0.07" />` : ''}
                 <g class="env-building"><title>${building} (${modes ? modes[0] : mode})</title>
-                    <rect x="0.05" y="0.05" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3"
+                    <rect x="0.05" y="0.05" width="${buildingSize - 0.1}" height="${buildingSize - 0.1}" rx="0.3"
                           fill="${modes ? tintOf(modes[0]) : tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
                     ${environmentBuildingIcon(building, modes ? modes[0] : mode, buildingCenter, buildingCenter)}
                 </g>
                 ${unit && unit.partner ? `<g class="env-building"><title>${unit.partner[0]} (${modes ? modes[1] : mode})</title>
-                    <rect x="${dx + 0.05}" y="${dy + 0.05}" width="${ENVIRONMENT_BUILDING_SIZE - 0.1}" height="${ENVIRONMENT_BUILDING_SIZE - 0.1}" rx="0.3"
+                    <rect x="${dx + 0.05}" y="${dy + 0.05}" width="${partnerSize - 0.1}" height="${partnerSize - 0.1}" rx="0.3"
                           fill="${modes ? tintOf(modes[1]) : tint}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
-                    ${environmentBuildingIcon(unit.partner[0], modes ? modes[1] : mode, dx + buildingCenter, dy + buildingCenter)}
+                    ${environmentBuildingIcon(unit.partner[0], modes ? modes[1] : mode, dx + partnerCenter, dy + partnerCenter)}
                 </g>` : ''}
             </svg>
             <div class="env-legend">${legend}</div>
@@ -2202,6 +2284,7 @@ async function runFindPlan() {
     if (pendingWorkerRequests.size > 0) restartWorker();
     try {
         const input = getPlanInputValues();
+        lastPlanInput = input;
         planContext = {
             levelUp: isLevelUpStrategy(),
             target: levelUpTarget(),
@@ -2218,14 +2301,16 @@ async function runFindPlan() {
         // the solver's own real, running trial-solve count after every trial solve; converted to
         // a fill percentage by `trialCountToPercent` below.
         // Only the backup planner reports progress (see worker.js); the exact planner is quick.
-        const bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: 'best' }), (count) => {
+        // Whichever Best the player has asked for; the other one waits until they switch to it.
+        const bestSetup = selectedAniimoSetup() === 'minimum' ? 'best' : selectedAniimoSetup();
+        const bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: bestSetup }), (count) => {
             progressFill.classList.remove('indeterminate');
             progressFill.style.width = `${trialCountToPercent(count)}%`;
             progressCaption.textContent = `Backup planner, trial ${count}...`;
         });
         progressFill.style.width = '100%';
         if (runId !== planRunId) return;
-        plansBySetup.best = JSON.parse(bestJson);
+        plansBySetup[bestSetup] = JSON.parse(bestJson);
         showSelectedPlan(true);
 
         // The Minimum setup solves after Best is already on screen; switching to it before it's
@@ -2362,7 +2447,7 @@ function formatRecipeYield(recipe) {
     return text;
 }
 
-// "Fire Lv.2+, best Lv.3 Practical": the minimum ability level a recipe accepts, then the best
+// "Fire Lv.2+, best Lv.4 Practical": the minimum ability level a recipe accepts, then the best
 // Aniimo for it. Crops and trees list the ability of each job (sowing, reaping and so on).
 function formatRecipeAniimo(recipe, facility) {
     if (!recipe.aniimo) {
@@ -2378,7 +2463,7 @@ function formatRecipeAniimo(recipe, facility) {
             `<span class="job"><span class="job-step">${step}${times > 1 ? ` &times;${times}` : ''}</span> ${abilityTag(ability)}${level > 1 ? ` Lv.${level}+` : ''}</span>`).join('')}</span>`;
     }
     const [ability, minLevel] = recipe.aniimo;
-    const best = `best Lv.3${facility.personality ? ' ' + facility.personality : ''}`;
+    const best = `best Lv.${bestAniimoLevel()}${facility.personality ? ' ' + facility.personality : ''}`;
     return `<span>${abilityTag(ability)} Lv.${minLevel}+<span class="recipe-best">${best}</span></span>`;
 }
 
@@ -2441,10 +2526,10 @@ function renderRecipeTables(recipes) {
                                     <th>Level</th>
                                     <th>Inputs</th>
                                     <th>Yield</th>
-                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees, before watering takes an eighth off it twice. Everything else lists workload: at 100% Efficiency a processor gets through one workload a second, a gathering facility 1.25 on a level-2 recipe and 1.5 on a level-3 one. An Aniimo at the level a recipe needs works at 100%; higher levels are faster (at a processor, 300% one level above, then +100% per level; at gathering facilities, +50% per level on a level-1 recipe and +40% on harder ones).">?</span></th>
+                                    <th>Time <span class="info-icon" data-tooltip="Grow time for crops and trees, before watering takes an eighth off it twice. Everything else lists workload: at 100% Efficiency a processor gets through one workload a second, a gathering facility 1.25 on a level-2 recipe and 1.5 on a level-3 one. An Aniimo at the level a recipe needs works at 100%; higher levels are faster, up to level 4 (at a processor, 300% one level above, then +100% per level; at gathering facilities each level adds half a workload a second, reading as +50% on a level-1 recipe, +40% on a level-2 one and +33% on a level-3 one).">?</span></th>
                                     <th>Sell</th>
                                     <th>Module</th>
-                                    <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 3 with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>
+                                    <th>Aniimo <span class="info-icon" data-tooltip="The lowest ability level that can make this, and the best Aniimo for it: level 4, the top, with the facility's personality (+20% speed). For crops and trees, the ability each job needs, in order.">?</span></th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
@@ -2518,14 +2603,15 @@ document.addEventListener('DOMContentLoaded', () => {
         rateUnitChosen = true;
         updateRateUnitDisplays();
     });
-    document.getElementById('aniimo-best').addEventListener('change', () => showSelectedPlan(false));
+    document.getElementById('aniimo-best').addEventListener('change', () => switchAniimoSetup());
     document.getElementById('aniimo-toggle').addEventListener('click', () => {
         const toggle = document.getElementById('aniimo-toggle');
         const expanded = toggle.getAttribute('aria-expanded') !== 'true';
         toggle.setAttribute('aria-expanded', String(expanded));
         document.getElementById('aniimo-body').hidden = !expanded;
     });
-    document.getElementById('aniimo-minimum').addEventListener('change', () => showSelectedPlan(false));
+    document.getElementById('aniimo-minimum').addEventListener('change', () => switchAniimoSetup());
+    document.getElementById('has-level-four').addEventListener('change', () => switchAniimoSetup());
 
     // Goal fields update live; no need to re-run the facility-allocation solve just because the
     // goal amount changed.

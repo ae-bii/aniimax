@@ -1269,7 +1269,7 @@ fn test_prioritize_byproducts_with_best_aniimo_still_finds_a_plan() {
     }
     let mut items = load_all_data(data_dir).expect("Failed to load data");
     let reqs = aniimax::data::load_aniimo_requirements(data_dir).expect("Failed to load requirements");
-    reqs.apply(aniimax::models::AniimoSetup::Best, &mut items);
+    reqs.apply(aniimax::models::AniimoSetup::Best(aniimax::models::MAX_ANIIMO_LEVEL), &mut items);
     let counts = FacilityCounts::only(&[
         ("Farmland", 10, 5),
         ("Mine", 2, 3),

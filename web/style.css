@@ -2282,3 +2282,21 @@ tr:hover .skip-row,
 .facility-plan-table tbody tr:first-child.facility-plan-group td {
     padding-top: 0.25rem;
 }
+
+/* The Best/Minimum tabs and the level-4 tick beside them. */
+.aniimo-setup-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.aniimo-setup-controls .aniimo-cap {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--text-muted, #9aa0a8);
+    white-space: nowrap;
+    cursor: pointer;
+}

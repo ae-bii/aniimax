@@ -37,7 +37,7 @@ use microlp::{ComparisonOp, OptimizationDirection, Problem};
 
 use crate::coverage::{
     facility_footprint, mode_temperature, single_building_options, temperature_mode, CoverageOption,
-    pair_options_over_offsets, Offset, PairOption, Zone, ENVIRONMENT_GATED_FACILITIES,
+    building_size, pair_options_over_offsets, Offset, PairOption, PairSizes, Zone, ENVIRONMENT_GATED_FACILITIES,
 };
 use crate::models::{byproduct_item, FacilityCounts, ModuleLevels, ProductionItem};
 
@@ -47,11 +47,13 @@ use crate::models::{byproduct_item, FacilityCounts, ModuleLevels, ProductionItem
 /// at 50% and a Warm one at 80%.
 const OVERLAP_ZONES: bool = true;
 
-/// Switched on only to measure how much the coverage model could be leaving on the table. Every
-/// environment building and pair also gets the box that holds all of its arrangements at once
-/// (see [`crate::coverage::pair_upper_bound`]), which no real layout reaches, so the plan solves
-/// an easier problem than the game and earns at least what the true best possibly could. Off in
-/// every real plan; the `coverage_gap` test turns it on.
+/// Switched on only to measure how much the coverage model could be leaving on the table. It lets
+/// a building or a pair take a fraction of each arrangement instead of committing to one, so the
+/// plan solves an easier problem than the game and earns at least what the true best possibly
+/// could. Mixing arrangements is a far tighter relaxation than allowing the most of every type in
+/// every zone at once, which no layout comes near: for a Farmland and Woodland pair that box
+/// holds 103 plots where 55 really fit, so it reported a gap whatever the plan did. Off in every
+/// real plan; the `coverage_gap` test turns it on.
 static COVERAGE_RELAXED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[doc(hidden)]
@@ -472,14 +474,10 @@ fn build_model<'a>(
             if types.is_empty() {
                 continue;
             }
-            let mut choices = single_building_options(&types);
-            if coverage_relaxed() {
-                choices.extend(crate::coverage::single_upper_bound(&choices));
-            }
-            for option in choices {
+            for option in single_building_options(building_size(building), &types) {
                 let counts = option.counts.clone();
                 let kind = VarKind::Environment { building, mode, types: types.clone(), option };
-                let count = model.add(0.0, (0.0, owned as f64), true, kind);
+                let count = model.add(0.0, (0.0, owned as f64), !coverage_relaxed(), kind);
                 usage.entry(building).or_default().push((count, 1.0));
                 for (t, &facility) in types.iter().enumerate() {
                     if counts[t] > 0 {
@@ -505,18 +503,22 @@ fn build_model<'a>(
                         continue; // the Sunlamp's Adequate is off the temperature line
                     };
                     let Some(middle) = temperature_mode(a + b) else { continue };
-                    if middle == mode_a || middle == mode_b || !needs_cover.keys().any(|(_, e)| *e == middle) {
+                    // A pair earns its place only by covering three temperatures from two
+                    // buildings. Set both the same and the outer zones agree, so the pair offers
+                    // the same two modes two separate buildings do, over less ground; likewise
+                    // when the shared zone reads as one of the buildings' own settings.
+                    if mode_a == mode_b
+                        || middle == mode_a
+                        || middle == mode_b
+                        || !needs_cover.keys().any(|(_, e)| *e == middle)
+                    {
                         continue;
                     }
                     let types = types_for(&[mode_a, mode_b, middle]);
                     if types.is_empty() {
                         continue;
                     }
-                    let mut choices = pair_options_over_offsets(&types);
-                    if coverage_relaxed() {
-                        choices.extend(crate::coverage::pair_upper_bound(&choices));
-                    }
-                    for option in choices {
+                    for option in pair_options_over_offsets(PairSizes::of(first, second), &types) {
                         let zones = [(Zone::First, mode_a), (Zone::Both, middle), (Zone::Second, mode_b)];
                         let counts = option.counts.clone();
                         let kind = VarKind::EnvironmentPair {
@@ -525,7 +527,7 @@ fn build_model<'a>(
                             types: types.clone(),
                             option,
                         };
-                        let count = model.add(0.0, (0.0, most as f64), true, kind);
+                        let count = model.add(0.0, (0.0, most as f64), !coverage_relaxed(), kind);
                         usage.entry(first).or_default().push((count, 1.0));
                         usage.entry(second).or_default().push((count, 1.0));
                         for (zone, mode) in zones {
@@ -1038,9 +1040,11 @@ pub fn check_plan(
             return Err(format!("{used} {building} set up but {} owned", facility_counts.get_count(building)));
         }
     }
+    // The measurement build lets a building mix arrangements, which no whole layout can hold, so
+    // its plans are deliberately unbuildable and only their rate is of interest.
     for ((facility, environment), plots) in plots_needing {
         let have = covered.get(&(facility, environment)).copied().unwrap_or(0);
-        if plots > have {
+        if plots > have && !coverage_relaxed() {
             return Err(format!("{plots} {facility} plots need {environment} but {have} are covered"));
         }
     }
@@ -1466,9 +1470,10 @@ pub fn to_production_plan(
                 .map(|facility| used[zone].iter().find(|(f, _)| f == facility).map_or(0, |(_, n)| *n))
                 .collect()
         });
+        let sizes = PairSizes::of(&pair.buildings.0, &pair.buildings.1);
         // A plain arrangement of the same plots, for when the tidy one can't be worked out.
         let plain = || {
-            crate::coverage::pair_layout_for(&types, pair.offset, &counts).unwrap_or_default()
+            crate::coverage::pair_layout_for(sizes, &types, pair.offset, &counts).unwrap_or_default()
         };
         // Standing two buildings a measured distance apart is fiddly, and it only buys anything
         // while all three zones are growing something: with one of them empty the plan wants two
@@ -1505,7 +1510,7 @@ pub fn to_production_plan(
             .flatten();
         if let Some(apart) = apart {
             for (zone, building, mode) in apart {
-                let layout = crate::coverage::tidy_layout(&used[zone])
+                let layout = crate::coverage::tidy_layout(building_size(building), &used[zone])
                     .unwrap_or_else(|| plain()[zone].clone())
                     .into_iter()
                     .map(|p| FacilityPlacement { facility: p.facility, x: p.x, y: p.y, size: p.size })
@@ -1524,7 +1529,7 @@ pub fn to_production_plan(
             continue;
         }
         let layouts: [Vec<crate::coverage::Placement>; 3] =
-            crate::coverage::tidy_pair_layout(&types, pair.offset, &counts).unwrap_or_else(plain);
+            crate::coverage::tidy_pair_layout(sizes, &types, pair.offset, &counts).unwrap_or_else(plain);
         for zone in 0..3 {
             let (Some(mode), true) = (pair.zone_modes[zone].clone(), holds(zone)) else { continue };
             let layout: Vec<FacilityPlacement> = layouts[zone]
@@ -1553,7 +1558,7 @@ pub fn to_production_plan(
             // Plots closest to the building first, so a building covering fewer plots than its
             // layout holds shows a compact cluster rather than whichever plots came first. Any
             // subset of a non-overlapping layout is still one.
-            let center = crate::coverage::BUILDING_SIZE / 2.0;
+            let center = crate::coverage::building_size(&env.building) / 2.0;
             let mut nearest_first = env.option.layout.clone();
             nearest_first.sort_by(|a, b| {
                 let distance = |p: &crate::coverage::Placement| {
@@ -1590,7 +1595,7 @@ pub fn to_production_plan(
                         None => here.push((p.facility.clone(), 1)),
                     }
                 }
-                if let Some(tidy) = crate::coverage::tidy_layout(&here) {
+                if let Some(tidy) = crate::coverage::tidy_layout(building_size(&env.building), &here) {
                     layout = tidy
                         .into_iter()
                         .map(|p| FacilityPlacement { facility: p.facility, x: p.x, y: p.y, size: p.size })

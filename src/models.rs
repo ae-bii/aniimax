@@ -100,24 +100,23 @@ fn processor_speed(above: u32) -> f64 {
     }
 }
 
-/// Efficiency gained per level above a level-1 recipe at a gathering facility: Well Water runs at
-/// 150%, 200% and 250% with a level-2, 3 and 4 Aniimo, and Sea Salt at 150% with a level-2 one.
-const GATHERING_LEVEL_ONE_STEP: f64 = 0.5;
-
-/// Efficiency gained per level above a gathering facility's recipe needing level 2 or more:
-/// Quick Sea Salt, Plain Fresh Water and Aromathyst run at 140% with a level-3 Aniimo and 180%
-/// with a level-4 one.
-const GATHERING_STEP_ABOVE_TWO: f64 = 0.4;
+/// What an Aniimo one level above a gathering recipe's requirement adds to its work rate, in
+/// workload a second. It is the same half a workload whatever the recipe needs, which is why the
+/// Efficiency the game shows for a level above depends on the recipe: it is that half against the
+/// recipe's own base rate ([`base_work_rate`]), so +50% on a level-1 recipe, +40% on a level-2
+/// one and +33% on a level-3 one. Read off in game on all three: Well Water at 150/200/250% for a
+/// level-2/3/4 Aniimo, Quick Sea Salt and Plain Fresh Water at 140% and 180%, and a 2,700
+/// workload level-3 recipe at 133% for a level-4 Aniimo, taking 22m 30s against 30m.
+const GATHERING_RATE_PER_LEVEL: f64 = 0.5;
 
 /// Workload per second (the game's Efficiency, where 100% is one workload per second) for an
 /// Aniimo at ability `level` on a recipe needing `required`, at a gathering facility (one that
 /// makes something from nothing: Well, Mine, Sandcastle, Dewy House and the like) or a processor.
 /// It's always 100% at exactly the required level. Above it:
 /// - at a processor, 300% one level above, then +100% a level ([`processor_speed`]);
-/// - at a gathering facility, +50% a level on a level-1 recipe ([`GATHERING_LEVEL_ONE_STEP`])
-///   and +40% a level on a harder one ([`GATHERING_STEP_ABOVE_TWO`]).
-///
-/// Not checked yet: anything needing level 3.
+/// - at a gathering facility, half a workload a second a level ([`GATHERING_RATE_PER_LEVEL`]),
+///   which reads as +50% a level on a level-1 recipe, +40% on a level-2 one and +33% on a
+///   level-3 one.
 ///
 /// ```
 /// use aniimax::models::efficiency;
@@ -134,18 +133,22 @@ const GATHERING_STEP_ABOVE_TWO: f64 = 0.4;
 /// assert_eq!(efficiency(4, 1, true), 2.5);
 /// assert!((efficiency(3, 2, true) - 1.4).abs() < 1e-12);
 /// assert!((efficiency(4, 2, true) - 1.8).abs() < 1e-12);
+/// // A level-3 recipe: half a workload a second against a base of 1.5.
+/// assert!((efficiency(4, 3, true) - 4.0 / 3.0).abs() < 1e-12);
 /// ```
 pub fn efficiency(level: u32, required: u32, gathering: bool) -> f64 {
     let required = required.max(1);
     // An Aniimo below the requirement can't work the recipe; plans never assign one.
     let level = level.max(required);
     let above = level - required;
-    match (gathering, required) {
-        (false, _) => processor_speed(above),
-        (true, 1) => 1.0 + GATHERING_LEVEL_ONE_STEP * above as f64,
-        (true, _) => 1.0 + GATHERING_STEP_ABOVE_TWO * above as f64,
+    match gathering {
+        false => processor_speed(above),
+        true => 1.0 + GATHERING_RATE_PER_LEVEL * above as f64 / base_work_rate(required),
     }
 }
+
+/// The highest ability level an Aniimo reaches.
+pub const MAX_ANIIMO_LEVEL: u32 = 4;
 
 /// Facilities with no personality bonus at all, so no Aniimo works them faster than the level
 /// alone gives (checked in game on the Dance Pad Polisher and Aniipod Maker).
@@ -396,10 +399,12 @@ pub enum AniimoSetup {
     /// Each recipe worked by an Aniimo at exactly the ability level it requires, without the
     /// personality bonus: the least a player needs to run the plan at all.
     Minimum,
-    /// A level-3 Aniimo with the facility's personality bonus everywhere: the fastest setup most
-    /// players can have (at a processor 480% on a level-1 recipe and 360% on a level-2 one; at a
-    /// gathering facility 240% and 168%; see [`efficiency`]).
-    Best,
+    /// An Aniimo at this ability level with the facility's personality bonus everywhere: the
+    /// fastest setup a player with Aniimo that good can have. At [`MAX_ANIIMO_LEVEL`] that's 600%
+    /// on a processor's level-1 recipe and 480% on a level-2 one, or 300% and 216% at a gathering
+    /// facility; a level lower, 480% and 360%, or 240% and 168% (see [`efficiency`]). Level-4
+    /// Aniimo are hard to come by, so a player can plan for level 3 instead.
+    Best(u32),
 }
 
 /// The Aniimo ability and minimum ability level each workload-based recipe needs (see
@@ -412,7 +417,7 @@ pub enum AniimoSetup {
 /// reqs.insert("lavender_powder", "Wind", 2);
 /// assert_eq!(reqs.get("lavender_powder"), Some(("Wind", 2)));
 /// assert_eq!(reqs.worker_for("lavender_powder", AniimoSetup::Minimum).suitability, 2);
-/// assert_eq!(reqs.worker_for("lavender_powder", AniimoSetup::Best).suitability, 3);
+/// assert_eq!(reqs.worker_for("lavender_powder", AniimoSetup::Best(4)).suitability, 4);
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct AniimoRequirements {
@@ -441,7 +446,7 @@ impl AniimoRequirements {
     /// a personality bonus (see [`has_personality_bonus`]).
     pub fn worker_for_at(&self, item: &str, facility: &str, setup: AniimoSetup) -> Worker {
         match setup {
-            AniimoSetup::Best => Worker::new(3, has_personality_bonus(facility)),
+            AniimoSetup::Best(level) => Worker::new(level, has_personality_bonus(facility)),
             AniimoSetup::Minimum => Worker::new(self.get(item).map_or(1, |(_, level)| level), false),
         }
     }

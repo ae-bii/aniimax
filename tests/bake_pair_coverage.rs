@@ -9,7 +9,7 @@
 //! ```
 
 use aniimax::coverage::{
-    pair_offsets, pair_options_uncached, undominated, Offset, PairOption,
+    pair_offsets, pair_options_uncached, undominated, Offset, PairOption, PairSizes,
     ENVIRONMENT_GATED_FACILITIES,
 };
 use aniimax::data::load_all_data;
@@ -62,7 +62,8 @@ fn type_sets(facilities: &[&'static str]) -> Vec<Vec<&'static str>> {
 fn bake_pair_coverage() {
     let facilities = pair_facilities();
     let sets = type_sets(&facilities);
-    let offsets = pair_offsets();
+    let sizes = PairSizes::of("Heat Furnace", "Cooling Unit");
+    let offsets = pair_offsets(sizes);
     println!("{facilities:?}: {} type sets x {} offsets", sets.len(), offsets.len());
     let jobs: Vec<(Vec<&'static str>, Offset)> = sets
         .iter()
@@ -81,7 +82,7 @@ fn bake_pair_coverage() {
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
                         let Some((types, offset)) = jobs.get(i) else { break };
-                        mine.push((i, pair_options_uncached(types, *offset)));
+                        mine.push((i, pair_options_uncached(sizes, types, *offset)));
                         let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                         println!("  {n}/{}", jobs.len());
                     }
@@ -116,11 +117,11 @@ fn bake_pair_coverage() {
             println!("{types}: {before} arrangements, {} worth offering", best.len());
             best.into_iter().map(move |o| {
                 let counts: Vec<String> = o.counts.concat().iter().map(u32::to_string).collect();
-                format!("{types}, {}, {}, {}", o.offset.dx, o.offset.dy, counts.join(";"))
+                format!("{types}, {}, {}, {}, {}, {}", sizes.first, sizes.second, o.offset.dx, o.offset.dy, counts.join(";"))
             })
         })
         .collect();
-    let out = format!("types, dx, dy, counts\n{}\n", lines.join("\n"));
+    let out = format!("types, first, second, dx, dy, counts\n{}\n", lines.join("\n"));
     std::fs::write("data/pair_coverage.csv", out).expect("write the table");
     println!("{} options written", lines.len());
 }
