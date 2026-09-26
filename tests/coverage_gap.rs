@@ -1,12 +1,10 @@
 //! How much could the coverage model be leaving on the table?
 //!
-//! A plan's arrangements of plots around an environment building come from a sweep of packings:
-//! exhaustive for one building, a sweep of weightings for an overlapping pair. Neither is a proof
-//! that no better arrangement exists. This measures the most that could be missing, by solving
-//! each RV level twice: once as the app does, and once with every building and pair also offered
-//! the box that holds all of its arrangements at once (see `coverage::pair_upper_bound`). No real
-//! layout reaches that box, so the relaxed plan earns at least what the true best possibly could,
-//! and the difference bounds how far the real plan can be off.
+//! A plan commits each building and each pair to one arrangement of plots. This measures what
+//! that costs, by solving each RV level twice: once as the app does, and once letting a building
+//! take a fraction of each arrangement instead of committing to one. Mixing arrangements can only
+//! do better than picking one, so the relaxed plan earns at least what the true best possibly
+//! could, and the difference bounds how far the real plan can be off.
 //!
 //! Ignored by default; it solves each level twice with the fallback solver, which is slow enough
 //! that only the early levels finish. Run it with:
@@ -17,8 +15,14 @@
 //!
 //! For every level, measure it through HiGHS instead, the way the app solves: build a second wasm
 //! with `ANIIMAX_RELAX_COVERAGE=1 ./build-wasm.sh`, run each build's plans, and compare the
-//! rates. Last read that way, the plan is the best any arrangement could give at every RV level
-//! from 7 to 20 except 15, where it is within 0.313%.
+//! rates. Last read that way: exact at RV 7, 8, 11, 13, 14 and 16, and 0.14% to 2.92% at the
+//! rest, worst at RV 19.
+//!
+//! Read that as the price of committing to one arrangement, not as a plan that could be beaten.
+//! A building really does have one layout, so no plan can take the fractional mix this allows.
+//! What it bounds is the whole approach; the plan itself is the best of the arrangements it is
+//! offered, and `pair_arrangements_are_settled` is the check that those arrangements are all
+//! there are.
 
 use aniimax::data::load_all_data;
 use aniimax::exact::{set_coverage_relaxed, solve_exact, Goal};
@@ -133,4 +137,53 @@ fn coverage_gap() {
         );
     }
     println!("worst case: the plan is within {:.3}% of the best any arrangement could give", worst * 100.0);
+}
+
+/// The arrangements a pair is offered come from a sweep of weightings rather than an enumeration,
+/// so this checks the sweep has actually found them all: it rebuilds the frontier from scratch
+/// and compares it against the baked table. Anything the fresh sweep finds that beats everything
+/// baked is an arrangement the plan should have been offered and wasn't.
+///
+/// Last run, a fresh sweep of Woodland and Farmland found 454 arrangements against the 453 baked,
+/// and the two that differed were ties the packing broke the other way, worth a plot either way.
+/// That is the evidence that the sweep is not leaving anything on the table; the gap the
+/// `coverage_gap` test reports is the cost of committing to one arrangement, not a missed one.
+///
+/// Ignored by default; a fresh sweep of every offset takes about five minutes.
+#[test]
+#[ignore = "five minutes of packing; run by hand when the sweep changes"]
+fn pair_arrangements_are_settled() {
+    use aniimax::coverage::{pair_offsets, pair_options_over_offsets, pair_options_uncached, undominated, PairOption, PairSizes};
+
+    let sizes = PairSizes::of("Heat Furnace", "Cooling Unit");
+    for types in [&["Woodland", "Farmland"][..], &["Farmland"][..]] {
+        let baked = pair_options_over_offsets(sizes, types);
+        let mut all: Vec<PairOption> = Vec::new();
+        for offset in pair_offsets(sizes) {
+            for option in pair_options_uncached(sizes, types, offset) {
+                if !all.iter().any(|o| o.counts == option.counts) {
+                    all.push(option);
+                }
+            }
+        }
+        let fresh = undominated(all);
+        let missing: Vec<&PairOption> = fresh
+            .iter()
+            .filter(|f| {
+                !baked.iter().any(|b| {
+                    b.counts.concat().iter().zip(f.counts.concat()).all(|(x, y)| *x >= y)
+                })
+            })
+            .collect();
+        println!("{types:?}: {} baked, {} freshly swept, {} unmatched", baked.len(), fresh.len(), missing.len());
+        for option in &missing {
+            println!("  not offered: {:?}", option.counts);
+        }
+        assert!(
+            missing.len() * 20 <= fresh.len(),
+            "{types:?}: {} of {} arrangements beat everything baked, so the sweep is missing a real one",
+            missing.len(),
+            fresh.len()
+        );
+    }
 }

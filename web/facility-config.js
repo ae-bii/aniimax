@@ -13,8 +13,8 @@
 // `unlocks` maps each facility level to the RV (Homeland) level that unlocks it. `counts[i]` is how
 // many of the facility you can place at RV level i + 1; an RV level past the end of the list keeps
 // the last count. Simple mode uses both (see `simpleSetup`). Counts are confirmed in game up to RV
-// level 11; past that, Farmland, Woodland and Mine follow the game's pattern and the rest keep
-// their RV 11 count.
+// level 12 for the Heat Furnace and Simmering Pot and RV level 11 for the rest; past that,
+// Farmland, Woodland and Mine follow the game's pattern and the others keep their last count.
 //
 // Facilities marked "Not yet verified in game" in their tooltip haven't had their numbers
 // confirmed in game yet.
@@ -76,7 +76,7 @@ export const FACILITIES = [
     {
         name: 'Heat Furnace', slug: 'heat-furnace', defaultCount: 0, category: 'Environment', hasLevels: false,
         unlocks: { 1: 7 },
-        counts: [0, 0, 0, 0, 0, 0, 1],
+        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2],
         tooltip: "Provides Warm or Scorching growing conditions for crops that need one&#10;The calculator picks whichever mode is more profitable.&#10;Covers a 9x9 area around itself; how many plots fit depends on what shares it."
     },
     {
@@ -118,7 +118,7 @@ export const FACILITIES = [
     {
         name: 'Simmering Pot', slug: 'simmering-pot', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Fire', personality: 'Tenacious',
         unlocks: { 1: 5, 2: 7, 3: 9, 4: 12, 5: 15, 6: 18 },
-        counts: [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Plain Rice Porridge&#10;Lv.2: Rose Concentrate&#10;Lv.3: Rock Candy, Strawberry Jam, Maple Candy Apple Jam&#10;Lv.4: Chestnut Puree, Grape Jam, Ginseng Porridge&#10;Lv.5: Maple Sugar Chunk, Malt Sugar&#10;Lv.6: Cocoa Spread, Cranberry Jam, Agave Syrup"
     },
     {
@@ -222,6 +222,28 @@ export const LEVEL_UP_CHAINS = [
     ['wood_block', 'rough_lumber', 'standard_planks', 'laminated_beams', 'densified_timber_component'],
     ['mineral_sand', 'coarse_sifted_ore', 'sintered_ore_brick', 'refined_ore', 'microcrystalline_ore_plate'],
 ];
+
+// An Aniimo carries four personalities at once, one from each of these opposed pairs, which the
+// game shows as four letters over its portrait: INFP, ISFJ, ESTJ and so on. So one Aniimo can
+// hold the bonus for up to four facilities, and can never hold it for two that want opposite
+// personalities. Seven of the names are their own letter; S is Practical, confirmed in game.
+export const PERSONALITY_PAIRS = [
+    { letters: ['I', 'E'], names: ['Instinctive', 'Energetic'] },
+    { letters: ['N', 'S'], names: ['Nimble', 'Practical'] },
+    { letters: ['F', 'T'], names: ['Faithful', 'Tenacious'] },
+    { letters: ['P', 'J'], names: ['Playful', 'Judicious'] },
+];
+
+/// The letter the game shows for a personality, and the personality it rules out.
+export function personalityLetter(name) {
+    const pair = PERSONALITY_PAIRS.find(p => p.names.includes(name));
+    return pair ? pair.letters[pair.names.indexOf(name)] : null;
+}
+
+export function opposedPersonality(name) {
+    const pair = PERSONALITY_PAIRS.find(p => p.names.includes(name));
+    return pair ? pair.names[1 - pair.names.indexOf(name)] : null;
+}
 
 // Display order for facility categories. Auxiliary facilities (Storage Unit, power/climate
 // buildings) are deliberately excluded here: they don't produce items.

@@ -68,7 +68,7 @@ fn exact_matches_the_hand_worked_rice_drink_plan() {
 #[test]
 fn exact_handles_environments_and_aniimo_speeds() {
     let Some(mut items) = load_items() else { return };
-    load_aniimo_requirements(Path::new("data")).unwrap().apply(AniimoSetup::Best, &mut items);
+    load_aniimo_requirements(Path::new("data")).unwrap().apply(AniimoSetup::Best(aniimax::models::MAX_ANIIMO_LEVEL), &mut items);
     let counts = FacilityCounts::only(&[
         ("Farmland", 14, 4),
         ("Woodland", 8, 3),
