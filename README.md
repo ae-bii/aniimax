@@ -580,6 +580,10 @@ cargo doc --open
 
 ## Web Development
 
+### Languages
+
+The web language selector and CLI `--language en|ru` use English by default. English UI text is the source; `web/locales/en.json` inventories its phrases for translation checks, and `web/locales/ru.json` maps them to Russian. To add a language, add a matching JSON catalog and register its code and native label in `web/i18n.js`. Keep facility, item, and solver identifiers in English; translation happens only when results are displayed. Run `node tests/locale.test.mjs` to check catalog parity and switching.
+
 ### Building the Web App
 
 1. Install wasm-pack:

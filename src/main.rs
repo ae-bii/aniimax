@@ -3,13 +3,14 @@
 //! This is the main entry point for the production optimization tool.
 //! Run with `--help` to see all available options.
 
-use clap::Parser;
+use clap::{Arg, ArgAction, CommandFactory, FromArgMatches, Parser};
 use std::error::Error;
 use std::path::Path;
 
 use aniimax::{
     data::load_all_data,
-    display::{display_energy_recommendations, display_results},
+    display::{display_energy_recommendations_in, display_results_in},
+    locale::Language,
     models::{FacilityCounts, ModuleLevels, Worker, Workers},
     optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_parallel_production_path, find_self_sufficient_path},
 };
@@ -40,6 +41,10 @@ const WORKER_FACILITIES: [&str; 17] = [
 #[command(name = "aniimax")]
 #[command(author, version, about = "Optimize production paths for currency generation in Aniimo Homeland", long_about = None)]
 struct Args {
+    /// Display language: en or ru
+    #[arg(long, value_enum, default_value_t = Language::En)]
+    language: Language,
+
     /// Target amount of currency to produce
     #[arg(short, long)]
     target: f64,
@@ -178,12 +183,61 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    let argv: Vec<String> = std::env::args().collect();
+    let requested = argv.windows(2).find(|pair| pair[0] == "--language").map(|pair| pair[1].as_str())
+        .or_else(|| argv.iter().find_map(|arg| arg.strip_prefix("--language=")));
+    let language = if requested == Some("ru") { Language::Ru } else { Language::En };
+    let mut command = Args::command();
+    if language == Language::Ru {
+        command = command.about(language.text("Optimize production paths for currency generation in Aniimo Homeland").to_owned())
+            .help_template("{about-with-newline}\nИспользование: {usage}\n\nПараметры:\n{options}")
+            .disable_help_flag(true)
+            .disable_version_flag(true)
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::Help).help("Показать справку"))
+            .arg(Arg::new("version").short('V').long("version").action(ArgAction::Version).help("Показать версию"));
+        let helps: Vec<_> = command.get_arguments().filter_map(|arg| arg.get_help().map(|help| (arg.get_id().clone(), help.to_string()))).collect();
+        for (id, help) in helps {
+            command = command.mut_arg(id, |arg| arg.help(language.text(&help).to_owned()));
+        }
+        if argv.iter().any(|arg| arg == "--help" || arg == "-h") {
+            print!("{}", command.render_long_help().to_string()
+                .replace("[OPTIONS]", "[ПАРАМЕТРЫ]")
+                .replace("[default:", "[по умолчанию:")
+                .replace("[possible values:", "[доступные значения:"));
+            return Ok(());
+        }
+    }
+    let matches = command.try_get_matches_from(argv).unwrap_or_else(|error| {
+        if language == Language::Ru {
+            if error.exit_code() == 0 {
+                print!("{error}");
+                std::process::exit(0);
+            }
+            eprint!("{}", error.to_string()
+                .replace("error:", "ошибка:")
+                .replace("the following required arguments were not provided:", "не указаны обязательные аргументы:")
+                .replace("a value is required for", "для параметра требуется значение")
+                .replace("invalid value", "недопустимое значение")
+                .replace(" for '", " для '")
+                .replace("invalid float literal", "некорректное число")
+                .replace("invalid digit found in string", "некорректная цифра в числе")
+                .replace("value must be in range", "значение должно быть в диапазоне")
+                .replace(" is not in ", " не входит в диапазон ")
+                .replace("unexpected argument", "неизвестный параметр")
+                .replace(" found", " обнаружен")
+                .replace("Usage:", "Использование:")
+                .replace("For more information, try '--help'.", "Подробнее: '--help'.")
+                .replace("[OPTIONS]", "[ПАРАМЕТРЫ]"));
+            std::process::exit(error.exit_code());
+        }
+        error.exit()
+    });
+    let args = Args::from_arg_matches(&matches)?;
 
     // Determine data directory
     let data_dir = Path::new("data");
     if !data_dir.exists() {
-        eprintln!("Error: 'data' directory not found. Please run from the project root.");
+        eprintln!("{}", args.language.text("Error: 'data' directory not found. Please run from the project root."));
         std::process::exit(1);
     }
 
@@ -209,48 +263,59 @@ fn main() -> Result<(), Box<dyn Error>> {
         crafting_module: args.crafting_module,
     };
 
-    println!("Aniimax - Aniimo Production Optimizer");
+    println!("{}", args.language.text("Aniimax - Aniimo Production Optimizer"));
     println!("================================================================");
     println!();
-    println!("Configuration:");
-    println!("  Target:          {:.0} {}", args.target, args.currency);
-    println!("  Energy Cost:     {}/min", args.energy_cost);
+    println!("{}", args.language.text("Configuration:"));
+    println!("  {} {:.0} {}", args.language.text("Target:"), args.target, args.language.text(&args.currency));
+    println!("  {} {}/{}", args.language.text("Energy Cost:"), args.energy_cost, args.language.text("min"));
     println!(
-        "  Mode:            {}",
+        "  {} {}", args.language.text("Mode:"),
         if args.energy_self_sufficient { 
-            "Energy Self-Sufficient" 
+            args.language.text("Energy Self-Sufficient")
         } else if args.parallel {
-            "Cross-Facility Parallel"
+            args.language.text("Cross-Facility Parallel")
         } else { 
-            "Time Optimization" 
+            args.language.text("Time Optimization")
         }
     );
 
     println!();
-    println!("Facilities (count x level):");
-    println!("  Farmland:           {} x Lv.{}", args.farmland, args.farmland_level);
-    println!("  Woodland:           {} x Lv.{}", args.woodland, args.woodland_level);
-    println!("  Mine:               {} x Lv.{}", args.mine, args.mine_level);
-    println!("  Well:               {} x Lv.{}", args.well, args.well_level);
-    println!("  Tidewhisper:        {} x Lv.{}", args.tidewhisper_sandcastle, args.tidewhisper_sandcastle_level);
-    println!("  Carousel Mill:      {} x Lv.{}", args.carousel_mill, args.carousel_mill_level);
-    println!("  Claw Game Cooker:   {} x Lv.{}", args.claw_game_cooker, args.claw_game_cooker_level);
-    println!("  Jukebox Dryer:      {} x Lv.{}", args.jukebox_dryer, args.jukebox_dryer_level);
-    println!("  Crafting Table:     {} x Lv.{}", args.crafting_table, args.crafting_table_level);
-    println!("  Simmering Pot:      {} x Lv.{}", args.simmering_pot, args.simmering_pot_level);
+    println!("{}", args.language.text("Facilities (count x level):"));
+    for (name, count, level) in [
+        ("Farmland", args.farmland, args.farmland_level),
+        ("Woodland", args.woodland, args.woodland_level),
+        ("Mine", args.mine, args.mine_level),
+        ("Well", args.well, args.well_level),
+        ("Tidewhisper Sandcastle", args.tidewhisper_sandcastle, args.tidewhisper_sandcastle_level),
+        ("Carousel Mill", args.carousel_mill, args.carousel_mill_level),
+        ("Claw Game Cooker", args.claw_game_cooker, args.claw_game_cooker_level),
+        ("Jukebox Dryer", args.jukebox_dryer, args.jukebox_dryer_level),
+        ("Crafting Table", args.crafting_table, args.crafting_table_level),
+        ("Simmering Pot", args.simmering_pot, args.simmering_pot_level),
+    ] {
+        println!("  {:<22} {} x {}{}", args.language.text(name), count, args.language.text("Lv."), level);
+    }
 
     println!();
-    println!("Item Modules:");
-    println!("  Ecological Module:  Lv.{}", args.ecological_module);
-    println!("  Kitchen Module:     Lv.{}", args.kitchen_module);
-    println!("  Resource Detector:  Lv.{}", args.resource_detector);
-    println!("  Crafting Module:    Lv.{}", args.crafting_module);
+    println!("{}", args.language.text("Item Modules:"));
+    for (name, level) in [
+        ("Ecological Module", args.ecological_module),
+        ("Kitchen Module", args.kitchen_module),
+        ("Resource Detector", args.resource_detector),
+        ("Crafting Module", args.crafting_module),
+    ] {
+        println!("  {:<22} {}{}", args.language.text(name), args.language.text("Lv."), level);
+    }
 
     println!();
     println!(
-        "Aniimo:             Lv.{} suitability{}",
+        "{} {}{} {}{}",
+        args.language.text("Aniimo:"),
+        args.language.text("Lv."),
         args.aniimo_level,
-        if args.personality_bonus { ", personality bonus" } else { "" }
+        args.language.text("suitability"),
+        if args.personality_bonus { args.language.text(", personality bonus") } else { "" }
     );
 
     // Load all data, with times set for the Aniimo working each facility
@@ -262,7 +327,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let requirements = aniimax::data::load_aniimo_requirements(data_dir)?;
     workers.apply(&requirements, &mut items);
     println!();
-    println!("Loaded {} production items.", items.len());
+    println!("{} {} {}", args.language.text("Loaded"), items.len(), args.language.text("production items."));
 
     // Calculate efficiencies
     let efficiencies =
@@ -271,8 +336,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     if efficiencies.is_empty() {
         println!();
         println!(
-            "[WARNING] No items found that produce {} with current facility levels.",
-            args.currency
+            "{} {} {}",
+            args.language.text("[WARNING] No items found that produce"),
+            args.language.text(&args.currency),
+            args.language.text("with current facility levels.")
         );
         return Ok(());
     }
@@ -322,18 +389,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     if let Some(path) = path_result {
-        display_results(&path, &efficiencies, false);
+        display_results_in(&path, &efficiencies, false, args.language);
 
         if args.energy_cost > 0.0 && !args.energy_self_sufficient {
-            display_energy_recommendations(&efficiencies);
+            display_energy_recommendations_in(&efficiencies, args.language);
         }
     } else {
         println!();
         if args.energy_self_sufficient {
-            println!("[WARNING] Cannot achieve energy self-sufficiency with current setup.");
-            println!("Try increasing facility counts or reducing energy cost.");
+            println!("{}", args.language.text("[WARNING] Cannot achieve energy self-sufficiency with current setup."));
+            println!("{}", args.language.text("Try increasing facility counts or reducing energy cost."));
         } else {
-            println!("[WARNING] Could not find a valid production path.");
+            println!("{}", args.language.text("[WARNING] Could not find a valid production path."));
         }
     }
 

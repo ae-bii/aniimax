@@ -68,6 +68,7 @@
 
 pub mod coverage;
 pub mod data;
+pub mod locale;
 pub mod display;
 pub mod exact;
 pub mod models;
