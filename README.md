@@ -666,50 +666,7 @@ tests/
 
 ## Contributing
 
-Contributions are welcome! Here's how you can help:
-
-### Reporting Issues
-
-- Check existing issues before creating a new one
-- Include steps to reproduce the problem
-- Mention your environment (OS, Rust version, browser if applicable)
-
-### Adding Game Data
-
-To add missing items or correct existing data:
-
-1. Edit the appropriate CSV file in `data/`, following the existing format for that facility
-2. If you add a new CSV, load it in both `src/data.rs` and `src/wasm.rs`
-3. Run `cargo test`; the data checks flag misspelled ingredients, mismatched quick variants and out-of-range values
-4. Submit a pull request
-
-### Code Contributions
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Make your changes
-4. Run tests: `cargo test`
-5. Build WASM to verify: `wasm-pack build --target web --out-dir web/pkg`
-6. Commit with a descriptive message
-7. Push and open a pull request
-
-### Development Setup
-
-```bash
-# Clone your fork
-git clone https://github.com/<your-username>/aniimax.git
-cd aniimax
-
-# Build and test
-cargo build
-cargo test
-
-# Build WASM for web testing
-wasm-pack build --target web --out-dir web/pkg
-
-# Start local server for web app
-cd web && python3 -m http.server 8080
-```
+Want to report a bug, verify game data, or change the code? Read the [contributing guide](CONTRIBUTING.md) for setup, validation, and pull request guidance.
 
 ## License
 
