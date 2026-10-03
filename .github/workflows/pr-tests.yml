@@ -36,7 +36,8 @@ jobs:
         run: cargo build --locked
 
       - name: Test Rust
-        run: cargo test --locked
+        # Layout coverage tests repeatedly solve packing problems.
+        run: cargo test --release --locked
 
       - name: Build WASM library
         run: cargo build --locked --release --lib --target wasm32-unknown-unknown
