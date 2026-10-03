@@ -1,0 +1,50 @@
+name: PR tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/**/*.rs'
+      - 'tests/**/*.rs'
+      - 'tests/**/*.js'
+      - 'tests/**/*.mjs'
+      - 'web/**/*.js'
+      - 'web/**/*.mjs'
+      - 'web/**/*.html'
+      - 'web/**/*.css'
+      - 'build-wasm.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build Rust
+        run: cargo build --locked
+
+      - name: Test Rust
+        run: cargo test --locked
+
+      - name: Build WASM library
+        run: cargo build --locked --release --lib --target wasm32-unknown-unknown
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test JavaScript
+        run: node --test
