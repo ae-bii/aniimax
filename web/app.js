@@ -5,6 +5,7 @@ import {
     MAX_HOME_LEVEL, ANIIMO_MAX, simpleSetup,
     LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, SEASON, ANIIPOD_TIERS, PERSONALITY_PAIRS, personalityLetter, opposedPersonality,
 } from './facility-config.js';
+import { createShareUrl, readShareHash, urlWithoutShare } from './share-config.js';
 
 let wasmReady = false;
 
@@ -360,7 +361,8 @@ function getPersistedFieldIds() {
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
-        'rate-unit', 'season-on', 'layout-sim-on'
+        'rate-unit', 'season-on', 'layout-sim-on',
+        'aniimo-best', 'aniimo-minimum', 'aniimo-custom'
     ];
 }
 
@@ -414,17 +416,53 @@ function initFacilityTiers(data) {
 
 }
 
-function saveInputsToStorage() {
+function currentConfig() {
     const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial], priorities: priorityOrder, aniimoLevels, roster };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         data[id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
     });
+    return data;
+}
+
+function clearShareHash() {
+    const url = urlWithoutShare(window.location.href);
+    if (url === window.location.href) return false;
+    window.history.replaceState(null, '', url);
+    return true;
+}
+
+function saveInputsToStorage() {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(currentConfig()));
+        const imported = clearShareHash();
+        document.getElementById('share-config-status').textContent = imported
+            ? 'Your changes are saved in this browser.' : '';
+        document.getElementById('share-config-result').hidden = true;
     } catch (e) {
         console.warn('Could not save inputs to localStorage:', e);
+    }
+}
+
+async function shareCurrentConfig() {
+    const link = document.getElementById('share-config-link');
+    const result = document.getElementById('share-config-result');
+    const status = document.getElementById('share-config-status');
+    try {
+        link.value = await createShareUrl(window.location.href, currentConfig());
+        result.hidden = false;
+        link.focus();
+        link.select();
+        try {
+            await navigator.clipboard.writeText(link.value);
+            status.textContent = 'Link copied. It includes your current setup.';
+        } catch (_) {
+            status.textContent = 'Copy the link above to share your setup.';
+        }
+    } catch (error) {
+        status.textContent = 'Could not create a share link for this setup.';
+        console.warn('Could not create share link:', error);
     }
 }
 
@@ -491,6 +529,7 @@ function clearSavedInputs() {
     } catch (e) {
         console.warn('Could not clear saved inputs from localStorage:', e);
     }
+    clearShareHash();
     window.location.reload();
 }
 
@@ -4115,8 +4154,15 @@ window.closeFacilitiesOnBackdrop = function(event) {
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
-    const savedData = readStorage();
+document.addEventListener('DOMContentLoaded', async () => {
+    let sharedData = null;
+    try {
+        sharedData = await readShareHash(window.location.hash);
+    } catch (error) {
+        document.getElementById('share-config-status').textContent = 'This share link is invalid. Your saved setup was kept.';
+        console.warn('Could not load shared config:', error);
+    }
+    const savedData = sharedData ? migrateSavedConfig(sharedData) : readStorage();
     initFacilityTiers(savedData);
     renderFacilityCards();
     populateHomeLevels();
@@ -4140,6 +4186,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('optimize-btn').addEventListener('click', runFindPlan);
     document.getElementById('clear-saved-btn').addEventListener('click', clearSavedInputs);
+    document.getElementById('share-config-btn').addEventListener('click', shareCurrentConfig);
+    if (sharedData) document.getElementById('share-config-status').textContent = 'Shared setup loaded. Your saved setup is kept until you edit this one.';
     document.getElementById('rate-unit').addEventListener('change', () => {
         rateUnitChosen = true;
         updateRateUnitDisplays();
@@ -4289,4 +4337,3 @@ document.addEventListener('focusin', (e) => {
 });
 document.addEventListener('focusout', hideTip);
 window.addEventListener('scroll', hideTip, { passive: true, capture: true });
-

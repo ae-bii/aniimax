@@ -1147,6 +1147,41 @@ footer {
     color: var(--text-muted);
 }
 
+.config-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.share-config-result {
+    margin-bottom: 0.5rem;
+}
+
+.share-config-result[hidden] {
+    display: none;
+}
+
+.share-config-result label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+}
+
+.share-config-result input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+}
+
+#share-config-status:empty {
+    display: none;
+}
+
 .subtitle {
     margin-top: -1.5rem;
 }

@@ -26,8 +26,16 @@
             <section class="card config-section">
                 <div class="card-head">
                     <h2>Your Homeland</h2>
-                    <button type="button" id="clear-saved-btn" class="toggle-button small" title="Your inputs are saved in this browser automatically.">Clear saved values</button>
+                    <div class="config-actions">
+                        <button type="button" id="share-config-btn" class="toggle-button small">Share setup</button>
+                        <button type="button" id="clear-saved-btn" class="toggle-button small" title="Your inputs are saved in this browser automatically.">Clear saved values</button>
+                    </div>
                 </div>
+                <div id="share-config-result" class="share-config-result" hidden>
+                    <label for="share-config-link">Shareable link</label>
+                    <input type="text" id="share-config-link" readonly>
+                </div>
+                <p id="share-config-status" class="hint small" role="status" aria-live="polite"></p>
 
                 <div class="tabs" role="radiogroup" aria-label="Input mode">
                     <label><input type="radio" name="config-mode" id="mode-simple" value="simple" checked> Simple</label>
