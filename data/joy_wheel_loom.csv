@@ -1,7 +1,7 @@
-name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
-cotton_thread, cotton, 7, 410, coins, 68, 1,
-woolen_yarn, wool, 4, 760, coins, 68, 2,
-cotton_fabric, cotton_thread, 1, 610, coins, 68, 2,
-palm_rope, palm_bark, 6, 1150, coins, 81, 3,
-wool_fabric, woolen_yarn, 1, 1190, coins, 81, 3,
-dyed_cotton_fabric, cotton_fabric;dye, 1;1, 6920, coins, 243, 4,
+name, raw_materials, required_amount, sell_value, sell_currency, workload, emode_base_time, facility_level, module_requirement
+cotton_thread, cotton, 7, 410, coins, 68, 54, 1, 
+woolen_yarn, wool, 4, 760, coins, 68, 54, 2, 
+cotton_fabric, cotton_thread, 1, 610, coins, 68, 54, 2, 
+palm_rope, palm_bark, 6, 1150, coins, 81, 54, 3, 
+wool_fabric, woolen_yarn, 1, 1190, coins, 81, 54, 3, 
+dyed_cotton_fabric, cotton_fabric;dye, 1;1, 6920, coins, 243, 162, 4, 

@@ -39,6 +39,7 @@ pub fn byproduct_item(resource: &str) -> Option<&'static str> {
 ///     facility_level: 1,
 ///     module_requirement: None,
 ///     workload: None,
+///     emode_base_time: None,
 ///     byproduct: None,
 ///     environment: None,
 ///     season: None,
@@ -74,6 +75,9 @@ pub struct ProductionItem {
     /// Workload for Aniimo-worked facilities. `production_time` holds the time for a level-1
     /// Aniimo until [`Workers::apply`] sets the one for the player's own Aniimo.
     pub workload: Option<f64>,
+    /// Base production time in seconds when operating in E-mode (Electric mode), or `None` if the
+    /// facility/item does not support E-mode.
+    pub emode_base_time: Option<f64>,
     /// Secondary byproduct yielded alongside the main product: (resource_name, amount).
     /// E.g. Woodland yields Wood Blocks, Mine yields Mineral Sand. These are progression
     /// resources for RV level-ups: they aren't sold, but the Woodworking Bench and Chimney Kiln
@@ -206,7 +210,8 @@ pub const FACILITIES_WITHOUT_PERSONALITY: [&str; 2] = ["Dance Pad Polisher", "An
 /// Whether `facility` has a personality whose Aniimo work it faster (see
 /// [`FACILITIES_WITHOUT_PERSONALITY`]).
 pub fn has_personality_bonus(facility: &str) -> bool {
-    !FACILITIES_WITHOUT_PERSONALITY.contains(&facility)
+    let base = facility.strip_suffix(" (Manual)").unwrap_or(facility);
+    !FACILITIES_WITHOUT_PERSONALITY.contains(&base)
 }
 
 /// Efficiency at a facility without a personality ([`FACILITIES_WITHOUT_PERSONALITY`]): 100% at
@@ -229,15 +234,17 @@ pub fn no_personality_efficiency(level: u32, required: u32) -> f64 {
 /// Marks a crop grown without its growing environment, e.g. `rose__uncovered` (see
 /// [`add_uncovered_variants`]).
 pub const UNCOVERED_SUFFIX: &str = "__uncovered";
+pub const MANUAL_SUFFIX: &str = "__manual";
 
 /// The recipe or crop behind an item name: the name without a roster copy's `__by<member>` (see
-/// [`crew_variants`]) or an uncovered variant's suffix.
+/// [`crew_variants`]), an uncovered variant's suffix, or a manual facility variant suffix.
 pub fn base_item_name(name: &str) -> &str {
     let name = match name.rsplit_once(CREW_SUFFIX) {
         Some((base, member)) if !member.is_empty() && member.bytes().all(|b| b.is_ascii_digit()) => base,
         _ => name,
     };
-    name.strip_suffix(UNCOVERED_SUFFIX).unwrap_or(name)
+    let name = name.strip_suffix(UNCOVERED_SUFFIX).unwrap_or(name);
+    name.strip_suffix(MANUAL_SUFFIX).unwrap_or(name)
 }
 
 /// Marks a recipe worked by one Aniimo on the player's roster, e.g. `milled_rice__by2` for the
@@ -544,7 +551,8 @@ impl Workers {
     }
 
     pub fn get(&self, facility: &str) -> Worker {
-        self.by_facility.get(facility).copied().unwrap_or_default()
+        let base = facility.strip_suffix(" (Manual)").unwrap_or(facility);
+        self.by_facility.get(base).or_else(|| self.by_facility.get(facility)).copied().unwrap_or_default()
     }
 
     /// Recomputes every workload-based item's `production_time` for the Aniimo working its
@@ -556,6 +564,53 @@ impl Workers {
             if let Some(workload) = item.workload {
                 let required = requirements.get(&item.name).map_or(1, |(_, level)| level);
                 item.production_time = self.get(&item.facility).seconds_for_item(item, workload, required);
+            }
+        }
+    }
+}
+
+/// Returns the default E-mode base time in seconds for a given recipe workload.
+/// In Aniimo, E-mode base times align to 27-second unit intervals:
+/// - 27s for tier-0.5 items (workload 34, 41)
+/// - 54s for tier-1 items (workload 54, 68, 81)
+/// - 108s (1m 48s) for tier-2 items (workload 108, 135, 162)
+/// - 162s (2m 42s) for tier-3 items (workload 203, 243)
+/// - 216s (3m 36s) for tier-4 items (workload 270, 324)
+/// - 270s (4m 30s) for tier-5 items (workload 405)
+/// - 378s (6m 18s) for tier-7 items (workload 567)
+pub fn default_emode_base_time(workload: f64) -> f64 {
+    if workload <= 45.0 {
+        27.0
+    } else if workload <= 90.0 {
+        54.0
+    } else if workload <= 180.0 {
+        108.0
+    } else if workload <= 250.0 {
+        162.0
+    } else if workload <= 350.0 {
+        216.0
+    } else if workload <= 450.0 {
+        270.0
+    } else if workload <= 600.0 {
+        378.0
+    } else {
+        (workload / 1.5 / 27.0).round() * 27.0
+    }
+}
+
+/// Applies E-mode production times to items in facilities running in E-mode.
+/// For each item belonging to a facility in `emode_facilities`, its `production_time` is set to
+/// `emode_base_time / power_grid_rate`.
+pub fn apply_emode(items: &mut [ProductionItem], emode_facilities: &[String], power_grid_rate: f64) {
+    if emode_facilities.is_empty() {
+        return;
+    }
+    let rate = if power_grid_rate <= 0.0 { 1.0 } else { power_grid_rate };
+    for item in items.iter_mut() {
+        if emode_facilities.iter().any(|f| f == &item.facility) {
+            if let Some(emode_time) = item.emode_base_time.or_else(|| item.workload.map(default_emode_base_time)) {
+                item.production_time = emode_time / rate;
+                item.workload = None;
             }
         }
     }
@@ -647,7 +702,8 @@ impl AniimoRequirements {
 
     /// The ability and minimum ability level `item` needs, if it's worked by an Aniimo.
     pub fn get(&self, item: &str) -> Option<(&str, u32)> {
-        self.by_item.get(item).map(|(ability, level)| (ability.as_str(), *level))
+        let base = base_item_name(item);
+        self.by_item.get(base).or_else(|| self.by_item.get(item)).map(|(ability, level)| (ability.as_str(), *level))
     }
 
     /// The Aniimo `setup` puts on `item`. An item without a listed requirement gets a level-1
@@ -1466,6 +1522,9 @@ pub struct MineralRow {
     /// Workload stat; converted to an estimated production time via
     /// [`Worker`]
     pub workload: f64,
+    /// Production time in seconds when operating in E-mode (optional)
+    #[serde(default)]
+    pub emode_base_time: Option<f64>,
     /// Number of items yielded
     #[serde(rename = "yield")]
     pub yield_amount: u32,
@@ -1511,6 +1570,9 @@ pub struct ProcessingRowWithEnergy {
     /// Workload stat (new-beta facilities); converted to time via [`Worker`]
     #[serde(default)]
     pub workload: Option<f64>,
+    /// Production time in seconds when operating in E-mode (optional)
+    #[serde(default)]
+    pub emode_base_time: Option<f64>,
     /// Energy consumed (optional for items that don't consume energy)
     #[serde(default, deserialize_with = "crate::deserialize_optional_f64")]
     pub energy: Option<f64>,
@@ -1547,6 +1609,9 @@ pub struct ProcessingRowNoEnergy {
     /// Workload stat (new-beta facilities); converted to time via [`Worker`]
     #[serde(default)]
     pub workload: Option<f64>,
+    /// Production time in seconds when operating in E-mode (optional)
+    #[serde(default)]
+    pub emode_base_time: Option<f64>,
     /// How many the recipe makes per batch; 1 if absent, which is what most processors do.
     #[serde(default, rename = "yield")]
     pub yield_amount: Option<u32>,

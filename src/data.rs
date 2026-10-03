@@ -143,6 +143,7 @@ pub fn parse_season(csv_text: &str) -> Result<Vec<ProductionItem>, Box<dyn Error
             facility_level: row.facility_level,
             module_requirement: None,
             workload: row.workload,
+            emode_base_time: None,
             byproduct: None,
             environment: None,
             season: Some(crate::models::SeasonTerms {
@@ -234,6 +235,7 @@ pub fn load_farmland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: None,
+            emode_base_time: None,
             byproduct: None,
             environment: row.environment,
             season: None,
@@ -287,6 +289,7 @@ pub fn load_woodland(path: &Path) -> Result<Vec<ProductionItem>, Box<dyn Error>>
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: None,
+            emode_base_time: None,
             byproduct: row
                 .byproduct_yield
                 .map(|amt| ("Wood Blocks".to_string(), amt)),
@@ -349,6 +352,7 @@ pub fn load_workload_raw_material(
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: Some(row.workload),
+            emode_base_time: row.emode_base_time,
             byproduct: byproduct_name.zip(row.byproduct_yield).map(|(name, amt)| (name.to_string(), amt)),
             environment: row.environment,
             season: None,
@@ -423,6 +427,9 @@ pub fn load_processing_with_energy(
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: row.workload,
+            emode_base_time: row
+                .emode_base_time
+                .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
             byproduct: None,
             environment: None,
             season: None,
@@ -480,6 +487,9 @@ pub fn load_processing_no_energy(
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: row.workload,
+            emode_base_time: row
+                .emode_base_time
+                .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
             byproduct: None,
             environment: None,
             season: None,
