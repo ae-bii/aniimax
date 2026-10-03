@@ -59,9 +59,23 @@ Add tests alongside the relevant code: Rust unit tests in `src/`, domain-level i
 
 For a new CSV file, wire it into both Rust loaders (`src/data.rs` and `src/wasm.rs`). When changing game data, include verification details in the pull request and check that item names, ingredients, facility names, and quick variants still match.
 
+## Name your branch
+
+Follow [Conventional Branch](https://conventionalbranch.org/) using `<type>/<description>`. Choose a prefix based on the work:
+
+| Prefix | Use for | Example |
+| --- | --- | --- |
+| `feature/` or `feat/` | New behavior | `feature/shareable-config-link` |
+| `bugfix/` or `fix/` | Bug fixes | `bugfix/incorrect-coin-total` |
+| `hotfix/` | Urgent fixes | `hotfix/restore-deployment` |
+| `release/` | Release preparation | `release/v0.17.0` |
+| `chore/` | Documentation, dependencies, and other maintenance | `chore/update-contributor-guide` |
+
+Use lowercase letters and numbers, with single hyphens between words. Dots are for version numbers in release branches. Do not use spaces, underscores, uppercase letters, consecutive separators, or a separator at the start or end of the description. Keep the description short and specific; include an issue number when it helps trace the work, such as `feature/issue-123-add-recipes`. The trunk branch `main` has no prefix.
+
 ## Open a pull request
 
-1. Create a descriptive feature branch and commit only the files needed for the change. Use a short, imperative commit subject such as `Fix ...` or `Add ...`.
+1. Create a branch using the naming rules above and commit only the files needed for the change. Use a short, imperative commit subject such as `Fix ...` or `Add ...`.
 2. Explain the behavior changed and list the validation commands you ran. For a bug fix, include reproduction steps and environment details.
 3. For UI changes, include a screenshot or a short note describing what you checked in the browser.
 4. Link the relevant issue when there is one, then open the pull request for review.
