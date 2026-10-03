@@ -17,7 +17,8 @@
 //!   Woodworking Bench and Chimney Kiln can use them.
 //! - During a season, its items also earn points when sold, which a priority or floor can name
 //!   as [`crate::models::SEASON_POINTS`]. Season seeds cost the season currency, which plans treat
-//!   as unlimited (see [`crate::models::SeasonTerms`]).
+//!   as unlimited (see [`crate::models::SeasonTerms`]) unless the player sets a daily budget:
+//!   `86400 * sum of seed_cost_r * b_r <= currency per day`.
 //! - The objective is the target currency per second from everything sold; for coins, minus seed
 //!   costs (seeds are paid in coins, so they don't come off an Aniimo EXP total). A floor can
 //!   name another currency, so a plan keeps up the Aniimo EXP or Aniipods an earlier solve found
@@ -303,6 +304,21 @@ impl<'a> Model<'a> {
     }
 }
 
+/// The daily season currency budget, if set, and each season crop's seed cost per batch against
+/// its rate in `rates` (see [`crate::models::SeasonTerms::currency_per_day`]).
+fn season_budget<T: Copy>(rates: &[(&ProductionItem, T)]) -> Option<(f64, Vec<(T, f64)>)> {
+    let mut budget = None;
+    let mut spent = Vec::new();
+    for &(recipe, rate) in rates {
+        let Some(terms) = recipe.season.filter(|s| s.seed_cost > 0.0) else { continue };
+        if let Some(limit) = terms.currency_per_day {
+            budget = Some(limit);
+            spent.push((rate, terms.seed_cost));
+        }
+    }
+    budget.map(|b| (b, spent))
+}
+
 /// Builds the model for `items` (production times already set for the Aniimo working them).
 fn build_model<'a>(
     items: &'a [ProductionItem],
@@ -345,6 +361,10 @@ fn build_model<'a>(
         model.constrain(vec![(rate, recipe.production_time), (units, -1.0)], ComparisonOp::Le, 0.0);
         rate_of.push((recipe, rate));
         units_of.push((recipe, units));
+    }
+    // The season currency the player can spend on seeds a day.
+    if let Some((budget, spent)) = season_budget(&rate_of) {
+        model.constrain(spent.into_iter().map(|(v, cost)| (v, cost * PACE_UNIT)).collect(), ComparisonOp::Le, budget);
     }
 
     // Item balances: made >= used + sold.
@@ -1053,6 +1073,13 @@ pub fn check_plan(
             earned -= rate * recipe.cost.unwrap_or(0.0);
         }
     }
+    let rates: Vec<(&ProductionItem, f64)> = plan.recipe_rates.iter().filter_map(|(n, &r)| Some((*all.get(n.as_str())?, r))).collect();
+    if let Some((budget, spent)) = season_budget(&rates) {
+        let per_day: f64 = spent.iter().map(|(rate, cost)| rate * cost).sum::<f64>() * PACE_UNIT;
+        if per_day > budget * (1.0 + TOLERANCE) + TOLERANCE {
+            return Err(format!("seeds take {per_day} season currency a day but the budget is {budget}"));
+        }
+    }
     for (name, &sold) in &plan.sold {
         let item = all.get(name.as_str()).ok_or(format!("unknown item {name}"))?;
         *made.entry(item.name.as_str()).or_default() -= sold;
@@ -1518,7 +1545,8 @@ pub fn to_production_plan(
                 cycle_time: Some(recipe.production_time),
                 environment: if grower { recipe.environment.clone() } else { None },
                 // A roster member's row says how much of its time it really takes, gathering too.
-                busy_units: (!grower || recipe.crew.is_some()).then(|| (rate * recipe.production_time).min(units as f64)),
+                busy_units: (!grower || recipe.crew.is_some() || recipe.season.is_some_and(|s| s.currency_per_day.is_some()))
+                    .then(|| (rate * recipe.production_time).min(units as f64)),
                 crew: recipe.crew,
             });
         }

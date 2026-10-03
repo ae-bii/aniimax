@@ -148,6 +148,7 @@ pub fn parse_season(csv_text: &str) -> Result<Vec<ProductionItem>, Box<dyn Error
             season: Some(crate::models::SeasonTerms {
                 points: row.points,
                 seed_cost: row.seed_cost.unwrap_or(0.0),
+                currency_per_day: None,
             }),
             crew: None,
         });

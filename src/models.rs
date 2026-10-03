@@ -107,6 +107,9 @@ pub struct SeasonTerms {
     pub points: f64,
     /// Season currency the seeds for one batch cost; 0 for anything that isn't a season crop.
     pub seed_cost: f64,
+    /// The most season currency a day the player can spend on seeds, or `None` for no limit. The
+    /// same budget on every season crop: all their seeds together stay within it.
+    pub currency_per_day: Option<f64>,
 }
 
 impl ProductionItem {
@@ -886,7 +889,8 @@ pub struct PlanStep {
     /// ungated crops all leave this `None`).
     pub environment: Option<String>,
     /// On a producing processor row, how many of its `facility_count` units are busy on average
-    /// (a unit waiting on ingredients frees its Aniimo for other work). `None` elsewhere.
+    /// (a unit waiting on ingredients frees its Aniimo for other work); also on a season crop
+    /// held back by the season currency budget. `None` elsewhere.
     pub busy_units: Option<f64>,
     /// When planning with the player's roster, which member works this row (see [`Crew`]).
     pub crew: Option<usize>,

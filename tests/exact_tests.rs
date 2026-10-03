@@ -296,6 +296,29 @@ fn exact_season_crops_fill_every_plot() {
     assert!((plan.rate_per_second - expected).abs() < 1e-9, "got {}, expected {expected}", plan.rate_per_second);
 }
 
+// With 60 Moonray Wheat a day for seeds (4 a planting), the season crops are planted 15 times a
+// day, which one plot covers (15 x 1800s), worth 8880 coins a day against a potato plot's 2700;
+// the other five plots grow potato.
+#[test]
+fn test_exact_season_currency_budget_caps_seeds() {
+    let Some(mut items) = load_items_with_season() else { return };
+    for terms in items.iter_mut().filter_map(|i| i.season.as_mut()) {
+        terms.currency_per_day = Some(60.0);
+    }
+    let counts = FacilityCounts::only(&[("Farmland", 6, 2)]);
+    let plan = solve_and_check(&items, &counts, &ModuleLevels::default());
+    let time = |name: &str| items.iter().find(|i| i.name == name).unwrap().production_time;
+    let expected = 15.0 * 8.0 * 74.0 / PACE_UNIT + 5.0 * (2.0 * 8.0 - 1.0) / time("potato");
+    assert!((plan.rate_per_second - expected).abs() < 1e-9, "got {}, expected {expected}", plan.rate_per_second);
+
+    // The re-check catches a plan spending more than the budget.
+    let mut over = plan.clone();
+    let crop = over.recipe_rates.keys().find(|n| n.starts_with("moondew") || n.starts_with("waxing")).unwrap().clone();
+    *over.recipe_rates.get_mut(&crop).unwrap() *= 1.5;
+    let err = check_plan(&over, &items, "coins", &counts, &ModuleLevels::default(), None).unwrap_err();
+    assert!(err.contains("budget"), "{err}");
+}
+
 // Points as a priority: every season crop sold raw counts 1, which beats cooking 16 of them into
 // something worth 8 at most, so the most points is all six plots sold raw. The coin plan that has
 // to keep that many points is then the same as the best coin plan.

@@ -2357,6 +2357,28 @@ fn solve_facility_allocation_uncached<'a>(
         problem.add_constraint(&terms, ComparisonOp::Ge, floor * (1.0 - 1e-6));
     }
 
+    // The season currency the player can spend on seeds a day: each candidate's season crops'
+    // seeds per batch of it (batches a day times seed cost) add up to at most the budget.
+    let mut budget = None;
+    let mut spent: Vec<(microlp::Variable, f64)> = Vec::new();
+    for (eff, var) in &item_vars {
+        let mut per_day = 0.0;
+        for (_, item_name, utilization) in &eff.facility_demand {
+            let Some(item) = item_map.get(item_name.as_str()) else { continue };
+            let Some(terms) = item.season.filter(|s| s.seed_cost > 0.0) else { continue };
+            if let Some(limit) = terms.currency_per_day {
+                budget = Some(limit);
+                per_day += utilization / item.production_time * 86_400.0 * terms.seed_cost;
+            }
+        }
+        if per_day > 0.0 {
+            spent.push((*var, per_day));
+        }
+    }
+    if let Some(budget) = budget {
+        problem.add_constraint(&spent, ComparisonOp::Le, budget);
+    }
+
     // Every variable is bounded by at least its own facility's constraint (facility_demand always
     // includes the item's own facility; see `accumulate_demand`), and every constraint's RHS is
     // a non-negative facility count, so this is always feasible and bounded without floors. A
@@ -4421,7 +4443,9 @@ pub fn production_over(plan: &ProductionPlan, total_time: f64) -> GoalResult {
             if cycle_time <= 0.0 {
                 return None;
             }
-            let seeds_per_plot = (total_time / cycle_time).ceil() as u64;
+            // A plot short of seeds (see `busy_units`) is planted only as often as they allow.
+            let plots = s.busy_units.unwrap_or(s.facility_count as f64);
+            let seeds_per_plot = (total_time * plots / s.facility_count.max(1) as f64 / cycle_time).ceil() as u64;
             if seeds_per_plot == 0 {
                 return None;
             }

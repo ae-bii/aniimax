@@ -360,7 +360,7 @@ function getPersistedFieldIds() {
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
-        'rate-unit', 'season-on', 'layout-sim-on'
+        'rate-unit', 'season-on', 'layout-sim-on', 'season-currency-per-day'
     ];
 }
 
@@ -1899,6 +1899,12 @@ function renderRosterSummary(plan) {
 // where there's no RV level to go by. While it's on, plans may use the season's recipes, bar Recipe
 // Notes the player hasn't unlocked, and say how much Moonray Wheat their seeds use.
 
+// The Moonray Wheat a day the player can spend on seeds, or `null` when blank (no limit).
+function seasonCurrencyPerDay() {
+    const value = document.getElementById('season-currency-per-day').value.trim();
+    return value !== '' && Number(value) >= 0 ? Number(value) : null;
+}
+
 function seasonAvailable() {
     return !isSimpleMode() || selectedHomeLevel() >= SEASON.minHomeLevel;
 }
@@ -2475,7 +2481,7 @@ function renderSeedTable(plan) {
     const rows = (plan.coin_items || [])
         .filter(s => (s.facility === 'Farmland' || s.facility === 'Woodland') && s.status === 'producing' && s.cycle_time > 0)
         .map(s => {
-            const perSecond = s.facility_count / s.cycle_time;
+            const perSecond = (s.busy_units ?? s.facility_count) / s.cycle_time;
             const recipe = recipeIndex.find(r => r.name === s.item_name);
             const cost = recipe?.cost || 0;
             // Whole seeds when counting to the level-up.
@@ -2560,6 +2566,7 @@ function getPlanInputValues() {
             level_up: levelUpInput(),
             exclude: excludedRecipes(),
             season: seasonActive(),
+            season_currency_per_day: seasonCurrencyPerDay(),
             facilities,
             modules
         };
@@ -2587,6 +2594,7 @@ function getPlanInputValues() {
         level_up: levelUpInput(),
         exclude: excludedRecipes(),
         season: seasonActive(),
+        season_currency_per_day: seasonCurrencyPerDay(),
         facilities,
         modules
     };
