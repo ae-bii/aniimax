@@ -1,5 +1,5 @@
 // Register a language here and add its JSON catalog; English phrases are the source keys.
-const languages = { en: 'English', ru: 'Русский' };
+const languages = { en: 'English', ru: 'Русский', fr: 'Français' };
 const catalogs = { en: {} };
 const templates = {};
 let language = 'en';
@@ -66,7 +66,10 @@ export function translate(value) {
 }
 
 export function currentLocale() {
-    return language === 'ru' ? 'ru-RU' : 'en-US';
+    if (language === 'ru') return 'ru-RU';
+    if (language === 'fr') return 'fr-FR';
+    return 'en-US';
+}
 }
 
 function escapeRegExp(text) {
