@@ -70,7 +70,6 @@ export function currentLocale() {
     if (language === 'fr') return 'fr-FR';
     return 'en-US';
 }
-}
 
 function escapeRegExp(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
