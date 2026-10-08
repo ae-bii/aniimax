@@ -819,5 +819,14 @@
   "{n} Home Coins/hour": "{n} Pièces de Logie/heure",
   "{n} Home Coins/day": "{n} Pièces de Logie/jour",
 
-  "{n} Home Coins + {amount} Moonray Wheat": "{n} Pièces de Logie + {amount} Blé Rayon de lune"
+  "{n} Home Coins + {amount} Moonray Wheat": "{n} Pièces de Logie + {amount} Blé Rayon de lune",
+    "{trips} trips/hour to the Storage Unit, {distance} tiles each on average, in the {plots} plot open at RV {level}.": "{trips} trajets/heure vers l'Entrepôt, avec une distance moyenne de {distance} cases par trajet, dans la parcelle ouverte au RV {level}.",
+  "{trips} trips/hour to the Storage Unit, {distance} tiles each on average, in the {plots} plots open at RV {level}.": "{trips} trajets/heure vers l'Entrepôt, avec une distance moyenne de {distance} cases par trajet, dans les {plots} parcelles ouvertes au RV {level}.",
+  "{trips} trips/hour · {distance} tiles from storage": "{trips} trajets/heure · {distance} cases depuis l'Entrepôt",
+  "{trips} trips/hour": "{trips} trajets/heure",
+  "{facility}, {item}, {trips} trips/hour · {distance} tiles from storage": "{facility}, {item}, {trips} trajets/heure · {distance} cases depuis l'Entrepôt",
+  "{facility}, Where everything is carried, {trips} trips/hour": "{facility}, lieu de stockage de toute la production, {trips} trajets/heure",
+  "Where everything is carried": "Lieu de stockage de toute la production",
+  "Game time since everything was set up, at {speed}× speed": "Temps de jeu depuis la mise en place, à vitesse ×{speed}",
+  "Nothing in this plan is carried to the Storage Unit.": "Aucune production de ce plan n'est transportée vers l'Entrepôt."
 }
