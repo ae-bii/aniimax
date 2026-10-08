@@ -802,5 +802,22 @@
   "Reaping": "Récolte",
   "Logging": "Coupe",
   "Collecting": "Collecte",
-  "Watering ×{n}": "Arrosage ×{n}"
+  "Watering ×{n}": "Arrosage ×{n}",
+  "Overlap": "Chevauchement",
+
+    "These facilities can't make everything it costs.": "Ces installations ne permettent pas de produire tout ce qui est nécessaire.",
+
+  "Home Coins, from what's left": "Pièces de Logie avec les ressources restantes",
+
+  "Home Coins/sec": "Pièces de Logie/s",
+  "Home Coins/min": "Pièces de Logie/min",
+  "Home Coins/hour": "Pièces de Logie/heure",
+  "Home Coins/day": "Pièces de Logie/jour",
+
+  "{n} Home Coins/sec": "{n} Pièces de Logie/s",
+  "{n} Home Coins/min": "{n} Pièces de Logie/min",
+  "{n} Home Coins/hour": "{n} Pièces de Logie/heure",
+  "{n} Home Coins/day": "{n} Pièces de Logie/jour",
+
+  "{n} Home Coins + {amount} Moonray Wheat": "{n} Pièces de Logie + {amount} Blé Rayon de lune"
 }
