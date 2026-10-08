@@ -1,16 +1,16 @@
-name, raw_materials, required_amount, sell_value, sell_currency, workload, energy, facility_level, module_requirement
-bread, wheatmeal;well_water, 2;5, 280, coins, 108, , 1,
-premium_bread, wheatmeal;well_water, 2;5, 330, coins, 108, , 1, kitchen_module:2
-roasted_soybeans, soybean;sea_salt, 16;10, 450, coins, 108, , 2,
-maple_candy_roasted_potatoes, potato;maple_syrup;sea_salt, 8;9;10, 850, coins, 203, , 3,
-apple_tart, wheatmeal;apple, 1;8, 590, coins, 135, , 3,
-rose_shortbread, rose_concentrate;wheatmeal, 1;1, 1310, coins, 203, , 3,
-lavender_cookies, lavender_powder;wheatmeal, 1;1, 1040, coins, 135, , 4,
-apple_candy, apple;rock_candy, 8;1, 1980, coins, 203, , 4,
-grape_candy, grape;rock_candy, 9;1, 2850, coins, 243, , 5,
-caramel_nut_chips, nuts;maple_syrup, 1;9, 3130, coins, 243, , 5,
-maple_candy_star, maple_sugar_chunk;star, 1;2, 2810, coins, 162, , 6,
-coconut_cookie, shredded_coconut;refined_flour, 1;1, 3700, coins, 162, , 6,
-flower_bread, refined_flour;dried_flowers, 1;1, 4610, coins, 162, , 7,
-berry_chocolate_coconut_pudding, cocoa_spread;strawberry;coconut_milk, 1;16;1, 17890, coins, 567, , 7,
-premium_berry_chocolate_coconut_pudding, cocoa_spread;strawberry;coconut_milk, 1;16;1, 20270, coins, 567, , 7, kitchen_module:7
+name, raw_materials, required_amount, sell_value, sell_currency, workload, emode_base_time, energy, facility_level, module_requirement
+bread, wheatmeal;well_water, 2;5, 280, coins, 108, 108, , 1, 
+premium_bread, wheatmeal;well_water, 2;5, 330, coins, 108, 108, , 1, kitchen_module:2
+roasted_soybeans, soybean;sea_salt, 16;10, 450, coins, 108, 108, , 2, 
+maple_candy_roasted_potatoes, potato;maple_syrup;sea_salt, 8;9;10, 850, coins, 203, 162, , 3, 
+apple_tart, wheatmeal;apple, 1;8, 590, coins, 135, 108, , 3, 
+rose_shortbread, rose_concentrate;wheatmeal, 1;1, 1310, coins, 203, 162, , 3, 
+lavender_cookies, lavender_powder;wheatmeal, 1;1, 1040, coins, 135, 108, , 4, 
+apple_candy, apple;rock_candy, 8;1, 1980, coins, 203, 162, , 4, 
+grape_candy, grape;rock_candy, 9;1, 2850, coins, 243, 162, , 5, 
+caramel_nut_chips, nuts;maple_syrup, 1;9, 3130, coins, 243, 162, , 5, 
+maple_candy_star, maple_sugar_chunk;star, 1;2, 2810, coins, 162, 108, , 6, 
+coconut_cookie, shredded_coconut;refined_flour, 1;1, 3700, coins, 162, 108, , 6, 
+flower_bread, refined_flour;dried_flowers, 1;1, 4610, coins, 162, 108, , 7, 
+berry_chocolate_coconut_pudding, cocoa_spread;strawberry;coconut_milk, 1;16;1, 17890, coins, 567, 378, , 7, 
+premium_berry_chocolate_coconut_pudding, cocoa_spread;strawberry;coconut_milk, 1;16;1, 20270, coins, 567, 378, , 7, kitchen_module:7

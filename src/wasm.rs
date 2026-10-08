@@ -1,4 +1,4 @@
-﻿//! WebAssembly bindings for Aniimax.
+//! WebAssembly bindings for Aniimax.
 //!
 //! This module provides JavaScript-accessible functions for the production optimizer.
 
@@ -238,6 +238,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: None,
+            emode_base_time: None,
             byproduct: None,
             environment: row.environment,
             season: None,
@@ -268,6 +269,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: None,
+            emode_base_time: None,
             byproduct: row
                 .byproduct_yield
                 .map(|amt| ("Wood Blocks".to_string(), amt)),
@@ -297,6 +299,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: Some(row.workload),
+            emode_base_time: row.emode_base_time,
             byproduct: row
                 .byproduct_yield
                 .map(|amt| ("Mineral Sand".to_string(), amt)),
@@ -333,6 +336,7 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
                 workload: Some(row.workload),
+                emode_base_time: row.emode_base_time,
                 byproduct: None,
                 environment: row.environment,
                 season: None,
@@ -371,6 +375,9 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: row.workload,
+            emode_base_time: row
+                .emode_base_time
+                .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
             byproduct: None,
             environment: None,
             season: None,
@@ -408,6 +415,9 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: row.workload,
+            emode_base_time: row
+                .emode_base_time
+                .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
             byproduct: None,
             environment: None,
             season: None,
@@ -445,6 +455,9 @@ fn get_embedded_items() -> Vec<ProductionItem> {
             facility_level: row.facility_level,
             module_requirement: parse_module_requirement(&row.module_requirement),
             workload: row.workload,
+            emode_base_time: row
+                .emode_base_time
+                .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
             byproduct: None,
             environment: None,
             season: None,
@@ -494,6 +507,9 @@ fn get_embedded_items() -> Vec<ProductionItem> {
                 facility_level: row.facility_level,
                 module_requirement: parse_module_requirement(&row.module_requirement),
                 workload: row.workload,
+                emode_base_time: row
+                    .emode_base_time
+                    .or_else(|| row.workload.map(crate::models::default_emode_base_time)),
                 byproduct: None,
                 environment: None,
                 season: None,
@@ -755,6 +771,19 @@ pub struct JsPlanInput {
     /// seeds; `None` for no limit.
     #[serde(default)]
     pub season_currency_per_day: Option<f64>,
+    /// Facilities operating in E-mode (Electric mode), by facility name.
+    #[serde(default)]
+    pub emode_facilities: Vec<String>,
+    /// Per-facility count of units operating in E-mode. If omitted, falls back to `emode_facilities` (all units).
+    #[serde(default)]
+    pub emode_facility_counts: std::collections::HashMap<String, u32>,
+    /// Power grid supply rate (e.g. 1.0 for 100%, 1.2 for 120%, 0.955 for 95.5%). Defaults to 1.0.
+    #[serde(default = "default_power_grid_rate")]
+    pub power_grid_rate: f64,
+}
+
+fn default_power_grid_rate() -> f64 {
+    1.0
 }
 
 /// The player's Aniimo, and what the page knows of the facilities they work (see
@@ -847,6 +876,9 @@ pub struct JsPlanStep {
     /// roster sent in [`JsPlanInput::roster`]).
     #[serde(default)]
     pub crew: Option<usize>,
+    /// Whether this step runs under Electric Mode (E-mode).
+    #[serde(default)]
+    pub is_emode: bool,
 }
 
 /// Aniimo work a plan row creates for one ability: how many Aniimo of that ability and level it
@@ -1008,6 +1040,7 @@ impl From<crate::models::PlanStep> for JsPlanStep {
             busy_units: s.busy_units,
             aniimo_tasks: Vec::new(),
             crew: s.crew,
+            is_emode: false,
         }
     }
 }
@@ -1614,7 +1647,7 @@ impl PreparedInput {
         let input: JsPlanInput = serde_json::from_str(input_json).map_err(|e| {
             serde_json::to_string(&empty_production_plan(false, Some(format!("Invalid input: {}", e)))).unwrap_or_default()
         })?;
-        let facility_counts = input.facility_counts();
+        let mut facility_counts = input.facility_counts();
         let module_levels = ModuleLevels {
             ecological_module: input.modules.ecological_module,
             kitchen_module: input.modules.kitchen_module,
@@ -1630,6 +1663,47 @@ impl PreparedInput {
             items.extend(season);
         }
         items.retain(|item| !input.exclude.iter().any(|name| name == crate::models::base_item_name(&item.name)));
+
+        let mut emode_facilities = input.emode_facilities.clone();
+        let mut emode_counts = input.emode_facility_counts.clone();
+        if emode_counts.is_empty() {
+            for f in &emode_facilities {
+                emode_counts.insert(f.clone(), facility_counts.get_count(f));
+            }
+        } else {
+            for (f, &count) in &emode_counts {
+                if count > 0 && !emode_facilities.contains(f) {
+                    emode_facilities.push(f.clone());
+                }
+            }
+        }
+
+        // Handle partial electric facilities (0 < E < total owned):
+        let mut manual_items = Vec::new();
+        for (fac, &e_count) in &emode_counts {
+            let total = facility_counts.get_count(fac);
+            if e_count > 0 && e_count < total {
+                let manual_count = total - e_count;
+                let level = facility_counts.get_level(fac);
+                // Electric part has e_count units
+                facility_counts.set(fac, e_count, level);
+                // Manual part has manual_count units
+                let manual_fac_name = format!("{fac} (Manual)");
+                facility_counts.set(&manual_fac_name, manual_count, level);
+
+                // Clone recipes for manual variant
+                for item in items.iter().filter(|i| i.facility == *fac) {
+                    let mut manual_item = item.clone();
+                    manual_item.name = format!("{}{}", item.name, crate::models::MANUAL_SUFFIX);
+                    manual_item.facility = manual_fac_name.clone();
+                    manual_item.emode_base_time = None;
+                    manual_items.push(manual_item);
+                }
+            }
+        }
+        items.extend(manual_items);
+
+        crate::models::apply_emode(&mut items, &emode_facilities, input.power_grid_rate);
         let setup = input
             .aniimo
             .as_deref()
@@ -1673,7 +1747,19 @@ impl PreparedInput {
         let coin_items = plan
             .coin_items
             .into_iter()
-            .map(|step| {
+            .map(|mut step| {
+                let is_manual_variant = step.facility.ends_with(" (Manual)");
+                if is_manual_variant {
+                    step.facility = step.facility.trim_end_matches(" (Manual)").to_string();
+                    if let Some(name) = step.item_name.as_ref() {
+                        step.item_name = Some(name.strip_suffix(crate::models::MANUAL_SUFFIX).unwrap_or(name).to_string());
+                    }
+                }
+
+                let is_emode = !is_manual_variant
+                    && self.input.emode_facilities.contains(&step.facility)
+                    && self.items.iter().any(|i| i.facility == step.facility && i.emode_base_time.is_some());
+
                 // With the player's roster, the row names the member working it.
                 let from_crew = match (&self.crew, step.crew, &step.item_name) {
                     (Some(crew), Some(member), Some(item)) => crew.members.get(member).and_then(|aniimo| {
@@ -1684,25 +1770,32 @@ impl PreparedInput {
                     }),
                     _ => None,
                 };
-                let aniimo = from_crew.or_else(|| match (&self.setup, &step.item_name) {
-                    (Some(setup), Some(item)) if step.status == crate::models::PlanStepStatus::Producing => {
-                        self.requirements.get(item).map(|(ability, _)| {
-                            let worker = self.requirements.worker_for_at(item, &step.facility, setup);
-                            JsAniimo {
-                                ability: ability.to_string(),
-                                level: worker.suitability,
-                                personality_bonus: worker.personality_bonus,
-                            }
-                        })
-                    }
-                    _ => None,
-                });
-                let aniimo_tasks = self
-                    .setup
-                    .as_ref()
-                    .map(|setup| aniimo_tasks_for(&step, setup, &self.requirements, &self.grower_steps))
-                    .unwrap_or_default();
-                JsPlanStep { aniimo, aniimo_tasks, ..step.into() }
+                let aniimo = if is_emode {
+                    None
+                } else {
+                    from_crew.or_else(|| match (&self.setup, &step.item_name) {
+                        (Some(setup), Some(item)) if step.status == crate::models::PlanStepStatus::Producing => {
+                            self.requirements.get(item).map(|(ability, _)| {
+                                let worker = self.requirements.worker_for_at(item, &step.facility, setup);
+                                JsAniimo {
+                                    ability: ability.to_string(),
+                                    level: worker.suitability,
+                                    personality_bonus: worker.personality_bonus,
+                                }
+                            })
+                        }
+                        _ => None,
+                    })
+                };
+                let aniimo_tasks = if is_emode {
+                    Vec::new()
+                } else {
+                    self.setup
+                        .as_ref()
+                        .map(|setup| aniimo_tasks_for(&step, setup, &self.requirements, &self.grower_steps))
+                        .unwrap_or_default()
+                };
+                JsPlanStep { aniimo, aniimo_tasks, is_emode, ..step.into() }
             })
             .collect();
         let income_streams: Vec<JsPlanProduct> = plan
@@ -1935,6 +2028,8 @@ struct RecipeInfo {
     season: bool,
     /// For a season crop, the season currency its seeds cost a batch.
     season_seed_cost: Option<f64>,
+    /// Base production time in seconds under E-mode (Electric mode).
+    emode_base_time: Option<f64>,
 }
 
 /// Get the full recipe list for every item in the game data, grouped by nothing in particular
@@ -1970,6 +2065,7 @@ pub fn get_all_items() -> String {
             byproduct_item: item.byproduct.as_ref().and_then(|(resource, _)| crate::models::byproduct_item(resource)).map(str::to_string),
             season: item.season.is_some(),
             season_seed_cost: item.season.map(|s| s.seed_cost).filter(|&cost| cost > 0.0),
+            emode_base_time: item.emode_base_time,
         })
         .collect();
 

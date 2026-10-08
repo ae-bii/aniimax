@@ -2877,3 +2877,179 @@ tr:hover .skip-row,
         animation: none;
     }
 }
+
+/* Electric Mode (E-mode) Styles */
+.emode-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.emode-controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.emode-rate-field {
+    min-width: 140px;
+    max-width: 180px;
+}
+
+.emode-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.facility-emode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.facility-emode-toggle input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: #f59e0b;
+}
+
+.facility-emode-toggle:hover {
+    color: var(--text);
+}
+
+.tag.emode-tag {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid #f59e0b;
+    color: #f59e0b;
+}
+
+.tag.emode-tag-small {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    color: #f59e0b;
+    font-size: 0.65rem;
+    padding: 0 0.35rem;
+}
+
+.emode-simple-section {
+    margin: 0.75rem 0 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.emode-simple-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.emode-title {
+    font-weight: 600;
+}
+
+.emode-selects-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.emode-simple-generator,
+.emode-generator-field {
+    min-width: 170px;
+    margin: 0;
+}
+
+.emode-simple-rate,
+.emode-rate-field {
+    min-width: 140px;
+    margin: 0;
+}
+
+.emode-controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.power-gauge-container {
+    margin: 0.6rem 0 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.power-gauge-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    margin-bottom: 0.35rem;
+}
+
+.power-gauge-title {
+    font-weight: 600;
+    color: #f59e0b;
+}
+
+.power-gauge-value {
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--text);
+}
+
+.power-gauge-track {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.power-gauge-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #f59e0b);
+    border-radius: 3px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.power-gauge-fill.overload {
+    background: #ef4444 !important;
+}
+
+.highlight-btn {
+    border-color: #f59e0b !important;
+    color: #f59e0b !important;
+    font-weight: 600;
+}
+
+.highlight-btn:hover {
+    background: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* E-mode Layout & Power Network Styling */
+.generator-power-network line {
+    animation: transmissionLinePulse 2.5s ease-in-out infinite alternate;
+}
+
+@keyframes transmissionLinePulse {
+    0% { stroke-opacity: 0.45; }
+    100% { stroke-opacity: 0.95; }
+}
+
+.layout-emode-piece rect {
+    filter: drop-shadow(0 0 1px rgba(250, 204, 21, 0.4));
+}
