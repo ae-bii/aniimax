@@ -1,31 +1,9 @@
 // Register a language here and add its JSON catalog; English phrases are the source keys.
 const languages = { en: 'English', ru: 'Русский', 'zh-TW': '繁體中文' };
-const locales = { en: 'en-US', ru: 'ru-RU', 'zh-TW': 'zh-TW' };
-// How a language matches templates and splits a phrase that has no catalog entry.
-// - separators: split the phrase at these, in this order, and translate each part.
-// - joiners: the text that joins the translated parts. A missing separator joins with itself.
-// - rankByFixedText: try a template with more fixed text first, not a longer one.
-// - strictSlots: a text slot holds whole brackets and no slot break.
-const defaultRules = { separators: ['; ', '. '], joiners: { '. ': ' ' }, rankByFixedText: false, strictSlots: false };
-const languageRules = {
-    'zh-TW': {
-        separators: ['\n', ' · ', '; ', '. ', ', '],
-        joiners: { '. ': '', '; ': '；', ', ': '、' },
-        rankByFixedText: true,
-        strictSlots: true,
-    },
-};
-const SLOT = /\{[a-z_]+\}/gi;
-const NUMBER_SLOT = /^\{(?:days|hours|minutes|seconds|n|level|trips|distance|plots)\}$/;
-// With strictSlots, a text slot never holds one of these. The phrase is split at them instead.
-const SLOT_BREAKS = ['\n', ' · ', '; '];
-
-function rulesFor(code) {
-    return languageRules[code] || defaultRules;
-}
 const catalogs = { en: {} };
 const templates = {};
 let language = 'en';
+let translateZhTw;
 let preferredLanguage = 'en';
 try { preferredLanguage = localStorage.getItem('aniimax-language') || 'en'; } catch (_) { /* Private browsing can disable storage. */ }
 if (!Object.hasOwn(languages, preferredLanguage)) preferredLanguage = 'en';
@@ -37,19 +15,15 @@ async function load(code) {
         catalogs[code] = await response.json();
         templates[code] = Object.entries(catalogs[code])
             .filter(([source, target]) => /\{[a-z_]+\}/i.test(source) && /\{[a-z_]+\}/i.test(target))
-            // A template with more fixed text is more specific, so rankByFixedText tries it first.
-            .sort(([left], [right]) => (rulesFor(code).rankByFixedText ? literalLength(right) - literalLength(left) : 0)
-                || right.length - left.length)
+            .sort(([left], [right]) => right.length - left.length)
             .map(([source, target]) => {
                 const slots = [...source.matchAll(/\{[a-z_]+\}/gi)].map(match => match[0]);
                 const parts = source.split(/\{[a-z_]+\}/gi);
                 const pattern = parts.map((part, i) => escapeRegExp(part) + (i < slots.length
-                    ? (NUMBER_SLOT.test(slots[i]) ? '([0-9][0-9.,\\s]*)' : '(.+?)')
+                    ? (/^\{(?:days|hours|minutes|seconds|n|level|trips|distance|plots)\}$/.test(slots[i])
+                        ? '([0-9][0-9.,\\s]*)' : '(.+?)')
                     : '')).join('');
-                const textSlots = slots.map(slot => !NUMBER_SLOT.test(slot));
-                // A separator in the fixed text, as in "{ability} Lv.{level} · {detail}", lets its slot hold one.
-                const breaks = SLOT_BREAKS.filter(separator => !source.includes(separator));
-                return { pattern: new RegExp(`^${pattern}$`), slots, textSlots, breaks, target };
+                return { pattern: new RegExp(`^${pattern}$`), slots, target };
             });
     }
 }
@@ -60,44 +34,123 @@ const attributes = ['title', 'aria-label', 'aria-description', 'placeholder', 'd
 
 export function translate(value) {
     if (language === 'en' || !value) return value;
+    if (language === 'zh-TW') return (translateZhTw ??= createZhTwTranslator(catalogs['zh-TW']))(value);
     const phrases = catalogs[language];
     const trimmed = value.trim();
     const translated = phrases[trimmed];
     if (translated) return value.replace(trimmed, translated);
     // Dynamic labels keep their values while the source sentence remains translatable.
-    const filled = fillTemplate(trimmed);
-    if (filled) return value.replace(trimmed, filled);
-    for (const separator of rulesFor(language).separators) {
-        const localized = translateParts(trimmed, separator);
-        if (localized) return value.replace(trimmed, localized);
-    }
-    return value;
-}
-
-// Fills the first template that matches. Returns null when none matches.
-function fillTemplate(trimmed) {
-    for (const template of templates[language] || []) {
-        const match = trimmed.match(template.pattern);
+    for (const { pattern, slots, target } of templates[language] || []) {
+        const match = trimmed.match(pattern);
         if (!match) continue;
-        if (rulesFor(language).strictSlots && !template.textSlots.every((text, i) => !text || fits(match[i + 1], template.breaks))) continue;
-        let result = template.target;
-        template.slots.forEach((slot, i) => {
+        let result = target;
+        slots.forEach((slot, i) => {
             const captured = match[i + 1];
             const whole = captured === trimmed ? captured : translate(captured);
             const value = whole === captured ? captured.split(', ').map(part => part === trimmed ? part : translate(part)).join(', ') : whole;
             result = result.replace(slot, value);
         });
-        return result;
+        return value.replace(trimmed, result);
     }
-    return null;
+    if (trimmed.includes('; ')) {
+        const parts = trimmed.split('; ');
+        const localized = parts.map(part => translate(part));
+        if (localized.some((part, i) => part !== parts[i])) return value.replace(trimmed, localized.join('; '));
+    }
+    if (trimmed.includes('. ')) {
+        const parts = trimmed.split('. ');
+        const localized = parts.map((part, i) => translate(part + (i < parts.length - 1 ? '.' : '')));
+        if (localized.some((part, i) => part !== parts[i] + (i < parts.length - 1 ? '.' : ''))) {
+            return value.replace(trimmed, localized.join(' '));
+        }
+    }
+    return value;
 }
 
-// A text slot holds whole brackets and no separator, so "A (x), B (y)" is not "{name} ({detail})".
-function fits(text, breaks) {
-    return balanced(text) && !breaks.some(separator => text.includes(separator));
+// Traditional Chinese (zh-TW) rules. translate() uses them only for zh-TW, so the other languages keep
+// the rules above. They differ from those rules:
+// - An unknown phrase is split at line breaks, ' · ' and ', ' as well, and list items join with '、'.
+// - A template with more fixed text is tried first.
+// - A text slot holds whole brackets and no slot break, so "A (x), B (y)" is not "{name} ({detail})".
+// Text that the zh-TW catalog does not hold, for example new English text, stays in English.
+const ZH_TW_SLOT = /\{[a-z_]+\}/gi;
+const ZH_TW_NUMBER_SLOT = /^\{(?:days|hours|minutes|seconds|n|level|trips|distance|plots)\}$/;
+const ZH_TW_SEPARATORS = ['\n', ' · ', '; ', '. ', ', '];
+const ZH_TW_JOINERS = { '. ': '', '; ': '；', ', ': '、' };
+// A text slot never holds one of these, unless the fixed text of its template holds it.
+const ZH_TW_SLOT_BREAKS = ['\n', ' · ', '; '];
+
+/** Gives a function that translates English text with the zh-TW `catalog`. */
+export function createZhTwTranslator(catalog) {
+    const zhTemplates = zhTwBuildTemplates(catalog);
+
+    function translateText(value) {
+        if (!value) return value;
+        const trimmed = value.trim();
+        const translated = Object.hasOwn(catalog, trimmed) ? catalog[trimmed] : '';
+        const result = translated || fillTemplate(trimmed) || translateParts(trimmed);
+        return result ? value.replace(trimmed, () => result) : value;
+    }
+
+    // Fills the first template that matches. Returns null when none matches.
+    function fillTemplate(trimmed) {
+        for (const template of zhTemplates) {
+            const match = trimmed.match(template.pattern);
+            if (!match) continue;
+            if (!template.textSlots.every((text, i) => !text || zhTwFits(match[i + 1], template.breaks))) continue;
+            let result = template.target;
+            template.slots.forEach((slot, i) => {
+                const captured = match[i + 1];
+                const whole = captured === trimmed ? captured : translateText(captured);
+                const value = whole === captured ? captured.split(', ').map(part => part === trimmed ? part : translateText(part)).join(', ') : whole;
+                result = result.replace(slot, () => value);
+            });
+            return result;
+        }
+        return null;
+    }
+
+    // Translates each part between the first separator that changes a part. Returns null when none does.
+    function translateParts(text) {
+        for (const separator of ZH_TW_SEPARATORS) {
+            if (!text.includes(separator)) continue;
+            const parts = text.split(separator);
+            // A sentence keeps its full stop, so the catalog entry for it still matches.
+            const sources = separator === '. ' ? parts.map((part, i) => part + (i < parts.length - 1 ? '.' : '')) : parts;
+            const localized = sources.map(part => translateText(part));
+            if (localized.every((part, i) => part === sources[i])) continue;
+            return localized.join(ZH_TW_JOINERS[separator] ?? separator);
+        }
+        return null;
+    }
+
+    return translateText;
 }
 
-function balanced(text) {
+function zhTwBuildTemplates(catalog) {
+    return Object.entries(catalog)
+        .filter(([source, target]) => /\{[a-z_]+\}/i.test(source) && /\{[a-z_]+\}/i.test(target))
+        // A template with more fixed text is more specific, so it comes first.
+        .sort(([left], [right]) => zhTwLiteralLength(right) - zhTwLiteralLength(left) || right.length - left.length)
+        .map(([source, target]) => {
+            const slots = [...source.matchAll(ZH_TW_SLOT)].map(match => match[0]);
+            const parts = source.split(ZH_TW_SLOT);
+            const pattern = parts.map((part, i) => escapeRegExp(part) + (i < slots.length
+                ? (ZH_TW_NUMBER_SLOT.test(slots[i]) ? '([0-9][0-9.,\\s]*)' : '(.+?)')
+                : '')).join('');
+            const textSlots = slots.map(slot => !ZH_TW_NUMBER_SLOT.test(slot));
+            // A separator in the fixed text, as in "{ability} Lv.{level} · {detail}", lets its slot hold one.
+            const breaks = ZH_TW_SLOT_BREAKS.filter(separator => !source.includes(separator));
+            return { pattern: new RegExp(`^${pattern}$`), slots, textSlots, breaks, target };
+        });
+}
+
+// A text slot holds whole brackets and no slot break.
+function zhTwFits(text, breaks) {
+    return zhTwBalanced(text) && !breaks.some(separator => text.includes(separator));
+}
+
+function zhTwBalanced(text) {
     let depth = 0;
     for (const char of text) {
         if (char === '(') depth += 1;
@@ -106,25 +159,13 @@ function balanced(text) {
     return depth === 0;
 }
 
-// Translates each part of `text` between separators. Returns null when no part changes.
-function translateParts(text, separator) {
-    if (!text.includes(separator)) return null;
-    const parts = text.split(separator);
-    // A sentence keeps its full stop, so the catalog entry for it still matches.
-    const sources = separator === '. ' ? parts.map((part, i) => part + (i < parts.length - 1 ? '.' : '')) : parts;
-    const localized = sources.map(part => translate(part));
-    if (localized.every((part, i) => part === sources[i])) return null;
-    const { joiners } = rulesFor(language);
-    const joiner = joiners[separator] ?? defaultRules.joiners[separator] ?? separator;
-    return localized.join(joiner);
-}
-
-function literalLength(source) {
-    return source.replace(SLOT, '').length;
+function zhTwLiteralLength(source) {
+    return source.replace(ZH_TW_SLOT, '').length;
 }
 
 export function currentLocale() {
-    return locales[language];
+    if (language === 'zh-TW') return 'zh-TW';
+    return language === 'ru' ? 'ru-RU' : 'en-US';
 }
 
 function escapeRegExp(text) {
