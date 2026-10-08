@@ -785,5 +785,22 @@
 
   "Carries produce to storage. How much work this is isn't known yet; add more if produce piles up.": "Transporte la production vers l'Entrepôt. La charge de travail exacte n'est pas encore connue ; ajoutez davantage d'Aniimo si les produits s'accumulent.",
 
-  "Grow time for crops and trees, before watering takes an eighth off it twice. Everything else lists workload: at 100% Efficiency a processor gets through one workload a second, a gathering facility 1.25 on a level-2 recipe and 1.5 on a level-3 one. An Aniimo at the level a recipe needs works at 100%; higher levels are faster, up to level 4 (at a processor, 300% one level above, then +100% per level; at gathering facilities each level adds half a workload a second, reading as +50% on a level-1 recipe, +40% on a level-2 one and +33% on a level-3 one).": "Pour les cultures et les arbres, il s'agit du temps de croissance avant les deux arrosages, chacun retirant un huitième du temps initial. Pour toutes les autres productions, la charge de travail est indiquée. À 100 % d'Efficacité, une installation de transformation effectue une unité de charge par seconde ; une installation de collecte effectue 1,25 unité sur une recette de niveau 2 et 1,5 sur une recette de niveau 3. Un Aniimo exactement au niveau requis travaille à 100 %. Les niveaux supérieurs accélèrent le travail jusqu'au niveau 4 : dans une installation de transformation, 300 % avec un niveau supplémentaire puis +100 % par niveau ; dans une installation de collecte, chaque niveau ajoute une demi-unité de charge par seconde, soit +50 % pour une recette de niveau 1, +40 % au niveau 2 et +33 % au niveau 3."
+  "Grow time for crops and trees, before watering takes an eighth off it twice. Everything else lists workload: at 100% Efficiency a processor gets through one workload a second, a gathering facility 1.25 on a level-2 recipe and 1.5 on a level-3 one. An Aniimo at the level a recipe needs works at 100%; higher levels are faster, up to level 4 (at a processor, 300% one level above, then +100% per level; at gathering facilities each level adds half a workload a second, reading as +50% on a level-1 recipe, +40% on a level-2 one and +33% on a level-3 one).": "Pour les cultures et les arbres, il s'agit du temps de croissance avant les deux arrosages, chacun retirant un huitième du temps initial. Pour toutes les autres productions, la charge de travail est indiquée. À 100 % d'Efficacité, une installation de transformation effectue une unité de charge par seconde ; une installation de collecte effectue 1,25 unité sur une recette de niveau 2 et 1,5 sur une recette de niveau 3. Un Aniimo exactement au niveau requis travaille à 100 %. Les niveaux supérieurs accélèrent le travail jusqu'au niveau 4 : dans une installation de transformation, 300 % avec un niveau supplémentaire puis +100 % par niveau ; dans une installation de collecte, chaque niveau ajoute une demi-unité de charge par seconde, soit +50 % pour une recette de niveau 1, +40 % au niveau 2 et +33 % au niveau 3.",
+
+    "Nothing it can make helps this plan": "Aucune de ses productions n'est utile à ce plan",
+  "Sells directly": "Vendu directement",
+  "No further profitable use found": "Aucune autre utilisation rentable trouvée",
+
+  "{n} recipe in this plan hasn't been checked in game yet (tagged below). If any of those numbers are off, so is this plan.": "{n} recette de ce plan n'a pas encore été vérifiée en jeu (signalée ci-dessous). Si l'une de ces valeurs est incorrecte, le plan le sera également.",
+  "{n} recipes in this plan haven't been checked in game yet (tagged below). If any of those numbers are off, so is this plan.": "{n} recettes de ce plan n'ont pas encore été vérifiées en jeu (signalées ci-dessous). Si l'une de ces valeurs est incorrecte, le plan le sera également.",
+
+  "Moonray Wheat you can spend on seeds a day": "Blé Rayon de lune disponible par jour pour les graines",
+  "No limit": "Aucune limite",
+  "Umbral Sweet and Spicy Sauce": "Sauce Ombre aigre-douce et épicée",
+
+  "Reclaiming": "Aménagement",
+  "Reaping": "Récolte",
+  "Logging": "Coupe",
+  "Collecting": "Collecte",
+  "Watering ×{n}": "Arrosage ×{n}"
 }
