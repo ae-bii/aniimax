@@ -1,6 +1,7 @@
 // Aniimax Web Application
 
 import { currentLocale, sourceAttribute, translate } from './i18n.js';
+import './math-translation.js';
 
 import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME, FACILITY_FOOTPRINTS, HOMELAND_PLOTS, HOMELAND_PLOT_SIZE,

@@ -3,11 +3,16 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 
 const english = JSON.parse(await readFile(new URL('../web/locales/en.json', import.meta.url)));
-const russian = JSON.parse(await readFile(new URL('../web/locales/ru.json', import.meta.url)));
-assert.deepEqual(new Set(english), new Set(Object.keys(russian)));
-for (const [source, target] of Object.entries(russian)) {
-    const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
-    assert.deepEqual(slots(source), slots(target), source);
+// Every translated catalog covers each English phrase and keeps the same placeholders.
+// zh-TW also holds phrases that the web app builds at runtime, so it may have more keys.
+for (const code of ['ru', 'zh-TW']) {
+    const catalog = JSON.parse(await readFile(new URL(`../web/locales/${code}.json`, import.meta.url)));
+    if (code === 'ru') assert.deepEqual(new Set(english), new Set(Object.keys(catalog)), code);
+    else assert.deepEqual(english.filter(phrase => !Object.hasOwn(catalog, phrase)), [], code);
+    for (const [source, target] of Object.entries(catalog)) {
+        const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
+        assert.deepEqual(slots(source), slots(target), `${code}: ${source}`);
+    }
 }
 
 const saved = new Map([['aniimax-language', 'ru']]);
@@ -40,7 +45,7 @@ globalThis.document = {
 };
 globalThis.MutationObserver = class { observe() {} };
 
-const { translate, languageReady } = await import('../web/i18n.js');
+const { translate, languageReady, currentLocale } = await import('../web/i18n.js');
 assert.equal(node.nodeValue, 'Your Homeland');
 assert.equal(document.documentElement.lang, 'en');
 assert.equal(selector.value, 'ru');
@@ -115,3 +120,44 @@ await change();
 assert.equal(node.nodeValue, 'Ваша Родина');
 assert.equal(labelled.getAttribute('data-label'), 'Прибыль');
 assert.equal(saved.get('aniimax-language'), 'ru');
+
+selector.value = 'zh-TW';
+const zhLoaded = change();
+releaseCatalog();
+await zhLoaded;
+assert.equal(node.nodeValue, '你的家園');
+assert.equal(labelled.getAttribute('data-label'), '利潤');
+assert.equal(document.documentElement.lang, 'zh-TW');
+assert.equal(currentLocale(), 'zh-TW');
+assert.equal(saved.get('aniimax-language'), 'zh-TW');
+assert.equal(translate('in 2h 4m'), '2 小時 4 分後');
+assert.equal(translate('Used for Wheat; the rest sells directly'), '用於小麥；其餘直接販售');
+assert.equal(translate('Target Moonray Wheat'), '目標：月芒穗');
+assert.equal(translate('RV 13'), '露營車家園 13');
+assert.equal(translate(' · 19 ms'), ' · 19 毫秒');
+assert.equal(translate('Grass Lv.1 · Sowing farmland'), '草 Lv.1 · 田地播種');
+// Chinese sentences join with no space between them.
+assert.equal(translate('No level-4 Perfumery Aniimo is known in the game yet. Plan as though you have one?'), '遊戲中目前還沒有已知的 4 級調香伊莫。要當作你擁有一隻來規劃嗎？');
+// Phrases built at runtime: lists, tooltips with ' · ' and lines, and amounts with items.
+assert.equal(translate('9,187,977 Home Coins, 455 Sintered Ore Brick'), '9,187,977 家園幣、455 燒結礦磚');
+assert.equal(translate('Fire Lv.4 · Practical (S) (+20% speed) · Chimney Kiln (Coarse-Sifted Ore), Chimney Kiln (Sintered Ore Brick)'),
+    '火 Lv.4 · 性格S（速度 +20%） · 煙囪鍛燒爐（粗篩礦料）、煙囪鍛燒爐（燒結礦磚）');
+assert.equal(translate('Woodland: Chestnut ×9'), '林地：栗子 ×9');
+assert.equal(translate('+17% Home Coins (+26,044/hour)'), '家園幣 +17%（+26,044/小時）');
+assert.equal(translate('Lv.1: Sea Salt\nLv.3: Pearl (needs Warm)'), 'Lv.1：海鹽\nLv.3：珍珠（需要溫暖）');
+assert.equal(translate('29 Aniimo for this plan; an RV level 13 homeland holds 34'), '此規劃需要 29 隻伊莫；露營車等級 13 的家園可容納 34 隻');
+// Opportunities: ability Aniimo, the player's own Aniimo, facilities and the status line.
+assert.equal(translate('Fire Aniimo Lv.2–4'), '火伊莫 Lv.2–4');
+assert.equal(translate('One Fire 3, Water 2 Aniimo: Water Lv.4'), '其中一隻 火 3、水 2 伊莫：水 Lv.4');
+assert.equal(translate('1 Blazing Stove to Lv.4'), '1 座超旺爐灶升至 Lv.4');
+assert.equal(translate('~−2h 4m level-up (30h 5m)'), '~升級 −2 小時 4 分（30 小時 5 分）');
+assert.equal(translate('Ranked by level-up time, then Home Coins. 7 of 14 help. Within RV 4 limits.'),
+    '依升級時間，其次是家園幣排序。已檢查 14 項，其中 7 項有幫助。在露營車家園 4 的限制內。');
+// A text slot never holds part of two bracketed names.
+assert.equal(translate('Blazing Stove (Ginseng Chestnut Cake), Simmering Pot (Grape Jam)'), '超旺爐灶（人參栗子糕）、熬煮鍋（葡萄醬）');
+assert.equal(translate('unmapped term, Wheat'), 'unmapped term、小麥');
+assert.equal(translate('unmapped term'), 'unmapped term');
+selector.value = 'en';
+await change();
+assert.equal(node.nodeValue, 'Your Homeland');
+assert.equal(currentLocale(), 'en-US');

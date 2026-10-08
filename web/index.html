@@ -438,6 +438,11 @@
             </div>
         </div>
     </div>
+    <script>
+        // Keep the math window before MathJax typesets it. This script runs while the page is still
+        // being parsed, and MathJax typesets only after that. See math-translation.js.
+        window.aniimaxMathSource = document.querySelector('#mathModal .modal-body').innerHTML;
+    </script>
 
     <!-- Help Modal -->
     <div id="helpModal" class="modal" onclick="closeHelpOnBackdrop(event)">

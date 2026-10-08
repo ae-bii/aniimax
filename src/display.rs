@@ -4,7 +4,7 @@
 //! optimization results to the user in a readable format.
 
 use crate::models::{ProductionEfficiency, ProductionPath, ProductionStep};
-use crate::locale::Language;
+use crate::locale::{pad_end, pad_start, Language};
 
 /// Formats a duration in seconds to a human-readable string.
 ///
@@ -41,7 +41,8 @@ pub fn format_time(seconds: f64) -> String {
 
 fn format_time_in(seconds: f64, language: Language) -> String {
     if language == Language::En { return format_time(seconds); }
-    format_time(seconds).replace('h', "ч").replace('m', "м").replace('s', "с")
+    let [hours, minutes, secs] = language.time_units();
+    format_time(seconds).replace('h', hours).replace('m', minutes).replace('s', secs)
 }
 
 /// Displays the complete optimization results to stdout.
@@ -198,8 +199,9 @@ pub fn display_results_in(
     );
     println!("----------------------------------------------------------------");
     println!(
-        "{:<20} {:>12} {:>12} {:>12}",
-        language.text("Item"), language.text("Profit/sec"), language.text("Profit/energy"), language.text("Time/unit")
+        "{} {} {} {}",
+        pad_end(language.text("Item"), 20), pad_start(language.text("Profit/sec"), 12),
+        pad_start(language.text("Profit/energy"), 12), pad_start(language.text("Time/unit"), 12)
     );
     println!("----------------------------------------------------------------");
 
@@ -225,11 +227,11 @@ pub fn display_results_in(
             .map(|e| format!("{:.4}", e))
             .unwrap_or_else(|| language.text("N/A").to_string());
         println!(
-            "{:<20} {:>12.4} {:>12} {:>12}",
-            language.item(&eff.item.name),
+            "{} {:>12.4} {} {}",
+            pad_end(&language.item(&eff.item.name), 20),
             eff.profit_per_second,
-            energy_str,
-            format_time_in(eff.total_time_per_unit, language)
+            pad_start(&energy_str, 12),
+            pad_start(&format_time_in(eff.total_time_per_unit, language), 12)
         );
     }
 
@@ -265,8 +267,9 @@ pub fn display_energy_recommendations_in(efficiencies: &[ProductionEfficiency], 
     println!("{}", language.text("[ENERGY EFFICIENCY RANKINGS]"));
     println!("----------------------------------------------------------------");
     println!(
-        "{:<20} {:>15} {:>15}",
-        language.text("Item"), language.text("Profit/Energy"), language.text("Energy/Unit")
+        "{} {} {}",
+        pad_end(language.text("Item"), 20), pad_start(language.text("Profit/Energy"), 15),
+        pad_start(language.text("Energy/Unit"), 15)
     );
     println!("----------------------------------------------------------------");
 
@@ -280,8 +283,8 @@ pub fn display_energy_recommendations_in(efficiencies: &[ProductionEfficiency], 
 
     for eff in sorted.iter().take(10) {
         println!(
-            "{:<20} {:>15.6} {:>15.0}",
-            language.item(&eff.item.name),
+            "{} {:>15.6} {:>15.0}",
+            pad_end(&language.item(&eff.item.name), 20),
             eff.profit_per_energy.unwrap_or(0.0),
             eff.total_energy_per_unit.unwrap_or(0.0)
         );

@@ -10,7 +10,7 @@ use std::path::Path;
 use aniimax::{
     data::load_all_data,
     display::{display_energy_recommendations_in, display_results_in},
-    locale::Language,
+    locale::{pad_end, Language},
     models::{FacilityCounts, ModuleLevels, Worker, Workers},
     optimizer::{calculate_efficiencies, calculate_energy_efficiencies, find_best_production_path, find_parallel_production_path, find_self_sufficient_path},
 };
@@ -182,52 +182,41 @@ struct Args {
     crafting_module: u32,
 }
 
+/// Replaces each English phrase with its translation, in the order of `terms`.
+fn replace_terms(text: String, terms: &[(&str, &str)]) -> String {
+    terms.iter().fold(text, |text, (english, translated)| text.replace(english, translated))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let argv: Vec<String> = std::env::args().collect();
     let requested = argv.windows(2).find(|pair| pair[0] == "--language").map(|pair| pair[1].as_str())
         .or_else(|| argv.iter().find_map(|arg| arg.strip_prefix("--language=")));
-    let language = if requested == Some("ru") { Language::Ru } else { Language::En };
+    let language = Language::parse(requested);
+    let cli_text = language.cli_text();
     let mut command = Args::command();
-    if language == Language::Ru {
+    if let Some(cli) = cli_text {
         command = command.about(language.text("Optimize production paths for currency generation in Aniimo Homeland").to_owned())
-            .help_template("{about-with-newline}\nИспользование: {usage}\n\nПараметры:\n{options}")
+            .help_template(format!("{{about-with-newline}}\n{} {{usage}}\n\n{}\n{{options}}", cli.usage, cli.options))
             .disable_help_flag(true)
             .disable_version_flag(true)
-            .arg(Arg::new("help").short('h').long("help").action(ArgAction::Help).help("Показать справку"))
-            .arg(Arg::new("version").short('V').long("version").action(ArgAction::Version).help("Показать версию"));
+            .arg(Arg::new("help").short('h').long("help").action(ArgAction::Help).help(cli.help))
+            .arg(Arg::new("version").short('V').long("version").action(ArgAction::Version).help(cli.version));
         let helps: Vec<_> = command.get_arguments().filter_map(|arg| arg.get_help().map(|help| (arg.get_id().clone(), help.to_string()))).collect();
         for (id, help) in helps {
             command = command.mut_arg(id, |arg| arg.help(language.text(&help).to_owned()));
         }
         if argv.iter().any(|arg| arg == "--help" || arg == "-h") {
-            print!("{}", command.render_long_help().to_string()
-                .replace("[OPTIONS]", "[ПАРАМЕТРЫ]")
-                .replace("[default:", "[по умолчанию:")
-                .replace("[possible values:", "[доступные значения:"));
+            print!("{}", replace_terms(command.render_long_help().to_string(), cli.help_terms));
             return Ok(());
         }
     }
     let matches = command.try_get_matches_from(argv).unwrap_or_else(|error| {
-        if language == Language::Ru {
+        if let Some(cli) = cli_text {
             if error.exit_code() == 0 {
                 print!("{error}");
                 std::process::exit(0);
             }
-            eprint!("{}", error.to_string()
-                .replace("error:", "ошибка:")
-                .replace("the following required arguments were not provided:", "не указаны обязательные аргументы:")
-                .replace("a value is required for", "для параметра требуется значение")
-                .replace("invalid value", "недопустимое значение")
-                .replace(" for '", " для '")
-                .replace("invalid float literal", "некорректное число")
-                .replace("invalid digit found in string", "некорректная цифра в числе")
-                .replace("value must be in range", "значение должно быть в диапазоне")
-                .replace(" is not in ", " не входит в диапазон ")
-                .replace("unexpected argument", "неизвестный параметр")
-                .replace(" found", " обнаружен")
-                .replace("Usage:", "Использование:")
-                .replace("For more information, try '--help'.", "Подробнее: '--help'.")
-                .replace("[OPTIONS]", "[ПАРАМЕТРЫ]"));
+            eprint!("{}", replace_terms(error.to_string(), cli.error_terms));
             std::process::exit(error.exit_code());
         }
         error.exit()
@@ -268,8 +257,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!();
     println!("{}", args.language.text("Configuration:"));
     let target_label = match (args.language, args.currency.as_str()) {
-        (Language::Ru, "wood_blocks") => "Wood Blocks",
-        (Language::Ru, "mineral_sand") => "Mineral Sand",
+        (Language::En, currency) => currency,
+        (_, "wood_blocks") => "Wood Blocks",
+        (_, "mineral_sand") => "Mineral Sand",
         (_, currency) => currency,
     };
     println!("  {} {:.0} {}", args.language.text("Target:"), args.target, args.language.text(target_label));
@@ -299,7 +289,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("Crafting Table", args.crafting_table, args.crafting_table_level),
         ("Simmering Pot", args.simmering_pot, args.simmering_pot_level),
     ] {
-        println!("  {:<22} {} x {}{}", args.language.text(name), count, args.language.text("Lv."), level);
+        println!("  {} {} x {}{}", pad_end(args.language.text(name), 22), count, args.language.text("Lv."), level);
     }
 
     println!();
@@ -310,7 +300,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("Resource Detector", args.resource_detector),
         ("Crafting Module", args.crafting_module),
     ] {
-        println!("  {:<22} {}{}", args.language.text(name), args.language.text("Lv."), level);
+        println!("  {} {}{}", pad_end(args.language.text(name), 22), args.language.text("Lv."), level);
     }
 
     println!();
