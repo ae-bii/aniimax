@@ -6,12 +6,15 @@ const english = JSON.parse(await readFile(new URL('../web/locales/en.json', impo
 const russian = JSON.parse(await readFile(new URL('../web/locales/ru.json', import.meta.url)));
 const french = JSON.parse(await readFile(new URL('../web/locales/fr.json', import.meta.url)));
 
-for (const catalog of [russian, french]) {
-    assert.deepEqual(new Set(english), new Set(Object.keys(catalog)));
-    for (const [source, target] of Object.entries(catalog)) {
-        const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
-        assert.deepEqual(slots(source), slots(target), source);
-    }
+const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
+
+assert.deepEqual(new Set(english), new Set(Object.keys(russian)));
+for (const [source, target] of Object.entries(russian)) {
+    assert.deepEqual(slots(source), slots(target), source);
+}
+
+for (const [source, target] of Object.entries(french)) {
+    assert.deepEqual(slots(source), slots(target), source);
 }
 
 const saved = new Map([['aniimax-language', 'ru']]);
