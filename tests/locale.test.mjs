@@ -4,10 +4,14 @@ import { runInNewContext } from 'node:vm';
 
 const english = JSON.parse(await readFile(new URL('../web/locales/en.json', import.meta.url)));
 const russian = JSON.parse(await readFile(new URL('../web/locales/ru.json', import.meta.url)));
-assert.deepEqual(new Set(english), new Set(Object.keys(russian)));
-for (const [source, target] of Object.entries(russian)) {
-    const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
-    assert.deepEqual(slots(source), slots(target), source);
+const french = JSON.parse(await readFile(new URL('../web/locales/fr.json', import.meta.url)));
+
+for (const catalog of [russian, french]) {
+    assert.deepEqual(new Set(english), new Set(Object.keys(catalog)));
+    for (const [source, target] of Object.entries(catalog)) {
+        const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
+        assert.deepEqual(slots(source), slots(target), source);
+    }
 }
 
 const saved = new Map([['aniimax-language', 'ru']]);
@@ -45,6 +49,7 @@ assert.equal(node.nodeValue, 'Your Homeland');
 assert.equal(document.documentElement.lang, 'en');
 assert.equal(selector.value, 'ru');
 assert.equal(saved.get('aniimax-language'), 'ru');
+
 
 const appSource = await readFile(new URL('../web/app.js', import.meta.url), 'utf8');
 const handlerStart = appSource.indexOf("document.addEventListener('aniimax-language-change'");
@@ -115,3 +120,13 @@ await change();
 assert.equal(node.nodeValue, 'Ваша Родина');
 assert.equal(labelled.getAttribute('data-label'), 'Прибыль');
 assert.equal(saved.get('aniimax-language'), 'ru');
+
+selector.value = 'fr';
+const frenchChange = change();
+releaseCatalog();
+await frenchChange;
+
+assert.equal(node.nodeValue, 'Votre Logie');
+assert.equal(document.documentElement.lang, 'fr');
+assert.equal(labelled.getAttribute('data-label'), 'Profit');
+assert.equal(saved.get('aniimax-language'), 'fr');
