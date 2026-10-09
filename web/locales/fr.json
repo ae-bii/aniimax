@@ -835,5 +835,6 @@
   "Remove this level": "Retirer ce niveau",
   "Best plan found in the time allowed; the best possible is at most {gap}% higher.": "Meilleur plan trouvé dans le temps imparti ; l'optimum peut être jusqu'à {gap} % supérieur.",
   "The exact planner couldn't run, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.": "Le planificateur exact n'a pas pu s'exécuter ; ce plan provient donc du planificateur de secours et n'est peut-être pas optimal. Recharger la page résout généralement ce problème.",
-  "The exact planner couldn't run {reason}, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.": "Le planificateur exact n'a pas pu s'exécuter {reason} ; ce plan provient donc du planificateur de secours et n'est peut-être pas optimal. Recharger la page résout généralement ce problème."
+  "The exact planner couldn't run {reason}, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.": "Le planificateur exact n'a pas pu s'exécuter {reason} ; ce plan provient donc du planificateur de secours et n'est peut-être pas optimal. Recharger la page résout généralement ce problème.",
+  "Most Harvest Moon Points": "Maximum de Points de la Lune des moissons"
 }
