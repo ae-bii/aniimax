@@ -355,7 +355,6 @@
 
   "Cotton Thread": "Fil de coton",
   "Palm Rope": "Corde de palmier",
-  "Wool Fabric": "Tissu en laine",
 
   "Shell Ornament": "Coquillage décoratif",
   "Wind Chime": "Carillon à vent",
@@ -481,9 +480,7 @@
   "Advanced Gemstone Dust": "Poussière de gemme avancée",
 
   "Woolen Yarn": "Fil de laine",
-  "Cotton Fabric": "Tissu en coton",
-  "Dyed Cotton Fabric": "Tissu en coton teint",
-
+  
   "Growth Bud": "Bourgeon de croissance",
   "Growth Flower": "Fleur de croissance",
   "Growth Fruit": "Fruit de croissance",
@@ -828,5 +825,15 @@
   "{facility}, Where everything is carried, {trips} trips/hour": "{facility}, lieu de stockage de toute la production, {trips} trajets/heure",
   "Where everything is carried": "Lieu de stockage de toute la production",
   "Game time since everything was set up, at {speed}× speed": "Temps de jeu depuis la mise en place, à vitesse ×{speed}",
-  "Nothing in this plan is carried to the Storage Unit.": "Aucune production de ce plan n'est transportée vers l'Entrepôt."
+  "Nothing in this plan is carried to the Storage Unit.": "Aucune production de ce plan n'est transportée vers l'Entrepôt.",
+  "Nothing in this plan is carried to the Storage Unit.": "Aucune production de ce plan n'est transportée vers l'Entrepôt.",
+
+    "River-Washed Stones": "Pierres polies de rivière",
+  "Premium River-Washed Stones": "Pierres polies de rivière premium",
+  "Sugar-Roasted Chestnuts": "Châtaignes grillées au sucre",
+  "+ Add level": "+ Ajouter un niveau",
+  "Remove this level": "Retirer ce niveau",
+  "Best plan found in the time allowed; the best possible is at most {gap}% higher.": "Meilleur plan trouvé dans le temps imparti ; l'optimum peut être jusqu'à {gap} % supérieur.",
+  "The exact planner couldn't run, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.": "Le planificateur exact n'a pas pu s'exécuter ; ce plan provient donc du planificateur de secours et n'est peut-être pas optimal. Recharger la page résout généralement ce problème.",
+  "The exact planner couldn't run {reason}, so this plan comes from the backup planner and may not be the very best. Reloading the page usually fixes this.": "Le planificateur exact n'a pas pu s'exécuter {reason} ; ce plan provient donc du planificateur de secours et n'est peut-être pas optimal. Recharger la page résout généralement ce problème."
 }
