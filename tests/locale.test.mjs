@@ -9,6 +9,9 @@ const french = JSON.parse(await readFile(new URL('../web/locales/fr.json', impor
 const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
 
 assert.deepEqual(new Set(english), new Set(Object.keys(russian)));
+for (const source of english) {
+    assert.ok(Object.hasOwn(french, source), `Missing French translation: ${source}`);
+}
 for (const [source, target] of Object.entries(russian)) {
     assert.deepEqual(slots(source), slots(target), source);
 }
