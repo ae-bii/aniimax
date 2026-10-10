@@ -13,9 +13,8 @@
 // `unlocks` maps each facility level to the RV (Homeland) level that unlocks it. `counts[i]` is how
 // many of the facility you can place at RV level i + 1; an RV level past the end of the list keeps
 // the last count. Simple mode uses both (see `simpleSetup`). Counts are confirmed in game up to RV
-// level 13 for the Cooling Unit, Sunlamp and Phonolfactory Table, RV level 12 for the Heat
-// Furnace and Simmering Pot and RV level 11 for the rest; past that, Farmland, Woodland and Mine
-// follow the game's pattern and the others keep their last count.
+// level 19 for the facilities listed below. Past the last confirmed RV entry, each facility keeps
+// its last count. Farmland, Woodland and Mine continue to follow the game's established pattern.
 //
 // Facilities marked "Not yet verified in game" in their tooltip haven't had their numbers
 // confirmed in game yet.
@@ -41,31 +40,31 @@ export const FACILITIES = [
     {
         name: 'Well', slug: 'well', defaultCount: 0, category: 'Materials', hasWorker: true, ability: 'Water', personality: 'Faithful',
         unlocks: { 1: 4, 2: 8, 3: 11, 4: 13, 5: 17 },
-        counts: [0, 0, 0, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4],
         tooltip: "Lv.1: Well Water, Quick Well Water&#10;Lv.2: Fresh Water&#10;Lv.3: Quick Fresh Water&#10;Lv.4: Deep Rock Spring Water, Quick Deep Rock Spring Water&#10;Lv.5: Natural Mineral Spring Water, Quick Natural Mineral Spring Water"
     },
     {
         name: 'Tidewhisper Sandcastle', slug: 'tidewhisper-sandcastle', defaultCount: 0, category: 'Aniimo Materials', hasWorker: true, ability: 'Leisure', personality: 'Judicious',
         unlocks: { 1: 5, 2: 8, 3: 13 },
-        counts: [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Sea Salt&#10;Lv.2: Quick Sea Salt&#10;Lv.3: Pearl (needs Warm)"
     },
     {
         name: 'Dewy House', slug: 'dewy-house', defaultCount: 0, category: 'Aniimo Materials', hasWorker: true, ability: 'Leisure', personality: 'Instinctive',
         unlocks: { 1: 6, 2: 11 },
-        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Aromathyst&#10;Lv.2: Quick Aromathyst"
     },
     {
         name: 'Nimbus Bed', slug: 'nimbus-bed', defaultCount: 0, category: 'Aniimo Materials', hasWorker: true, ability: 'Leisure', personality: 'Judicious',
         unlocks: { 1: 10, 2: 13, 3: 16 },
-        counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Wool&#10;Lv.2: Quick Wool&#10;Lv.3: Petals"
     },
     {
         name: 'Starfall Hammock', slug: 'starfall-hammock', defaultCount: 0, category: 'Aniimo Materials', hasLevels: false, hasWorker: true, ability: 'Leisure', personality: 'Faithful',
         unlocks: { 1: 12 },
-        counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Star (needs Cool)&#10;Not yet verified in game."
     },
     {
@@ -77,19 +76,19 @@ export const FACILITIES = [
     {
         name: 'Heat Furnace', slug: 'heat-furnace', defaultCount: 0, category: 'Environment', hasLevels: false,
         unlocks: { 1: 7 },
-        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3],
         tooltip: "Provides Warm or Scorching growing conditions for crops that need one&#10;The calculator picks whichever mode is more profitable.&#10;Covers a 9x9 area around itself; how many plots fit depends on what shares it."
     },
     {
         name: 'Cooling Unit', slug: 'cooling-unit', defaultCount: 0, category: 'Environment', hasLevels: false,
         unlocks: { 1: 7 },
-        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3],
         tooltip: "Provides Cool or Freeze growing conditions for crops that need one&#10;The calculator picks whichever mode is more profitable.&#10;Covers a 9x9 area around itself; how many plots fit depends on what shares it."
     },
     {
         name: 'Sunlamp', slug: 'sunlamp', defaultCount: 0, category: 'Environment', hasLevels: false,
         unlocks: { 1: 9 },
-        counts: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3],
         tooltip: "Provides Adequate growing conditions for crops that need one&#10;Covers a 9x9 area around itself; how many plots fit depends on what shares it."
     },
     {
@@ -137,19 +136,19 @@ export const FACILITIES = [
     {
         name: 'Blazing Stove', slug: 'blazing-stove', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Fire', personality: 'Nimble',
         unlocks: { 1: 8, 2: 10, 3: 13, 4: 16, 5: 18 },
-        counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Soy Sauce Fried Rice, Creamy Potato Soup, Cherry Blossom Rice Ball, Premium Potato Soup&#10;Lv.2: Tanghulu, Soy Sauce Tofu, Sugar-Roasted Chestnuts&#10;Lv.3: Steamed Vermicelli Roll, Ginseng Chestnut Cake, Walnut Cake&#10;Lv.4: Jello, Strawberry Candy, Rich Grape Compote, Premium Jello&#10;Lv.5: Strawberry Cream Puff, Cranberry Chocolate"
     },
     {
         name: 'Pickling Jar', slug: 'pickling-jar', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Dark', personality: 'Playful',
         unlocks: { 1: 8, 2: 10, 3: 13, 4: 16, 5: 19 },
-        counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Soy Sauce, Salted Cherry Blossom&#10;Lv.2: Sweet Rice Drink, Cider Vinegar, Premium Sweet Rice Wine&#10;Lv.3: Rice Vinegar, Salted Lemon, Premium Salted Lemon&#10;Lv.4: Candied Strawberries&#10;Lv.5: Candied Orange Flower"
     },
     {
         name: 'Joy Wheel Loom', slug: 'joy-wheel-loom', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Wind', personality: 'Faithful',
         unlocks: { 1: 7, 2: 10, 3: 15, 4: 19 },
-        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        counts: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2],
         tooltip: "Lv.1: Cotton Thread&#10;Lv.2: Woolen Yarn, Cotton Fabric&#10;Lv.3: Palm Rope, Wool Fabric&#10;Lv.4: Dyed Cotton Fabric"
     },
     {
@@ -167,13 +166,13 @@ export const FACILITIES = [
     {
         name: 'Woodworking Bench', slug: 'woodworking-bench', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Artisanship', personality: 'Energetic',
         unlocks: { 1: 6, 2: 10, 3: 14, 4: 18 },
-        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4],
         tooltip: "Lv.1: Rough Lumber&#10;Lv.2: Standard Planks&#10;Lv.3: Laminated Beams&#10;Lv.4: Densified Timber Component&#10;Turns Wood Blocks into RV level-up materials."
     },
     {
         name: 'Chimney Kiln', slug: 'chimney-kiln', defaultCount: 0, category: 'Materials Processing', hasWorker: true, ability: 'Fire', personality: 'Practical',
         unlocks: { 1: 6, 2: 10, 3: 14, 4: 18 },
-        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2],
+        counts: [0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4],
         tooltip: "Lv.1: Coarse-Sifted Ore&#10;Lv.2: Sintered Ore Brick&#10;Lv.3: Refined Ore&#10;Lv.4: Microcrystalline Ore Plate&#10;Turns Mineral Sand into RV level-up materials."
     },
 ];
