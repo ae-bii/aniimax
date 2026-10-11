@@ -1,4 +1,4 @@
-﻿//! Tests for data models and structures.
+//! Tests for data models and structures.
 
 use aniimax::models::{FacilityCounts, ProductionItem};
 
@@ -129,6 +129,7 @@ fn test_production_item_creation() {
         facility_level: 1,
         module_requirement: None,
         workload: None,
+        emode_base_time: None,
         byproduct: None,
         environment: None,
         season: None,
@@ -158,6 +159,7 @@ fn test_processed_item_creation() {
         facility_level: 1,
         module_requirement: None,
         workload: None,
+        emode_base_time: None,
         byproduct: None,
         environment: None,
         season: None,
@@ -235,6 +237,7 @@ fn timers_match_the_game() {
         facility_level: 1,
         module_requirement: None,
         workload: None,
+        emode_base_time: None,
         byproduct: None,
         environment: None,
         season: None,
@@ -268,3 +271,65 @@ fn base_item_name_strips_roster_and_uncovered_suffixes() {
     assert_eq!(base_item_name("made__by_hand"), "made__by_hand");
     assert_eq!(base_item_name("rice__by"), "rice__by");
 }
+
+#[test]
+fn test_emode_applies_correct_times_and_clears_workload() {
+    use aniimax::models::{apply_emode, ProductionItem};
+    let mut items = vec![
+        ProductionItem {
+            name: "Dried Ginseng".to_string(),
+            facility: "Jukebox Dryer".to_string(),
+            raw_materials: Some(vec!["Ginseng".to_string()]),
+            required_amount: Some(vec![1]),
+            cost: None,
+            sell_currency: "coins".to_string(),
+            sell_value: 120.0,
+            production_time: 81.0,
+            yield_amount: 1,
+            energy: None,
+            facility_level: 5,
+            module_requirement: None,
+            workload: Some(81.0),
+            emode_base_time: Some(54.0),
+            byproduct: None,
+            environment: None,
+            season: None,
+            crew: None,
+        },
+        ProductionItem {
+            name: "Ginseng Porridge".to_string(),
+            facility: "Simmering Pot".to_string(),
+            raw_materials: Some(vec!["Ginseng".to_string()]),
+            required_amount: Some(vec![1]),
+            cost: None,
+            sell_currency: "coins".to_string(),
+            sell_value: 200.0,
+            production_time: 162.0,
+            yield_amount: 1,
+            energy: None,
+            facility_level: 5,
+            module_requirement: None,
+            workload: Some(162.0),
+            emode_base_time: Some(108.0),
+            byproduct: None,
+            environment: None,
+            season: None,
+            crew: None,
+        },
+    ];
+
+    // Case 1: 100% power grid rate (1.0)
+    apply_emode(&mut items, &["Jukebox Dryer".to_string()], 1.0);
+    assert_eq!(items[0].production_time, 54.0);
+    assert_eq!(items[0].workload, None); // Aniimo worker freed!
+    // Simmering Pot not in emode_facilities: remains unchanged
+    assert_eq!(items[1].production_time, 162.0);
+    assert_eq!(items[1].workload, Some(162.0));
+
+    // Case 2: 95.5% power grid rate (0.955)
+    apply_emode(&mut items, &["Simmering Pot".to_string()], 0.955);
+    // 108 / 0.955 = ~113.089 seconds (1m 53s in-game)
+    assert!((items[1].production_time - 113.089).abs() < 0.01);
+    assert_eq!(items[1].workload, None);
+}
+

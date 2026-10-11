@@ -1,14 +1,14 @@
-name, raw_materials, required_amount, sell_value, sell_currency, workload, facility_level, module_requirement
-bamboo_joss_stick, bamboo;aromathyst, 15;2, 470, coins, 135, 1,
-rose_incense, rose;aromathyst, 12;2, 790, coins, 135, 2,
-cherry_incense, dried_cherry_blossom;aromathyst, 1;4, 840, coins, 135, 2,
-lavender_incense, lavender;aromathyst, 11;2, 1270, coins, 135, 3,
-lemon_incense, lemon;aromathyst, 12;2, 700, coins, 135, 3,
-advanced_lemon_incense, lemon;aromathyst, 12;2, 900, coins, 135, 3, crafting_module:3
-herbal_ginseng_aroma, ginseng_powder;aromathyst, 1;8, 2360, coins, 162, 4,
-soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 5500, coins, 243, 5,
-premium_soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 6320, coins, 243, 5, crafting_module:5
-orange_flower_incense, orange_flower;aromathyst, 8;8, 3640, coins, 162, 6,
-mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 4850, coins, 162, 6,
-lotion, orange_flower;coconut_oil, 8;2, 7030, coins, 162, 6,
-premium_mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 5520, coins, 162, 6, crafting_module:7
+name, raw_materials, required_amount, sell_value, sell_currency, workload, emode_base_time, facility_level, module_requirement
+bamboo_joss_stick, bamboo;aromathyst, 15;2, 470, coins, 135, 108, 1, 
+rose_incense, rose;aromathyst, 12;2, 790, coins, 135, 108, 2, 
+cherry_incense, dried_cherry_blossom;aromathyst, 1;4, 840, coins, 135, 108, 2, 
+lavender_incense, lavender;aromathyst, 11;2, 1270, coins, 135, 108, 3, 
+lemon_incense, lemon;aromathyst, 12;2, 700, coins, 135, 108, 3, 
+advanced_lemon_incense, lemon;aromathyst, 12;2, 900, coins, 135, 108, 3, crafting_module:3
+herbal_ginseng_aroma, ginseng_powder;aromathyst, 1;8, 2360, coins, 162, 108, 4, 
+soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 5500, coins, 243, 162, 5, 
+premium_soap, coconut_oil;petals;deep_rock_spring_water, 1;6;6, 6320, coins, 243, 162, 5, crafting_module:5
+orange_flower_incense, orange_flower;aromathyst, 8;8, 3640, coins, 162, 108, 6, 
+mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 4850, coins, 162, 108, 6, 
+lotion, orange_flower;coconut_oil, 8;2, 7030, coins, 162, 108, 6, 
+premium_mixed_perfume, dried_flowers;natural_mineral_spring_water, 1;6, 5520, coins, 162, 108, 6, crafting_module:7

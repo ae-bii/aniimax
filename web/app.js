@@ -7,6 +7,7 @@ import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME, FACILITY_FOOTPRINTS, HOMELAND_PLOTS, HOMELAND_PLOT_SIZE,
     MAX_HOME_LEVEL, ANIIMO_MAX, simpleSetup,
     LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, SEASON, ANIIPOD_TIERS, PERSONALITY_PAIRS, personalityLetter, opposedPersonality,
+    FACILITY_POWER_WATTS, DEFAULT_GENERATOR_WATTS, GENERATOR_WATTS_BY_HOME_LEVEL, GENERATOR_CAPACITY_OPTIONS,
 } from './facility-config.js';
 import { allocateTurnFacilities, redistributeTurnFacilityRows } from './turn-jobs.js';
 import { createShareUrl, readShareHash, urlWithoutShare } from './share-config.js';
@@ -230,6 +231,160 @@ const RATE_UNIT_SECONDS = {
 // level 3 and 4 more upgraded to level 5), so a facility can own more than one tier; facilities
 // that don't level up at all (`hasLevels: false`) only ever have exactly one.
 let facilityTiers = {};
+let emodeFacilities = new Set();
+
+export const EMODE_PRIORITY = [
+    'Jukebox Dryer',
+    'Simmering Pot',
+    'Carousel Mill',
+    'Crafting Table',
+    'Blazing Stove',
+    'Joy Wheel Loom',
+    'Pickling Jar',
+    'Bouncy Brew Keg',
+    'Phonolfactory Table',
+    'Chimney Kiln',
+    'Woodworking Bench',
+    'Claw Game Cooker',
+    'Dance Pad Polisher',
+    'Aniipod Maker'
+];
+
+export function getGeneratorCapacity() {
+    if (isSimpleMode()) {
+        const homeLevel = selectedHomeLevel();
+        const el = document.getElementById('simple-generator-capacity');
+        const val = el ? parseInt(el.value, 10) : 0;
+        if (!isNaN(val) && val > 0) return val;
+        return GENERATOR_WATTS_BY_HOME_LEVEL[homeLevel] || DEFAULT_GENERATOR_WATTS;
+    }
+    const el = document.getElementById('generator-capacity');
+    const val = el ? parseInt(el.value, 10) : 0;
+    return !isNaN(val) && val > 0 ? val : DEFAULT_GENERATOR_WATTS;
+}
+
+export function getTargetEmodeWatts(generatorCapacity = getGeneratorCapacity(), powerRate = getPowerGridRate()) {
+    if (powerRate >= 1.15) {
+        // At 120% supply rate, total electrified load must be <= generator capacity / 1.2
+        return Math.floor(generatorCapacity / 1.2);
+    }
+    // At 100% supply rate, total electrified load can reach 100% of generator capacity
+    return generatorCapacity;
+}
+
+export function autoAllocateEmode(homeLevel, maxWatts = getTargetEmodeWatts(), activeProducingCounts = null) {
+    if (homeLevel < 12) return {};
+    const { facilities } = simpleSetup(homeLevel);
+    let remainingWatts = maxWatts;
+    const allocated = {};
+
+    for (const name of EMODE_PRIORITY) {
+        const fac = FACILITIES.find(f => f.name === name);
+        if (!fac || !fac.supportsEmode) continue;
+        const wattsPerUnit = FACILITY_POWER_WATTS[name] || 0;
+        if (wattsPerUnit <= 0) continue;
+
+        let availableUnits = (facilities[name] || []).reduce((sum, t) => sum + t.count, 0);
+        if (activeProducingCounts && typeof activeProducingCounts[name] === 'number') {
+            availableUnits = Math.min(availableUnits, activeProducingCounts[name]);
+        }
+        if (availableUnits <= 0) continue;
+
+        let countForFac = 0;
+        for (let u = 0; u < availableUnits; u++) {
+            if (remainingWatts >= wattsPerUnit) {
+                countForFac++;
+                remainingWatts -= wattsPerUnit;
+            } else {
+                break;
+            }
+        }
+        if (countForFac > 0) {
+            allocated[name] = countForFac;
+        }
+    }
+    return allocated;
+}
+
+function activeEmodeFacilityCounts(activeProducingCounts = null) {
+    const targetWatts = getTargetEmodeWatts();
+    if (isSimpleMode()) {
+        const homeLevel = selectedHomeLevel();
+        const emodeOn = document.getElementById('emode-simple-on')?.checked ?? true;
+        if (!emodeOn || homeLevel < 12) return {};
+        return autoAllocateEmode(homeLevel, targetWatts, activeProducingCounts);
+    }
+    const counts = {};
+    emodeFacilities.forEach(name => {
+        let total = (facilityTiers[name] || []).reduce((sum, t) => sum + t.count, 0);
+        if (activeProducingCounts && typeof activeProducingCounts[name] === 'number') {
+            total = Math.min(total, activeProducingCounts[name]);
+        }
+        if (total > 0) {
+            counts[name] = total;
+        }
+    });
+    return counts;
+}
+
+function activeEmodeFacilities(activeProducingCounts = null) {
+    return Object.keys(activeEmodeFacilityCounts(activeProducingCounts));
+}
+
+function calculatePowerWatts(counts) {
+    let total = 0;
+    for (const [name, count] of Object.entries(counts)) {
+        const w = FACILITY_POWER_WATTS[name] || 0;
+        total += w * count;
+    }
+    return total;
+}
+
+function updatePowerGauge(customCounts = null) {
+    const maxWatts = getGeneratorCapacity();
+    const rate = getPowerGridRate();
+    const targetWatts = getTargetEmodeWatts(maxWatts, rate);
+    const counts = customCounts || activeEmodeFacilityCounts();
+    const totalWatts = calculatePowerWatts(counts);
+    const pct = Math.min(100, Math.round((totalWatts / maxWatts) * 100));
+
+    // Simple gauge
+    const simpleVal = document.getElementById('simple-power-gauge-value');
+    const simpleFill = document.getElementById('simple-power-gauge-fill');
+    if (simpleVal && simpleFill) {
+        const targetLabel = rate >= 1.15 ? ` (120% cap: ${targetWatts}W)` : '';
+        simpleVal.textContent = `${totalWatts}W / ${maxWatts}W (${pct}%)${targetLabel}`;
+        simpleFill.style.width = `${Math.min(100, (totalWatts / maxWatts) * 100)}%`;
+        simpleFill.classList.toggle('overload', totalWatts > targetWatts);
+    }
+
+    // Advanced gauge
+    let advCounts = {};
+    emodeFacilities.forEach(name => {
+        const total = (facilityTiers[name] || []).reduce((sum, t) => sum + t.count, 0);
+        if (total > 0) advCounts[name] = total;
+    });
+    if (customCounts && !isSimpleMode()) advCounts = customCounts;
+    const advWatts = calculatePowerWatts(advCounts);
+    const advPct = Math.min(100, Math.round((advWatts / maxWatts) * 100));
+    const advVal = document.getElementById('advanced-power-gauge-value');
+    const advFill = document.getElementById('advanced-power-gauge-fill');
+    const advTitle = document.getElementById('advanced-power-gauge-title');
+    if (advTitle) advTitle.textContent = `⚡ Generator Power (${maxWatts}W Cap):`;
+    if (advVal && advFill) {
+        const advTargetLabel = rate >= 1.15 ? ` (120% cap: ${targetWatts}W)` : '';
+        advVal.textContent = `${advWatts}W / ${maxWatts}W (${advPct}%)${advTargetLabel}`;
+        advFill.style.width = `${Math.min(100, (advWatts / maxWatts) * 100)}%`;
+        advFill.classList.toggle('overload', advWatts > targetWatts);
+    }
+}
+
+function getPowerGridRate() {
+    const id = isSimpleMode() ? 'simple-power-grid-rate' : 'power-grid-rate';
+    const el = document.getElementById(id) || document.getElementById('power-grid-rate');
+    const val = el ? parseFloat(el.value) : 100;
+    return val >= 115 ? 1.2 : 1.0;
+}
 
 function defaultFacilityTiers() {
     const tiers = {};
@@ -278,6 +433,7 @@ function renderFacilityCards() {
                 <h4>${f.name} <span class="info-icon" data-tooltip="${f.tooltip}">?</span></h4>
                 <div class="facility-tiers" data-facility="${f.name}"></div>
                 ${f.hasLevels === false ? '' : '<button type="button" class="add-tier-btn" data-facility="' + f.name + '">+ Add level</button>'}
+                ${f.supportsEmode ? `<label class="facility-emode-toggle" title="Run in Electric Mode (automatic, no Aniimo worker needed)"><input type="checkbox" class="facility-emode-checkbox" data-facility="${f.name}" ${emodeFacilities.has(f.name) ? 'checked' : ''}> ⚡ E-mode</label>` : ''}
             </div>
         `).join('');
         return `
@@ -288,6 +444,146 @@ function renderFacilityCards() {
         `;
     }).join('');
     FACILITIES.forEach(f => renderTierRows(f.name));
+}
+
+function attachEmodeHandlers() {
+    const grid = document.getElementById('facilities-grid');
+    if (grid) {
+        grid.addEventListener('change', (e) => {
+            if (e.target.classList.contains('facility-emode-checkbox')) {
+                const fac = e.target.dataset.facility;
+                if (e.target.checked) {
+                    emodeFacilities.add(fac);
+                } else {
+                    emodeFacilities.delete(fac);
+                }
+                updatePowerGauge();
+                saveInputsToStorage();
+            }
+        });
+    }
+
+    const autoBtn = document.getElementById('emode-auto-btn');
+    if (autoBtn) {
+        autoBtn.addEventListener('click', () => {
+            let remainingWatts = getTargetEmodeWatts();
+            emodeFacilities.clear();
+            for (const name of EMODE_PRIORITY) {
+                const fac = FACILITIES.find(f => f.name === name);
+                if (!fac || !fac.supportsEmode) continue;
+                const w = FACILITY_POWER_WATTS[name] || 0;
+                const owned = (facilityTiers[name] || []).reduce((sum, t) => sum + t.count, 0);
+                if (owned > 0 && remainingWatts >= w * owned) {
+                    emodeFacilities.add(name);
+                    remainingWatts -= w * owned;
+                }
+            }
+            document.querySelectorAll('.facility-emode-checkbox').forEach(cb => {
+                cb.checked = emodeFacilities.has(cb.dataset.facility);
+            });
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const allBtn = document.getElementById('emode-all-btn');
+    if (allBtn) {
+        allBtn.addEventListener('click', () => {
+            FACILITIES.filter(f => f.supportsEmode).forEach(f => emodeFacilities.add(f.name));
+            document.querySelectorAll('.facility-emode-checkbox').forEach(cb => cb.checked = true);
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const noneBtn = document.getElementById('emode-none-btn');
+    if (noneBtn) {
+        noneBtn.addEventListener('click', () => {
+            emodeFacilities.clear();
+            document.querySelectorAll('.facility-emode-checkbox').forEach(cb => cb.checked = false);
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const rateSelect = document.getElementById('power-grid-rate');
+    const simpleRate = document.getElementById('simple-power-grid-rate');
+    if (rateSelect) {
+        rateSelect.addEventListener('change', () => {
+            if (simpleRate) simpleRate.value = rateSelect.value;
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+    if (simpleRate) {
+        simpleRate.addEventListener('change', () => {
+            if (rateSelect) rateSelect.value = simpleRate.value;
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const genSelect = document.getElementById('generator-capacity');
+    const simpleGen = document.getElementById('simple-generator-capacity');
+    if (genSelect) {
+        genSelect.addEventListener('change', () => {
+            if (simpleGen) simpleGen.value = genSelect.value;
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+    if (simpleGen) {
+        simpleGen.addEventListener('change', () => {
+            if (genSelect) genSelect.value = simpleGen.value;
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const simpleToggle = document.getElementById('emode-simple-on');
+    if (simpleToggle) {
+        simpleToggle.addEventListener('change', () => {
+            updatePowerGauge();
+            saveInputsToStorage();
+        });
+    }
+
+    const homeSelect = document.getElementById('home-level');
+    if (homeSelect) {
+        homeSelect.addEventListener('change', () => {
+            updateSimpleEmodeState();
+        });
+    }
+}
+
+function updateSimpleEmodeState() {
+    const homeLevel = selectedHomeLevel();
+    const hint = document.getElementById('emode-simple-hint');
+    const toggle = document.getElementById('emode-simple-on');
+    const rateField = document.getElementById('emode-simple-rate-field');
+    const genField = document.getElementById('emode-simple-generator-field');
+    const gauge = document.getElementById('simple-power-gauge-container');
+
+    const defaultWatts = GENERATOR_WATTS_BY_HOME_LEVEL[homeLevel] || DEFAULT_GENERATOR_WATTS;
+    const simpleGen = document.getElementById('simple-generator-capacity');
+    const genSelect = document.getElementById('generator-capacity');
+    if (simpleGen) simpleGen.value = String(defaultWatts);
+    if (genSelect) genSelect.value = String(defaultWatts);
+
+    if (homeLevel < 12) {
+        if (toggle) toggle.disabled = true;
+        if (rateField) rateField.style.opacity = '0.5';
+        if (genField) genField.style.opacity = '0.5';
+        if (gauge) gauge.style.opacity = '0.5';
+        if (hint) hint.innerHTML = '<span style="color: var(--text-muted);">⚡ Electric Mode unlocks at <strong>RV 12</strong>.</span>';
+    } else {
+        if (toggle) toggle.disabled = false;
+        if (rateField) rateField.style.opacity = '1';
+        if (genField) genField.style.opacity = '1';
+        if (gauge) gauge.style.opacity = '1';
+        if (hint) hint.innerHTML = `Auto-balances power within generator limit. Frees Aniimo workers on electric units; remaining units run manually with Aniimo.`;
+    }
+    updatePowerGauge();
 }
 
 // Delegated handlers for the facility grid, covering tier rows added/removed after initial
@@ -366,7 +662,9 @@ function getPersistedFieldIds() {
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
         'rate-unit', 'season-on', 'layout-sim-on', 'season-currency-per-day',
-        'aniimo-best', 'aniimo-minimum', 'aniimo-custom'
+        'aniimo-best', 'aniimo-minimum', 'aniimo-custom',
+        'power-grid-rate', 'emode-simple-on', 'simple-power-grid-rate',
+        'generator-capacity', 'simple-generator-capacity'
     ];
 }
 
@@ -421,7 +719,7 @@ function initFacilityTiers(data) {
 }
 
 function currentConfig() {
-    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial], priorities: priorityOrder, aniimoLevels, roster };
+    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial], priorities: priorityOrder, aniimoLevels, roster, emodeFacilities: [...emodeFacilities] };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -472,6 +770,12 @@ async function shareCurrentConfig() {
 
 function loadInputsFromStorage(data) {
     if (!data) return;
+    if (Array.isArray(data.emodeFacilities)) {
+        emodeFacilities = new Set(data.emodeFacilities);
+        document.querySelectorAll('.facility-emode-checkbox').forEach(cb => {
+            cb.checked = emodeFacilities.has(cb.dataset.facility);
+        });
+    }
     if (data.levelUpStock && typeof data.levelUpStock === 'object') levelUpStock = { ...data.levelUpStock };
     if (Array.isArray(data.skippedRecipes)) skippedRecipes = new Set(data.skippedRecipes.filter(n => typeof n === 'string'));
     if (Array.isArray(data.unlockedSpecial)) unlockedSpecial = new Set(data.unlockedSpecial.filter(n => typeof n === 'string'));
@@ -514,6 +818,7 @@ function loadInputsFromStorage(data) {
         }
     });
     levelUpTargetChosen = 'level-up-target' in data;
+    updatePowerGauge();
 }
 
 // Auto-save on every change to a persisted static field (facility tier inputs save themselves;
@@ -622,6 +927,7 @@ function applyConfigMode() {
     document.getElementById('advanced-config').style.display = simple ? 'none' : 'block';
     if (simple) renderSimpleSummary();
     renderStrategy();
+    updatePowerGauge();
 }
 
 // Fills the advanced inputs with everything `homeLevel` allows.
@@ -1129,9 +1435,10 @@ function homelandPieces(plan, input) {
             unplaced.add(facility);
             return;
         }
-        allocations.forEach(jobs => {
+        allocations.forEach((jobs, idx) => {
             const weight = jobs.reduce((sum, j) => sum + j.rate * 3600, 0);
-            pieces.push({ members: [{ x: 0, y: 0, w: footprint[0], h: footprint[1], weight, jobs: jobs.length ? jobs : undefined, cycle: jobs[0]?.cycle, facility, crop: jobs[0]?.item ?? null, sensitive: false }] });
+            const isEmode = Boolean(input.emode_facility_counts?.[facility] && idx < input.emode_facility_counts[facility]);
+            pieces.push({ members: [{ x: 0, y: 0, w: footprint[0], h: footprint[1], weight, jobs: jobs.length ? jobs : undefined, cycle: jobs[0]?.cycle, facility, crop: jobs[0]?.item ?? null, sensitive: false, is_emode: isEmode }] });
         });
         count(facility, allocations.length);
     });
@@ -1155,7 +1462,7 @@ function homelandPieces(plan, input) {
             // A crop that needs an environment but is grown without one stays out of every
             // coverage square, so no building's temperature changes it.
             const growing = step.status === 'producing';
-            pieces.push({ members: [{ x: 0, y: 0, w: footprint[0], h: footprint[1], weight: tripsPerUnit(step), cycle: step.cycle_time, facility: step.facility, crop: growing ? step.item_name : null, sensitive: growing && needsEnvironment(step.item_name) }] });
+            pieces.push({ members: [{ x: 0, y: 0, w: footprint[0], h: footprint[1], weight: tripsPerUnit(step), cycle: step.cycle_time, facility: step.facility, crop: growing ? step.item_name : null, sensitive: growing && needsEnvironment(step.item_name), is_emode: !!step.is_emode }] });
         }
         count(step.facility, n);
     });
@@ -1175,6 +1482,37 @@ function homelandPieces(plan, input) {
         const building = f.name in ENVIRONMENT_BUILDING_SIZES;
         for (let i = 0; i < extra; i++) pieces.push({ members: [{ x: 0, y: 0, w: footprint[0], h: footprint[1], weight: 0, facility: f.name, crop: null, building, mode: null }] });
     });
+
+    // Add Crackle Generator (2x2) and Crackle Power Poles (1.5x1.5) when Electric Mode is active
+    const isEmodeActive = (document.getElementById('emode-simple-on')?.checked ?? true) || !!document.getElementById('emode-on')?.checked;
+    const hasElectricFacilities = (plan.coin_items || []).some(s => s.is_emode && s.status === 'producing') || (input.emode_facility_counts && Object.values(input.emode_facility_counts).some(c => c > 0));
+    const currentRv = layoutHomeLevel();
+    if ((isEmodeActive || currentRv >= 12) && hasElectricFacilities) {
+        // Crackle Generator (official 2x2 footprint, 11x11 square range)
+        pieces.push({
+            members: [{
+                x: 0, y: 0, w: 2, h: 2,
+                weight: 0,
+                facility: 'Crackle Generator',
+                generator: true,
+                sensitive: false
+            }]
+        });
+        // Crackle Power Poles (official 1.5x1.5 footprint, 7x7 square relay range, up to 2-3 poles for network extension)
+        const poleCount = currentRv >= 12 ? Math.min(3, Math.floor((currentRv - 10) / 2)) : 0;
+        for (let p = 0; p < poleCount; p++) {
+            pieces.push({
+                members: [{
+                    x: 0, y: 0, w: 1.5, h: 1.5,
+                    weight: 0,
+                    facility: 'Crackle Power Pole',
+                    powerPole: true,
+                    sensitive: false
+                }]
+            });
+        }
+    }
+
     return { pieces, unplaced: [...unplaced] };
 }
 
@@ -1186,10 +1524,18 @@ const LAYOUT_CATEGORY_COLORS = {
     'Materials Processing': '#8a7fc4',
     'Environment': '#9aa0a8',
 };
-const layoutColor = m => m.building
-    ? (ENVIRONMENT_MODE_COLORS[m.mode] || '#9aa0a8')
-    : ENVIRONMENT_FACILITY_COLORS[m.facility] || LAYOUT_CATEGORY_COLORS[FACILITY_CATEGORY_BY_NAME.get(m.facility)] || '#888888';
-const initialsOf = name => name.split(/[\s-]+/).map(w => w[0]).join('').toUpperCase();
+const layoutColor = m => {
+    if (m.generator || m.facility === 'Crackle Generator' || m.facility === 'Generator') return '#06b6d4';
+    if (m.powerPole || m.facility === 'Crackle Power Pole' || m.facility === 'Power Pole') return '#eab308';
+    return m.building
+        ? (ENVIRONMENT_MODE_COLORS[m.mode] || '#9aa0a8')
+        : ENVIRONMENT_FACILITY_COLORS[m.facility] || LAYOUT_CATEGORY_COLORS[FACILITY_CATEGORY_BY_NAME.get(m.facility)] || '#888888';
+};
+const initialsOf = name => {
+    if (name === 'Crackle Generator' || name === 'Generator') return '⚡GEN';
+    if (name === 'Crackle Power Pole' || name === 'Power Pole') return '⚡POLE';
+    return name.split(/[\s-]+/).map(w => w[0]).join('').toUpperCase();
+};
 
 let layoutRunId = 0;
 let layoutWorker = null;
@@ -1326,12 +1672,14 @@ function homelandSvg(layout, homeLevel) {
     const shapes = layout.pieces.flatMap(p => p.members).map(m => {
         const color = layoutColor(m);
         const away = Math.hypot(m.x + m.w / 2 - (layout.storage.x + layout.storage.w / 2), m.y + m.h / 2 - (layout.storage.y + layout.storage.h / 2));
+        const detailText = m.jobs ? m.jobs.map(j => prettyItem(j.item)).join(', ') : m.crop ? prettyItem(m.crop) : m.building && m.mode ? m.mode : (m.generator ? '11×11 Power Grid' : m.powerPole ? '7×7 Power Relay' : 'Idle');
         const tip = tipAttrs(m.facility, {
-            detail: m.jobs ? m.jobs.map(j => prettyItem(j.item)).join(', ') : m.crop ? prettyItem(m.crop) : m.building && m.mode ? m.mode : 'Idle',
+            detail: m.is_emode ? `${detailText} · ⚡ E-mode` : detailText,
             stats: m.weight > 0 ? `${formatRate(m.weight)} trips/hour · ${away.toFixed(1)} tiles from storage` : '',
             color,
         });
         const label = Math.min(m.w, m.h) >= 1.5 ? `<text x="${m.x + m.w / 2}" y="${m.y + m.h / 2}" font-size="${Math.min(0.8, m.w / 3)}">${initialsOf(m.facility)}</text>` : '';
+        const emodeBadge = m.is_emode ? `<text x="${m.x + m.w - 0.35}" y="${m.y + 0.45}" font-size="0.45" fill="#facc15" font-weight="bold">⚡</text>` : '';
         // Busier pieces are filled more solidly; idle ones are an outline.
         const fill = m.building ? 0.9 : m.weight > 0 ? 0.35 + 0.55 * Math.sqrt(m.weight / maxTrips) : 0.08;
         if (m.building) {
@@ -1340,8 +1688,8 @@ function homelandSvg(layout, homeLevel) {
                 fill="${color}" fill-opacity="${m.mode ? 1 : 0.25}" stroke="currentColor" stroke-opacity="0.6" stroke-width="0.08" />
                 ${m.mode ? environmentBuildingIcon(m.facility, m.mode, m.x + m.w / 2, m.y + m.h / 2) : ''}</g>`;
         }
-        return `<g class="layout-piece" ${tip}><rect x="${m.x + 0.04}" y="${m.y + 0.04}" width="${m.w - 0.08}" height="${m.h - 0.08}" rx="0.2"
-            fill="${color}" fill-opacity="${fill.toFixed(2)}" stroke="${color}" stroke-width="0.06" />${label}</g>`;
+        return `<g class="layout-piece${m.is_emode ? ' layout-emode-piece' : ''}" ${tip}><rect x="${m.x + 0.04}" y="${m.y + 0.04}" width="${m.w - 0.08}" height="${m.h - 0.08}" rx="0.2"
+            fill="${color}" fill-opacity="${fill.toFixed(2)}" stroke="${m.is_emode ? '#facc15' : color}" stroke-width="${m.is_emode ? '0.1' : '0.06'}" />${label}${emodeBadge}</g>`;
     }).join('');
     const coverageShapes = coverage.map(c => {
         const tint = ENVIRONMENT_MODE_COLORS[c.mode] || '#9aa0a8';
@@ -1374,6 +1722,44 @@ function homelandSvg(layout, homeLevel) {
         <g class="layout-flows" pointer-events="none">${flows}<g class="layout-dots"></g></g>
         <g class="layout-piece layout-storage-unit" ${tipAttrs('Storage Unit', { detail: 'Where everything is carried', stats: totalTrips > 0 ? `${formatRate(totalTrips)} trips/hour` : '' })}><rect x="${s.x + 0.04}" y="${s.y + 0.04}" width="${s.w - 0.08}" height="${s.h - 0.08}" rx="0.2" class="layout-storage" />
         <text x="${s.x + s.w / 2}" y="${s.y + s.h / 2}" font-size="0.8" class="layout-storage-text">SU</text></g>
+        ${(() => {
+            const members = layout.pieces.flatMap(p => p.members);
+            const genPiece = members.find(m => m.facility === 'Crackle Generator' || m.facility === 'Generator' || m.generator);
+            const poles = members.filter(m => m.facility === 'Crackle Power Pole' || m.facility === 'Power Pole' || m.powerPole);
+
+            let aura = '';
+            if (genPiece) {
+                // 11x11 square range for Crackle Generator (official Aniimo mechanics)
+                const gx = genPiece.x - (11 - genPiece.w) / 2;
+                const gy = genPiece.y - (11 - genPiece.h) / 2;
+                const genCenter = { x: genPiece.x + genPiece.w / 2, y: genPiece.y + genPiece.h / 2 };
+
+                aura += `<g class="generator-power-network" pointer-events="none">
+                    <!-- Crackle Generator 11x11 Square Grid -->
+                    <rect x="${gx}" y="${gy}" width="11" height="11" rx="0.3"
+                        fill="#06b6d4" fill-opacity="0.06" stroke="#06b6d4" stroke-opacity="0.6" stroke-width="0.16" stroke-dasharray="0.8 0.4" />
+                    <text x="${genCenter.x}" y="${gy - 0.35}" font-size="0.72" fill="#06b6d4" font-weight="700" text-anchor="middle">⚡ Crackle Generator (11×11 Grid)</text>`;
+
+                let lastNode = genCenter;
+                poles.forEach((pole, idx) => {
+                    const px = pole.x - (7 - pole.w) / 2;
+                    const py = pole.y - (7 - pole.h) / 2;
+                    const pCenter = { x: pole.x + pole.w / 2, y: pole.y + pole.h / 2 };
+                    aura += `
+                        <!-- Power Pole #${idx + 1} 7x7 Relay Range -->
+                        <rect x="${px}" y="${py}" width="7" height="7" rx="0.25"
+                            fill="#eab308" fill-opacity="0.04" stroke="#eab308" stroke-opacity="0.5" stroke-width="0.12" stroke-dasharray="0.5 0.25" />
+                        <!-- Power Transmission Cable -->
+                        <line x1="${lastNode.x}" y1="${lastNode.y}" x2="${pCenter.x}" y2="${pCenter.y}"
+                            stroke="#06b6d4" stroke-width="0.14" stroke-dasharray="0.4 0.2" stroke-opacity="0.75" />
+                        <text x="${pCenter.x}" y="${py - 0.25}" font-size="0.55" fill="#eab308" font-weight="600" text-anchor="middle">⚡ Pole #${idx + 1} (7×7 Relay)</text>
+                    `;
+                    lastNode = pCenter;
+                });
+                aura += `</g>`;
+            }
+            return aura;
+        })()}
     </svg>`;
 }
 
@@ -2612,7 +2998,7 @@ function renderProfitBreakdown(plan) {
 // Get plan-level input values from the form (facilities/modules/prioritize-byproducts, nothing
 // goal-related, since find_plan doesn't need a target). Currency is always coins: the full
 // release removed Bud Tickets, the only other sellable currency.
-function getPlanInputValues() {
+function getPlanInputValues(activeProducingCounts = null) {
     // `facilityTiers` is the live source of truth for owned counts (kept in sync with the DOM by
     // `attachFacilityTierHandlers`), sent straight through as a list of tiers per facility; see
     // `JsPlanInput::facilities` in wasm.rs for the shape (`[{count, level}, ...]` per facility).
@@ -2626,6 +3012,9 @@ function getPlanInputValues() {
             exclude: excludedRecipes(),
             season: seasonActive(),
             season_currency_per_day: seasonCurrencyPerDay(),
+            emode_facilities: activeEmodeFacilities(activeProducingCounts),
+            emode_facility_counts: activeEmodeFacilityCounts(activeProducingCounts),
+            power_grid_rate: getPowerGridRate(),
             facilities,
             modules
         };
@@ -2654,6 +3043,9 @@ function getPlanInputValues() {
         exclude: excludedRecipes(),
         season: seasonActive(),
         season_currency_per_day: seasonCurrencyPerDay(),
+        emode_facilities: activeEmodeFacilities(),
+        emode_facility_counts: activeEmodeFacilityCounts(),
+        power_grid_rate: getPowerGridRate(),
         facilities,
         modules
     };
@@ -2873,6 +3265,9 @@ function abilityDot(name, level, note) {
 }
 
 function aniimoLabel(step) {
+    if (step.is_emode && step.status === 'producing') {
+        return '<span class="tag emode-tag" title="Operating in Electric Mode (automatic, no Aniimo worker needed)">⚡ E-mode</span>';
+    }
     const a = step.aniimo;
     if (!a) {
         // Crops and trees: the abilities their planting and harvesting jobs need.
@@ -3858,7 +4253,7 @@ async function runFindPlan() {
         // Whichever Best the player has asked for; the other one waits until they switch to it.
         const bestSetup = selectedAniimoSetup() === 'minimum' ? bestAniimoSetup() : selectedAniimoSetup();
         Object.assign(input, aniimoInput(bestSetup));
-        const bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: bestSetup }), (count) => {
+        let bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: bestSetup }), (count) => {
             // The exact planner reports each solve; the backup planner counts its trials.
             if (typeof count === 'object') {
                 setStep(count.step, count.state, undefined, count.proven);
@@ -3870,9 +4265,47 @@ async function runFindPlan() {
         });
         progressFill.style.width = '100%';
         if (runId !== planRunId) return;
+
+        let bestPlan = JSON.parse(bestJson);
+
+        // Smart E-mode reallocation: if some electrified units are idle while other units are producing manually,
+        // reclaim the idle watts and re-solve to electrify active units and free more Aniimo!
+        if (isSimpleMode() && (document.getElementById('emode-simple-on')?.checked ?? true) && selectedHomeLevel() >= 12 && bestPlan.success) {
+            const producingCounts = {};
+            for (const step of bestPlan.coin_items || []) {
+                if (step.status === 'producing' && step.facility) {
+                    const baseFacility = step.facility.replace(/ \(Manual\)$/, '');
+                    producingCounts[baseFacility] = (producingCounts[baseFacility] || 0) + (step.facility_count || 1);
+                }
+            }
+
+            const currentAlloc = input.emode_facility_counts || {};
+            let hasWastedPower = false;
+            for (const [fac, count] of Object.entries(currentAlloc)) {
+                const prod = producingCounts[fac] || 0;
+                if (count > prod) {
+                    hasWastedPower = true;
+                    break;
+                }
+            }
+
+            if (hasWastedPower) {
+                const refinedCounts = activeEmodeFacilityCounts(producingCounts);
+                const refinedFacilities = Object.keys(refinedCounts);
+                if (JSON.stringify(refinedCounts) !== JSON.stringify(currentAlloc)) {
+                    input.emode_facility_counts = refinedCounts;
+                    input.emode_facilities = refinedFacilities;
+                    bestJson = await callWorker('find_plan', JSON.stringify({ ...input, aniimo: bestSetup }));
+                    if (runId !== planRunId) return;
+                    bestPlan = JSON.parse(bestJson);
+                }
+            }
+        }
+
         finishSolveSteps();
-        plansBySetup[bestSetup] = JSON.parse(bestJson);
+        plansBySetup[bestSetup] = bestPlan;
         showSelectedPlan();
+        updatePowerGauge(input.emode_facility_counts);
         // With no plan there's nothing to lay out or improve on.
         if (!plansBySetup[bestSetup].success && progress) {
             progress.steps.forEach(s => { if ((s.key === 'layout' || s.key === 'improve') && s.state === 'pending') s.state = 'skipped'; });
@@ -4116,7 +4549,7 @@ function renderRecipeTables(recipes) {
                     ${cell('Level', r.facility_level)}
                     ${cell('Inputs', formatRecipeInputs(r))}
                     ${cell('Yield', formatRecipeYield(r))}
-                    ${cell('Time', r.workload ? `${r.workload} workload` : formatRecipeTime(r.production_time))}
+                    ${cell('Time', r.workload ? `${r.workload} workload${r.emode_base_time ? ` <span class="tag emode-tag-small" title="E-mode base time: ${formatRecipeTime(r.emode_base_time)}">⚡${formatRecipeTime(r.emode_base_time)}</span>` : ''}` : formatRecipeTime(r.production_time))}
                     ${cell('Sell', formatRecipeSell(r))}
                     ${cell('Module', formatRecipeModule(r))}
                     ${cell('Aniimo', formatRecipeAniimo(r, f))}
@@ -4202,6 +4635,7 @@ async function initApp() {
     loadInputsFromStorage(savedData);
     attachAutoSave();
     attachFacilityTierHandlers();
+    attachEmodeHandlers();
     attachModeHandlers();
     attachStrategyHandlers();
     attachSkipHandlers();
@@ -4214,6 +4648,7 @@ async function initApp() {
     attachPriorityHandlers();
     showAniimoSetup();
     applyConfigMode();
+    updateSimpleEmodeState();
     initWasm();
 
     document.getElementById('optimize-btn').addEventListener('click', runFindPlan);
