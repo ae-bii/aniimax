@@ -8,7 +8,7 @@ Updated for the full release, with a joint LP-based facility-allocation engine f
 
 ## Try It Online
 
-**[Launch Aniimax Web App](https://ae-bii.github.io/aniimax/)** - No installation required!
+**[Launch Aniimax Web App](https://takasyo.github.io/aniimax/)** - No installation required!
 
 ## Features
 
