@@ -4,8 +4,13 @@ import { runInNewContext } from 'node:vm';
 
 const english = JSON.parse(await readFile(new URL('../web/locales/en.json', import.meta.url)));
 const russian = JSON.parse(await readFile(new URL('../web/locales/ru.json', import.meta.url)));
+const japanese = JSON.parse(await readFile(new URL('../web/locales/ja.json', import.meta.url)));
 assert.deepEqual(new Set(english), new Set(Object.keys(russian)));
 for (const [source, target] of Object.entries(russian)) {
+    const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
+    assert.deepEqual(slots(source), slots(target), source);
+}
+for (const [source, target] of Object.entries(japanese)) {
     const slots = text => new Set(text.match(/\{[a-z_]+\}/gi) || []);
     assert.deepEqual(slots(source), slots(target), source);
 }
@@ -13,8 +18,10 @@ for (const [source, target] of Object.entries(russian)) {
 const saved = new Map([['aniimax-language', 'ru']]);
 globalThis.localStorage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) };
 let releaseCatalog;
+let catalogReady = false;
 globalThis.fetch = async url => {
-    await new Promise(resolve => { releaseCatalog = resolve; });
+    if (!catalogReady) await new Promise(resolve => { releaseCatalog = resolve; });
+    catalogReady = true;
     return { ok: true, json: async () => JSON.parse(await readFile(url)) };
 };
 globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
@@ -40,7 +47,7 @@ globalThis.document = {
 };
 globalThis.MutationObserver = class { observe() {} };
 
-const { translate, languageReady } = await import('../web/i18n.js');
+const { translate, currentLocale, languageReady } = await import('../web/i18n.js');
 assert.equal(node.nodeValue, 'Your Homeland');
 assert.equal(document.documentElement.lang, 'en');
 assert.equal(selector.value, 'ru');
@@ -115,3 +122,12 @@ await change();
 assert.equal(node.nodeValue, 'Ваша Родина');
 assert.equal(labelled.getAttribute('data-label'), 'Прибыль');
 assert.equal(saved.get('aniimax-language'), 'ru');
+selector.value = 'ja';
+await change();
+assert.equal(node.nodeValue, 'ホームランド');
+assert.equal(labelled.getAttribute('data-label'), '利益');
+assert.equal(currentLocale(), 'ja-JP');
+assert.equal(translate('in 2h 4m'), '2時間 4分後');
+assert.equal(translate('Used for Wheat; the rest sells directly'), '小麦に使用し、残りは直接販売します');
+assert.equal(translate('RV 13'), 'RV 13');
+assert.equal(saved.get('aniimax-language'), 'ja');

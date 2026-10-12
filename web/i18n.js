@@ -1,5 +1,5 @@
 // Register a language here and add its JSON catalog; English phrases are the source keys.
-const languages = { en: 'English', ru: 'Русский', 'zh-TW': '繁體中文' };
+const languages = { en: 'English', ru: 'Русский', 'zh-TW': '繁體中文', ja: '日本語' };
 const catalogs = { en: {} };
 const templates = {};
 let language = 'en';
@@ -165,6 +165,7 @@ function zhTwLiteralLength(source) {
 
 export function currentLocale() {
     if (language === 'zh-TW') return 'zh-TW';
+    if (language === 'ja') return 'ja-JP';
     return language === 'ru' ? 'ru-RU' : 'en-US';
 }
 
