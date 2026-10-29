@@ -201,6 +201,11 @@ export const SEASON = {
     currency: 'Moonray Wheat',
     points: 'Harvest Moon Points',
     minHomeLevel: 10,
+    // The event is over: its crops and recipes can't be made any more, so the season is off the
+    // page and plans never use it. The data stays (`data/harvest_moon_festival.csv`) and the recipe
+    // tables still list it, marked as ended, for anyone looking the old numbers up. Clear this when
+    // the festival comes back.
+    over: true,
     // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The season's
     // other recipes come unlocked.
     recipeNotes: [
