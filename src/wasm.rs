@@ -173,10 +173,18 @@ fn format_time(seconds: f64) -> String {
 
 /// Get embedded production data.
 /// This embeds the CSV data directly into the WASM binary.
-/// The Harvest Moon Festival's recipes, watered like everything else.
-fn embedded_season_items() -> Vec<ProductionItem> {
-    let mut season = crate::data::parse_season(include_str!("../data/harvest_moon_festival.csv"))
-        .expect("embedded harvest_moon_festival.csv is valid");
+/// Every season's CSV, embedded, by the same ids and in the same order as
+/// [`crate::data::SEASONS`] — `seasons_match_the_data_directory` holds the two together. Adding
+/// a season is a line here and a line there.
+const SEASONS: &[(&str, &str)] = &[
+    ("harvest_moon_festival", include_str!("../data/harvest_moon_festival.csv")),
+];
+
+/// One season's recipes, watered like everything else; empty if `id` names no season the build
+/// knows, so an unrecognized season simply leaves a plan without one.
+fn embedded_season_items(id: &str) -> Vec<ProductionItem> {
+    let Some((_, csv)) = SEASONS.iter().find(|(season, _)| *season == id) else { return Vec::new() };
+    let mut season = crate::data::parse_season(csv).unwrap_or_else(|e| panic!("embedded {id}.csv is valid: {e}"));
     crate::models::apply_watering(&mut season);
     season
 }
@@ -747,12 +755,17 @@ pub struct JsPlanInput {
     /// before it allow.
     #[serde(default)]
     pub priorities: Vec<String>,
-    /// Whether plans may use the Harvest Moon Festival's recipes. Its points are the priority
-    /// `"season_points"` (see [`crate::models::SEASON_POINTS`]).
+    /// Whether plans may use a season's recipes. Its points are the priority `"season_points"`
+    /// (see [`crate::models::SEASON_POINTS`]).
     #[serde(default)]
     pub season: bool,
-    /// During the season, the most of its currency (Moonray Wheat) a day the player can spend on
-    /// seeds; `None` for no limit.
+    /// Which season, by its id in [`SEASONS`]. `None` means the current event: shared links made
+    /// before the page named the season say nothing here. An id this build doesn't know selects
+    /// no season at all (see [`JsPlanInput::season_name`]).
+    #[serde(default)]
+    pub season_id: Option<String>,
+    /// During the season, the most of its currency a day the player can spend on seeds; `None`
+    /// for no limit.
     #[serde(default)]
     pub season_currency_per_day: Option<f64>,
 }
@@ -803,6 +816,19 @@ impl JsRoster {
 }
 
 impl JsPlanInput {
+    /// The season this plan uses (see [`SEASONS`]): the one `season_id` names, or the current
+    /// event when it names none, as shared links made before `season_id` do. `None` for an id
+    /// this build doesn't know, which happens only when the page and the build disagree about
+    /// which events exist; a plan with no season is better than one quietly built on another
+    /// event's recipes.
+    fn season_name(&self) -> Option<&str> {
+        match self.season_id.as_deref() {
+            None => Some(crate::data::current_season()),
+            Some(id) if SEASONS.iter().any(|(season, _)| *season == id) => Some(id),
+            Some(_) => None,
+        }
+    }
+
     /// Builds a [`FacilityCounts`] from the `facilities` map.
     fn facility_counts(&self) -> FacilityCounts {
         let mut fc = FacilityCounts::new();
@@ -1622,8 +1648,8 @@ impl PreparedInput {
             crafting_module: input.modules.crafting_module,
         };
         let mut items = get_embedded_items();
-        if input.season {
-            let mut season = embedded_season_items();
+        if let Some(id) = input.season.then(|| input.season_name()).flatten() {
+            let mut season = embedded_season_items(id);
             for terms in season.iter_mut().filter_map(|item| item.season.as_mut()) {
                 terms.currency_per_day = input.season_currency_per_day.map(|budget| budget.max(0.0));
             }
@@ -1931,8 +1957,9 @@ struct RecipeInfo {
     /// The item its byproduct is used as in other recipes, e.g. `mineral_sand` for Mineral Sand
     /// (see [`crate::models::BYPRODUCT_ITEMS`]).
     byproduct_item: Option<String>,
-    /// Whether it's a season recipe (see [`crate::models::SeasonTerms`]).
-    season: bool,
+    /// The season this recipe belongs to, by its id in [`SEASONS`], or `None` outside one (see
+    /// [`crate::models::SeasonTerms`]).
+    season: Option<String>,
     /// For a season crop, the season currency its seeds cost a batch.
     season_seed_cost: Option<f64>,
 }
@@ -1941,15 +1968,18 @@ struct RecipeInfo {
 /// (the caller groups by facility); used by the facilities reference page.
 #[wasm_bindgen]
 pub fn get_all_items() -> String {
-    let mut items = get_embedded_items();
-    items.extend(embedded_season_items());
+    // Every season's items, each tagged with the event it belongs to, so the page can say which.
+    let mut items: Vec<(ProductionItem, Option<&str>)> = get_embedded_items().into_iter().map(|item| (item, None)).collect();
+    for (id, _) in SEASONS {
+        items.extend(embedded_season_items(id).into_iter().map(|item| (item, Some(*id))));
+    }
     let requirements = embedded_aniimo_requirements();
     let unverified = embedded_unverified();
     let grower_steps = embedded_grower_steps();
     let recipes: Vec<RecipeInfo> = items
         .iter()
-        .filter(|item| !item.name.ends_with(crate::models::UNCOVERED_SUFFIX))
-        .map(|item| RecipeInfo {
+        .filter(|(item, _)| !item.name.ends_with(crate::models::UNCOVERED_SUFFIX))
+        .map(|(item, season_id)| RecipeInfo {
             name: item.name.clone(),
             facility: item.facility.clone(),
             facility_level: item.facility_level,
@@ -1968,7 +1998,7 @@ pub fn get_all_items() -> String {
             jobs: grower_steps.get(&item.name).iter().map(|s| (s.step.clone(), s.ability.clone(), s.min_level)).collect(),
             environment: item.environment.clone(),
             byproduct_item: item.byproduct.as_ref().and_then(|(resource, _)| crate::models::byproduct_item(resource)).map(str::to_string),
-            season: item.season.is_some(),
+            season: season_id.map(|id| id.to_string()),
             season_seed_cost: item.season.map(|s| s.seed_cost).filter(|&cost| cost > 0.0),
         })
         .collect();
@@ -1978,7 +2008,39 @@ pub fn get_all_items() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{embedded_aniimo_requirements, embedded_grower_steps, get_embedded_items};
+    use super::{embedded_aniimo_requirements, embedded_grower_steps, embedded_season_items, get_embedded_items, SEASONS};
+
+    // The embedded seasons are the ones the data directory lists, in the same order: a new CSV
+    // wired into one list but not the other would otherwise go missing from the web build.
+    #[test]
+    fn seasons_match_the_data_directory() {
+        let embedded: Vec<&str> = SEASONS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(embedded, crate::data::SEASONS.to_vec());
+    }
+
+    // Which season a plan input selects: the one it names, the current event when it names
+    // none, and none at all for an event this build doesn't know.
+    #[test]
+    fn season_name_only_accepts_events_this_build_has() {
+        let input = |json: &str| serde_json::from_str::<super::JsPlanInput>(json).expect("parses");
+        assert_eq!(input("{}").season_name(), Some(crate::data::current_season()));
+        let known = format!("{{\"season_id\": \"{}\"}}", crate::data::SEASONS[0]);
+        assert_eq!(input(&known).season_name(), Some(crate::data::SEASONS[0]));
+        assert_eq!(input("{\"season_id\": \"no_such_festival\"}").season_name(), None);
+    }
+
+    // Every embedded season parses, and the current event is one of them.
+    #[test]
+    fn every_embedded_season_has_items() {
+        for (id, _) in SEASONS {
+            let items = embedded_season_items(id);
+            assert!(!items.is_empty(), "{id} has no items");
+            assert!(items.iter().all(|item| item.season.is_some()), "{id} has an item without season terms");
+        }
+        assert!(!embedded_season_items(crate::data::current_season()).is_empty());
+        // An event this build doesn't know leaves a plan without a season rather than failing.
+        assert!(embedded_season_items("no_such_festival").is_empty());
+    }
 
     // Every crop and tree the web build knows has its Aniimo jobs listed.
     #[test]

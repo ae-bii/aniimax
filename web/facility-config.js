@@ -192,29 +192,45 @@ export const SPECIAL_RECIPES = [
     { name: 'lotion', facility: 'Phonolfactory Table' },
 ];
 
-// The Harvest Moon Festival, from RV 10: season crops' seeds cost Moonray Wheat, which season
-// orders pay out, and every season item sold counts points on top of its coins. Wheat is taken as
-// unlimited; plans show how much their seeds use. The recipes and seed costs are in
-// data/harvest_moon_festival.csv.
-export const SEASON = {
-    name: 'Harvest Moon Festival',
-    currency: 'Moonray Wheat',
-    points: 'Harvest Moon Points',
-    minHomeLevel: 10,
-    // The event is over: its crops and recipes can't be made any more, so the season is off the
-    // page and plans never use it. The data stays (`data/harvest_moon_festival.csv`) and the recipe
-    // tables still list it, marked as ended, for anyone looking the old numbers up. Clear this when
-    // the festival comes back.
-    over: true,
-    // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The season's
-    // other recipes come unlocked.
-    recipeNotes: [
-        { name: 'harvest_platter' },
-        { name: 'umbral_pickle' },
-        { name: 'umbral_hot_pot' },
-        { name: 'umbral_sweet_and_spicy_sauce' },
-    ],
-};
+// Every limited-time event the game has run, oldest first. A season's crops cost its own currency
+// to seed, which its orders pay out, and every season item sold counts points on top of its coins;
+// the currency is taken as unlimited and plans only show how much their seeds use.
+//
+// One event runs at a time: the last one here that isn't `over` is the current season (see
+// `CURRENT_SEASON`), and it alone reaches the page. An event that has ended keeps its entry and
+// its data file, so the recipe tables can still list it, marked as ended, for anyone looking the
+// old numbers up.
+//
+// Adding an event: its recipes and seed costs go in `data/<id>.csv`, the id goes in `SEASONS` in
+// src/data.rs and in src/wasm.rs (which embeds the file for the web build), and its entry goes
+// here with `over` unset. Mark the one before it `over: true` the day it ends.
+export const SEASONS = [
+    {
+        id: 'harvest_moon_festival',
+        name: 'Harvest Moon Festival',
+        currency: 'Moonray Wheat',
+        points: 'Harvest Moon Points',
+        minHomeLevel: 10,
+        over: true,
+        // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The
+        // season's other recipes come unlocked.
+        recipeNotes: [
+            { name: 'harvest_platter' },
+            { name: 'umbral_pickle' },
+            { name: 'umbral_hot_pot' },
+            { name: 'umbral_sweet_and_spicy_sauce' },
+        ],
+    },
+];
+
+// The event running now, or `null` between events, when no season reaches the page at all.
+export const CURRENT_SEASON = [...SEASONS].reverse().find(season => !season.over) ?? null;
+
+// One event by its id, for an item the recipe tables name; `null` for an id this build doesn't
+// know, which an older shared link can still carry.
+export function seasonById(id) {
+    return SEASONS.find(season => season.id === id) ?? null;
+}
 
 // What reaching each RV level costs: coins, plus raw Wood Blocks and Mineral Sand up to RV 6 and
 // one Woodworking Bench item and one Chimney Kiln item from RV 7.
