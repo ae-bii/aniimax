@@ -365,7 +365,7 @@ function getPersistedFieldIds() {
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
-        'rate-unit', 'season-on', 'season-event', 'layout-sim-on', 'season-currency-per-day',
+        'rate-unit', 'season-on', 'season-event', 'layout-sim-on', 'layout-recipes', 'season-currency-per-day',
         'aniimo-best', 'aniimo-minimum', 'aniimo-custom'
     ];
 }
@@ -1215,14 +1215,101 @@ function attachLayoutHandlers() {
     document.getElementById('layout-sim-on').addEventListener('change', () => {
         if (lastLayout) drawLayout(lastLayout);
     });
+    document.getElementById('layout-recipes').addEventListener('change', () => {
+        if (lastLayout) drawLayout(lastLayout);
+    });
     document.getElementById('layout-replay').addEventListener('click', () => {
         if (layoutSim) resetLayoutSim(layoutSim);
+    });
+    attachLayoutZoom(document.getElementById('layout-diagram'));
+}
+
+// --- Layout zoom -----------------------------------------------------------------------
+// Ctrl + scroll (or a trackpad pinch, which browsers send as one) zooms the layout around the
+// pointer, from the drawn view up to `LAYOUT_MAX_ZOOM` times into it; zoomed in, dragging moves
+// around and a double-click goes back. It works on the SVG's viewBox, so everything stays sharp.
+const LAYOUT_MAX_ZOOM = 8;
+
+// The zoomed-in viewBox `[x, y, w, h]`, kept across redraws of the same view (the recipe or
+// simulation toggles), or null when not zoomed.
+let layoutZoom = null;
+
+const viewBoxOf = svg => svg.getAttribute('viewBox').split(' ').map(Number);
+
+// The drawn view the zoom works within, as `homelandSvg` set it.
+const layoutBaseOf = svg => svg.dataset.base.split(' ').map(Number);
+
+// Sets the layout's viewBox to `view`, kept within the drawn view; back to it when zoomed all the
+// way out.
+function setLayoutView(svg, [x, y, w, h]) {
+    const [bx, by, bw, bh] = layoutBaseOf(svg);
+    if (w >= bw - 1e-9) {
+        layoutZoom = null;
+        svg.setAttribute('viewBox', svg.dataset.base);
+    } else {
+        x = Math.min(Math.max(x, bx), bx + bw - w);
+        y = Math.min(Math.max(y, by), by + bh - h);
+        layoutZoom = { base: svg.dataset.base, view: [x, y, w, h] };
+        svg.setAttribute('viewBox', layoutZoom.view.join(' '));
+    }
+    svg.classList.toggle('zoomed', !!layoutZoom);
+}
+
+function attachLayoutZoom(diagram) {
+    diagram.addEventListener('wheel', (e) => {
+        const svg = diagram.querySelector('.layout-svg');
+        if (!e.ctrlKey || !svg) return;
+        // Keeps the browser from zooming the whole page instead.
+        e.preventDefault();
+        const [x, y, w, h] = viewBoxOf(svg);
+        const bw = layoutBaseOf(svg)[2];
+        const width = Math.min(Math.max(w * Math.exp(e.deltaY * 0.002), bw / LAYOUT_MAX_ZOOM), bw);
+        const scale = width / w;
+        // The point under the pointer stays put.
+        const at = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+        setLayoutView(svg, [at.x - (at.x - x) * scale, at.y - (at.y - y) * scale, width, h * scale]);
+    }, { passive: false });
+
+    // A drag pans only once it has moved a few pixels, so a tap still shows a facility's details.
+    let drag = null;
+    diagram.addEventListener('pointerdown', (e) => {
+        const svg = diagram.querySelector('.layout-svg');
+        if (!svg || !layoutZoom || e.button !== 0) return;
+        drag = { svg, id: e.pointerId, x: e.clientX, y: e.clientY, view: viewBoxOf(svg), moving: false };
+    });
+    diagram.addEventListener('pointermove', (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (!drag.moving && Math.hypot(dx, dy) < 4) return;
+        if (!drag.moving) {
+            drag.moving = true;
+            drag.svg.setPointerCapture(e.pointerId);
+            drag.svg.classList.add('panning');
+        }
+        const perPixel = 1 / drag.svg.getScreenCTM().a;
+        const [x, y, w, h] = drag.view;
+        setLayoutView(drag.svg, [x - dx * perPixel, y - dy * perPixel, w, h]);
+    });
+    const endDrag = () => {
+        drag?.svg.classList.remove('panning');
+        drag = null;
+    };
+    diagram.addEventListener('pointerup', endDrag);
+    diagram.addEventListener('pointercancel', endDrag);
+    diagram.addEventListener('dblclick', () => {
+        const svg = diagram.querySelector('.layout-svg');
+        if (svg && layoutZoom) setLayoutView(svg, layoutBaseOf(svg));
     });
 }
 
 function drawLayout(drawn) {
     const diagram = document.getElementById('layout-diagram');
     diagram.innerHTML = homelandSvg(drawn.layout, drawn.homeLevel);
+    // A redraw of the same view keeps its zoom; a new plan or the whole homeland starts over.
+    const svg = diagram.querySelector('.layout-svg');
+    if (layoutZoom && layoutZoom.base === svg.dataset.base) setLayoutView(svg, layoutZoom.view);
+    else layoutZoom = null;
     // With the simulation off, the layout is drawn on its own.
     const on = document.getElementById('layout-sim-on').checked;
     diagram.classList.toggle('no-sim', !on);
@@ -1238,6 +1325,7 @@ function renderHomelandLayout(plan) {
     }
     const runId = ++layoutRunId;
     lastLayout = null;
+    layoutZoom = null;
     stopLayoutSim();
     setStep('layout', 'start');
     card.style.display = 'block';
@@ -1293,6 +1381,23 @@ function stopLayout() {
     lastLayout = null;
 }
 
+// A piece's name on the layout: the facility's initials, and with "Show recipe" on, what it makes
+// under them ("Quick Wool", "Gem"), shrunk to fit the piece's width. Several recipes taking turns
+// are listed together.
+function pieceLabel(m, showRecipes) {
+    const x = m.x + m.w / 2;
+    const y = m.y + m.h / 2;
+    const initials = Math.min(0.8, m.w / 3);
+    const recipe = showRecipes ? (m.jobs ? m.jobs.map(j => prettyItem(j.item)).join(', ') : m.crop ? prettyItem(m.crop) : '') : '';
+    if (!recipe) return `<text x="${x}" y="${y}" font-size="${initials}">${initialsOf(m.facility)}</text>`;
+    // A character is about 0.55 of the font size wide.
+    const size = Math.min(initials * 0.55, (m.w - 0.3) / (recipe.length * 0.55));
+    // The two lines centered together on the piece.
+    const half = (initials + 0.1 + size) / 2;
+    return `<text x="${x}" y="${(y - half + initials / 2).toFixed(3)}" font-size="${initials}">${initialsOf(m.facility)}</text>
+        <text class="layout-recipe" x="${x}" y="${(y + half - size / 2).toFixed(3)}" font-size="${size.toFixed(3)}">${recipe}</text>`;
+}
+
 // Whether the layout shows the whole homeland rather than just what's placed; the player's toggle.
 let layoutShowsWhole = false;
 let lastLayout = null;
@@ -1323,6 +1428,7 @@ function homelandSvg(layout, homeLevel) {
     for (let x = minX; x <= maxX; x++) lines.push(`<line x1="${x}" y1="${minY}" x2="${x}" y2="${maxY}" />`);
     for (let y = minY; y <= maxY; y++) lines.push(`<line x1="${minX}" y1="${y}" x2="${maxX}" y2="${y}" />`);
     const maxTrips = Math.max(...layout.pieces.flatMap(p => p.members.map(m => m.weight || 0)), 1e-9);
+    const showRecipes = document.getElementById('layout-recipes').checked;
     const shapes = layout.pieces.flatMap(p => p.members).map(m => {
         const color = layoutColor(m);
         const away = Math.hypot(m.x + m.w / 2 - (layout.storage.x + layout.storage.w / 2), m.y + m.h / 2 - (layout.storage.y + layout.storage.h / 2));
@@ -1331,7 +1437,7 @@ function homelandSvg(layout, homeLevel) {
             stats: m.weight > 0 ? `${formatRate(m.weight)} trips/hour · ${away.toFixed(1)} tiles from storage` : '',
             color,
         });
-        const label = Math.min(m.w, m.h) >= 1.5 ? `<text x="${m.x + m.w / 2}" y="${m.y + m.h / 2}" font-size="${Math.min(0.8, m.w / 3)}">${initialsOf(m.facility)}</text>` : '';
+        const label = Math.min(m.w, m.h) >= 1.5 ? pieceLabel(m, showRecipes) : '';
         // Busier pieces are filled more solidly; idle ones are an outline.
         const fill = m.building ? 0.9 : m.weight > 0 ? 0.35 + 0.55 * Math.sqrt(m.weight / maxTrips) : 0.08;
         if (m.building) {
@@ -1362,7 +1468,8 @@ function homelandSvg(layout, homeLevel) {
     const rings = flowList.map(f => `<g class="layout-ring" transform="translate(${f.rx.toFixed(2)} ${f.ry.toFixed(2)})">
             <circle r="${f.ring.toFixed(2)}" class="ring-track" /><circle r="${f.ring.toFixed(2)}" class="ring-fill" pathLength="1" stroke-dasharray="0 1" transform="rotate(-90)" /></g>`).join('');
     const totalTrips = layout.pieces.flatMap(p => p.members).reduce((sum, m) => sum + (m.weight || 0), 0);
-    return `<svg class="layout-svg" viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}" role="img" aria-label="Homeland layout">
+    const view = `${minX} ${minY} ${maxX - minX} ${maxY - minY}`;
+    return `<svg class="layout-svg" viewBox="${view}" data-base="${view}" role="img" aria-label="Homeland layout">
         <defs><pattern id="layout-locked" width="1" height="1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="1" class="layout-hatch" /></pattern></defs>
         <g class="env-grid">${lines.join('')}</g>

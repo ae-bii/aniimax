@@ -2528,6 +2528,24 @@ tr:hover .skip-row,
     pointer-events: none;
 }
 
+/* What a piece makes, under its initials (the "Show recipe" toggle). */
+.layout-svg .layout-recipe {
+    font-weight: 500;
+}
+
+/* Zoomed in (Ctrl + scroll), the layout can be dragged around. */
+.layout-svg.zoomed {
+    cursor: grab;
+}
+
+.layout-svg.panning {
+    cursor: grabbing;
+}
+
+.layout-zoom-hint {
+    margin: 0.5rem 0 0;
+}
+
 .layout-storage {
     fill: var(--accent);
     stroke: var(--text);
