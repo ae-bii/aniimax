@@ -633,7 +633,7 @@ Production data is stored in CSV files in the `data/` directory:
 - `pickling_jar.csv` - Sauces, vinegars and candied fruit
 - `joy_wheel_loom.csv` - Thread, yarn and fabric
 - `woodworking_bench.csv`, `chimney_kiln.csv` - RV level-up materials from Wood Blocks and Mineral Sand (no sale value)
-- `magical_wonder_night.csv` - Magical Wonder Night's crops and recipes (29 Oct to 10 Dec 2026), with their seed cost in Weird Jelly Beans, Whimsy Points and growing environment; taken from aniimotools.dev and not yet checked in game
+- `magical_wonder_night.csv` - Magical Wonder Night's crops and recipes (29 Oct to 10 Dec 2026), with their seed cost in Weird Jelly Beans, Whimsy Points and growing environment, verified in game
 - `harvest_moon_festival.csv` - The ended Harvest Moon Festival's crops and recipes, with their seed cost in Moonray Wheat and Harvest Moon Points
 
 To add a seasonal event, add its CSV, list it in `SEASON_FILES` (`src/data.rs`) and `embedded_season_csv` (`src/wasm.rs`), and add it to `SEASONS` in `web/facility-config.js`.

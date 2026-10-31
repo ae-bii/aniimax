@@ -201,8 +201,7 @@ export const SPECIAL_RECIPES = [
 // locale catalogs can translate them as they are.
 export const SEASONS = [
     {
-        // 29 Oct to 10 Dec 2026. Recipes from aniimotools.dev, not yet checked in game (see
-        // data/unverified.csv). Its crops need a Sunlamp.
+        // 29 Oct to 10 Dec 2026, verified in game. Its crops need a Sunlamp.
         id: 'magical_wonder_night',
         name: 'Magical Wonder Night',
         currency: 'Weird Jelly Beans',
