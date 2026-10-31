@@ -2421,7 +2421,7 @@ tr:hover .skip-row,
     vertical-align: super;
 }
 
-/* Harvest Moon Festival: a switch, then the season's inputs while it's on. */
+/* Seasonal events: a switch, then the event picker and its inputs while it's on. */
 .season {
     margin: 0 0 1.25rem;
 }

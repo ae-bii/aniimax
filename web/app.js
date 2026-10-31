@@ -6,8 +6,8 @@ import './math-translation.js';
 import {
     FACILITIES, FACILITY_CATEGORIES, FACILITY_CATEGORY_BY_NAME, FACILITY_FOOTPRINTS, HOMELAND_PLOTS, HOMELAND_PLOT_SIZE,
     MAX_HOME_LEVEL, ANIIMO_MAX, simpleSetup,
-    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, SEASON, ANIIPOD_TIERS, PERSONALITY_PAIRS, personalityLetter, opposedPersonality,
-} from './facility-config.js?v=rv14-rv20-facility-counts';
+    LEVEL_UP_COSTS, LEVEL_UP_CHAINS, SPECIAL_RECIPES, SEASONS, seasonById, ANIIPOD_TIERS, PERSONALITY_PAIRS, personalityLetter, opposedPersonality,
+} from './facility-config.js?v=magical-wonder-night';
 import { allocateTurnFacilities, redistributeTurnFacilityRows } from './turn-jobs.js';
 import { createShareUrl, readShareHash, urlWithoutShare } from './share-config.js';
 
@@ -365,7 +365,7 @@ function getPersistedFieldIds() {
         'mode-simple', 'mode-advanced', 'home-level',
         'ecological-module-level', 'kitchen-module-level',
         'resource-detector-level', 'crafting-module-level',
-        'rate-unit', 'season-on', 'layout-sim-on', 'season-currency-per-day',
+        'rate-unit', 'season-on', 'season-event', 'layout-sim-on', 'season-currency-per-day',
         'aniimo-best', 'aniimo-minimum', 'aniimo-custom'
     ];
 }
@@ -748,7 +748,7 @@ function improvementCandidates(base, setup) {
     const skipped = new Set(planContext?.skipped ?? skippedRecipes);
     const locked = [
         ...SPECIAL_RECIPES.map(r => ({ ...r, note: false })),
-        ...(base.season ? SEASON.recipeNotes.map(r => ({ ...r, note: true })) : []),
+        ...(base.season ? seasonById(base.season).recipeNotes.map(r => ({ ...r, note: true })) : []),
     ];
     for (const recipe of locked) {
         if (!base.exclude.includes(recipe.name) || skipped.has(recipe.name)) continue;
@@ -1938,36 +1938,60 @@ function renderRosterSummary(plan) {
 }
 
 // --- Season ----------------------------------------------------------------------------
-// The Harvest Moon Festival (see `SEASON`): on the page from RV 10, or always in Advanced mode,
-// where there's no RV level to go by. While it's on, plans may use the season's recipes, bar Recipe
-// Notes the player hasn't unlocked, and say how much Moonray Wheat their seeds use.
+// The limited-time season picked in the selector (see `SEASONS`): on the page from its RV level, or
+// always in Advanced mode, where there's no RV level to go by. While it's on, plans may use the
+// season's recipes, bar Recipe Notes the player hasn't unlocked, and say how much of the season's
+// currency their seeds use.
 
-// The Moonray Wheat a day the player can spend on seeds, or `null` when blank (no limit).
+// The season picked in the selector (the current one until the player picks another).
+function currentSeason() {
+    return seasonById(document.getElementById('season-event').value);
+}
+
+// The season currency a day the player can spend on seeds, or `null` when blank (no limit).
 function seasonCurrencyPerDay() {
     const value = document.getElementById('season-currency-per-day').value.trim();
     return value !== '' && Number(value) >= 0 ? Number(value) : null;
 }
 
 function seasonAvailable() {
-    return !isSimpleMode() || selectedHomeLevel() >= SEASON.minHomeLevel;
+    return !isSimpleMode() || selectedHomeLevel() >= currentSeason().minHomeLevel;
 }
 
 function seasonActive() {
     return seasonAvailable() && document.getElementById('season-on').checked;
 }
 
+// The id of the season plans may use, or `null` while it's off (see `JsPlanInput::season`).
+function activeSeasonId() {
+    return seasonActive() ? currentSeason().id : null;
+}
+
 function renderSeason() {
+    const season = currentSeason();
     document.getElementById('season-section').hidden = !seasonAvailable();
     document.getElementById('season-config').hidden = !seasonActive();
-    document.getElementById('season-notes').innerHTML = SEASON.recipeNotes.map(r => `
+    document.getElementById('season-hint').textContent = season.hint;
+    document.getElementById('season-currency-label').textContent = season.budgetLabel;
+    document.getElementById('product-breakdown-points-header').textContent = season.points;
+    document.getElementById('season-notes').innerHTML = season.recipeNotes.map(r => `
         <label class="special-option">
             <input type="checkbox" data-special="${r.name}"${unlockedSpecial.has(r.name) ? ' checked' : ''}>
             <span>${prettyItem(r.name)}</span>
         </label>`).join('');
 }
 
+// Fills the season selector, newest first, with any that has ended marked as such.
+function initSeasonSelect() {
+    const select = document.getElementById('season-event');
+    select.innerHTML = SEASONS.map(s => `<option value="${s.id}">${s.ended ? `${s.name} (ended)` : s.name}</option>`).join('');
+    select.value = currentSeason().id;
+}
+
 function attachSeasonHandlers() {
     document.getElementById('season-on').addEventListener('change', renderStrategy);
+    // Another season changes its recipes, currency and points, and so the priorities shown.
+    document.getElementById('season-event').addEventListener('change', renderStrategy);
     document.getElementById('season-notes').addEventListener('change', (e) => {
         const name = e.target.dataset.special;
         if (!name) return;
@@ -1978,7 +2002,7 @@ function attachSeasonHandlers() {
 
 // Every recipe plans may not use: the player's skips and any special recipe not unlocked.
 function excludedRecipes() {
-    const locked = [...SPECIAL_RECIPES, ...SEASON.recipeNotes].map(r => r.name).filter(name => !unlockedSpecial.has(name));
+    const locked = [...SPECIAL_RECIPES, ...SEASONS.flatMap(s => s.recipeNotes)].map(r => r.name).filter(name => !unlockedSpecial.has(name));
     // Going for Aniipods means the best tier only; the others would be cheaper but catch worse.
     const best = wantsAniipods() ? bestAniipod() : null;
     const lesser = best ? ANIIPOD_TIERS.filter(name => name !== best) : [];
@@ -2187,6 +2211,7 @@ const ITEM_NAMES = {
     wood_block: 'Wood Blocks',
     mineral_sand: 'Mineral Sand',
     umbral_sweet_and_spicy_sauce: 'Umbral Sweet and Spicy Sauce',
+    honey_glazed_pumpkin_cup: 'Honey-Glazed Pumpkin Cup',
     coarse_sifted_ore: 'Coarse-Sifted Ore',
     river_washed_stones: 'River-Washed Stones',
     premium_river_washed_stones: 'Premium River-Washed Stones',
@@ -2208,7 +2233,8 @@ const PRIORITY_TARGETS = [
     { id: 'aniipods', label: 'Aniipods' },
     { id: 'Wood Blocks', label: 'Wood Blocks' },
     { id: 'Mineral Sand', label: 'Mineral Sand' },
-    { id: 'season_points', label: SEASON.points, season: true },
+    // The running season's points, named for whichever season is picked.
+    { id: 'season_points', get label() { return currentSeason().points; }, season: true },
 ];
 
 // Drawn arrows rather than the ↑/↓ characters, which some systems render as colored emoji.
@@ -2558,7 +2584,7 @@ function renderSeedTable(plan) {
     const totalWheat = rows.reduce((sum, r) => sum + r.wheat, 0);
     const totals = [
         totalCost > 0 ? `${amount(totalCost)} Home Coins` : '',
-        totalWheat > 0 ? `${amount(totalWheat)} ${SEASON.currency}` : '',
+        totalWheat > 0 ? `${amount(totalWheat)} ${currentSeason().currency}` : '',
     ].filter(Boolean).join(' + ');
     card.style.display = 'block';
     const per = levelUp
@@ -2572,7 +2598,7 @@ function renderSeedTable(plan) {
                 <td>${prettyItem(r.name)}</td>
                 <td>${r.plots}</td>
                 <td>${amount(r.seeds)}</td>
-                <td>${r.wheat > 0 ? `${amount(r.wheat)} ${SEASON.currency}` : r.cost > 0 ? `${amount(r.cost)} Home Coins` : 'free'}</td>
+                <td>${r.wheat > 0 ? `${amount(r.wheat)} ${currentSeason().currency}` : r.cost > 0 ? `${amount(r.cost)} Home Coins` : 'free'}</td>
             </tr>`).join('')}</tbody>
             ${rows.length > 1 && totals ? `<tfoot><tr><td colspan="3">Total</td><td>${totals}</td></tr></tfoot>` : ''}
         </table>`;
@@ -2624,7 +2650,7 @@ function getPlanInputValues() {
             prioritize_byproducts: false,
             level_up: levelUpInput(),
             exclude: excludedRecipes(),
-            season: seasonActive(),
+            season: activeSeasonId(),
             season_currency_per_day: seasonCurrencyPerDay(),
             facilities,
             modules
@@ -2652,7 +2678,7 @@ function getPlanInputValues() {
         prioritize_byproducts: false,
         level_up: levelUpInput(),
         exclude: excludedRecipes(),
-        season: seasonActive(),
+        season: activeSeasonId(),
         season_currency_per_day: seasonCurrencyPerDay(),
         facilities,
         modules
@@ -3640,7 +3666,7 @@ function updateRateDisplay(pickUnit = false) {
     if (!rows) {
         if (select.closest('#priority-rates')) rateLine.appendChild(select);
         const label = CURRENCY_LABELS[lastPlan.currency] || lastPlan.currency;
-        const points = lastPlan.season_points > 1e-12 ? ` + ${formatRate(lastPlan.season_points * multiplier)} ${SEASON.points}` : '';
+        const points = lastPlan.season_points > 1e-12 ? ` + ${formatRate(lastPlan.season_points * multiplier)} ${currentSeason().points}` : '';
         document.getElementById('plan-rate').textContent = `${formatRate(lastPlan.rate_per_second * multiplier)} ${label}${points}${suffix}`;
         document.getElementById('rate-label').textContent = 'Your Rate';
         rateLine.style.display = '';
@@ -3693,7 +3719,7 @@ function priorityRows(plan) {
     }
     // During the season, points come with every season item sold, ranked or not.
     if (plan.season_points != null && !rows.some(r => r.target === 'season_points')) {
-        rows.push({ rank: null, target: 'season_points', label: SEASON.points, perSecond: plan.season_points, items: [], missing: null });
+        rows.push({ rank: null, target: 'season_points', label: currentSeason().points, perSecond: plan.season_points, items: [], missing: null });
     }
     return rows;
 }
@@ -4112,7 +4138,7 @@ function renderRecipeTables(recipes) {
             const cell = (label, value) => `<td data-label="${label}"${value === '-' ? ' class="empty"' : ''}>${value}</td>`;
             const rows = byFacility.get(f.name).map(r => `
                 <tr${r.verified === false ? ' class="unverified"' : ''}>
-                    <td class="recipe-name">${prettyItem(r.name)}${SPECIAL_NAMES.has(r.name) ? ' <span class="tag special" title="Takes a rare currency to unlock">special</span>' : ''}${r.season ? ` <span class="tag special" title="${SEASON.name} only">season</span>` : ''}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
+                    <td class="recipe-name">${prettyItem(r.name)}${SPECIAL_NAMES.has(r.name) ? ' <span class="tag special" title="Takes a rare currency to unlock">special</span>' : ''}${r.season ? ` <span class="tag special" title="${seasonById(r.season).name} only">season</span>` : ''}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
                     ${cell('Level', r.facility_level)}
                     ${cell('Inputs', formatRecipeInputs(r))}
                     ${cell('Yield', formatRecipeYield(r))}
@@ -4199,6 +4225,7 @@ async function initApp() {
     renderFacilityCards();
     populateHomeLevels();
     populateLevelUpTargets();
+    initSeasonSelect();
     loadInputsFromStorage(savedData);
     attachAutoSave();
     attachFacilityTierHandlers();

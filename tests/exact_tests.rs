@@ -342,6 +342,31 @@ fn exact_season_points_are_a_priority() {
     assert!(kept >= most.rate_per_second * (1.0 - 1.01e-4), "kept {kept} of {} points a second", most.rate_per_second);
 }
 
+/// Every item plus Magical Wonder Night's.
+fn load_items_with_wonder_night() -> Option<Vec<ProductionItem>> {
+    let mut items = load_items()?;
+    let text = std::fs::read_to_string("data/magical_wonder_night.csv").expect("season data");
+    let mut season = aniimax::data::parse_season(&text).expect("season parses");
+    aniimax::models::apply_watering(&mut season);
+    items.extend(season);
+    Some(items)
+}
+
+// Magic Pumpkin and Memory Lanternfruit are Adequate, so they grow only under a Sunlamp: without
+// one the plan can't touch them, and with one it grows them (8 a batch at 61 coins, seeds paid in
+// Weird Jelly Beans, beating lavender, the other Adequate crop at that level).
+#[test]
+fn test_exact_wonder_night_crops_need_a_sunlamp() {
+    let Some(items) = load_items_with_wonder_night() else { return };
+    let modules = ModuleLevels::default();
+    let season_crop = |plan: &ExactPlan| plan.recipe_rates.keys().any(|n| n.starts_with("magic_pumpkin") || n.starts_with("memory_lanternfruit"));
+    let without = solve_and_check(&items, &FacilityCounts::only(&[("Farmland", 4, 5)]), &modules);
+    assert!(!season_crop(&without), "grew a season crop with no Sunlamp: {:?}", without.recipe_rates);
+    let with = solve_and_check(&items, &FacilityCounts::only(&[("Farmland", 4, 5), ("Sunlamp", 1, 1)]), &modules);
+    assert!(season_crop(&with), "no season crop under the Sunlamp: {:?}", with.recipe_rates);
+    assert!(with.rate_per_second > without.rate_per_second);
+}
+
 // A goal counts each item from its first batch, so what makes a priority is split by item with
 // its wait; the rates still add up to the priority's own rate, for a byproduct and for points.
 #[test]

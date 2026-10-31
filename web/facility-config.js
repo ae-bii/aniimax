@@ -192,24 +192,65 @@ export const SPECIAL_RECIPES = [
     { name: 'lotion', facility: 'Phonolfactory Table' },
 ];
 
-// The Harvest Moon Festival, from RV 10: season crops' seeds cost Moonray Wheat, which season
-// orders pay out, and every season item sold counts points on top of its coins. Wheat is taken as
-// unlimited; plans show how much their seeds use. The recipes and seed costs are in
-// data/harvest_moon_festival.csv.
-export const SEASON = {
-    name: 'Harvest Moon Festival',
-    currency: 'Moonray Wheat',
-    points: 'Harvest Moon Points',
-    minHomeLevel: 10,
-    // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The season's
-    // other recipes come unlocked.
-    recipeNotes: [
-        { name: 'harvest_platter' },
-        { name: 'umbral_pickle' },
-        { name: 'umbral_hot_pot' },
-        { name: 'umbral_sweet_and_spicy_sauce' },
-    ],
-};
+// The limited-time Homeland seasons, newest first; the page runs one at a time, picked in the
+// season selector (`DEFAULT_SEASON` until the player picks). In each, season crops' seeds cost the
+// season's currency, which season orders and dailies pay out, and every season item sold counts
+// points on top of its coins. The currency is taken as unlimited; plans show how much their seeds
+// use. `id` must match `SEASON_FILES` in src/data.rs (and `embedded_season_csv` in src/wasm.rs),
+// whose CSV holds the recipes and seed costs. `hint` and `budgetLabel` are whole sentences so the
+// locale catalogs can translate them as they are.
+export const SEASONS = [
+    {
+        // 29 Oct to 10 Dec 2026. Recipes from aniimotools.dev, not yet checked in game (see
+        // data/unverified.csv). Its crops need a Sunlamp.
+        id: 'magical_wonder_night',
+        name: 'Magical Wonder Night',
+        currency: 'Weird Jelly Beans',
+        points: 'Whimsy Points',
+        minHomeLevel: 10,
+        hint: "A seasonal event with its own currency, Weird Jelly Beans, which buys the season's seeds. Keeping enough beans on hand is up to you; plans show how much their seeds use. Its crops only grow under a Sunlamp. Season items also earn Whimsy Points, which you can rank under Priorities.",
+        budgetLabel: 'Weird Jelly Beans you can spend on seeds a day',
+        // Formula Notes bought in the Whimsy Shop; plans only use the ones the player ticks. The
+        // crops, Sea Salt Roasted Pumpkin and Candied Lanternfruit come from the season's quests
+        // and are taken as unlocked.
+        recipeNotes: [
+            { name: 'golden_lantern_pumpkin_soup' },
+            { name: 'honey_glazed_pumpkin_cup' },
+            { name: 'glowfruit_lantern_set' },
+            { name: 'magic_pumpkin_cake' },
+            { name: 'gleam_fruit_nectar' },
+            { name: 'memory_lantern' },
+            { name: 'magic_pumpkin_lantern' },
+        ],
+    },
+    {
+        // Ended with the start of Magical Wonder Night; kept in case it returns.
+        id: 'harvest_moon_festival',
+        name: 'Harvest Moon Festival',
+        currency: 'Moonray Wheat',
+        points: 'Harvest Moon Points',
+        minHomeLevel: 10,
+        ended: true,
+        hint: "A seasonal event with its own currency, Moonray Wheat, which buys the season's seeds. Keeping enough wheat on hand is up to you; plans show how much their seeds use. Season items also earn Harvest Moon Points, which you can rank under Priorities.",
+        budgetLabel: 'Moonray Wheat you can spend on seeds a day',
+        // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The
+        // season's other recipes come unlocked.
+        recipeNotes: [
+            { name: 'harvest_platter' },
+            { name: 'umbral_pickle' },
+            { name: 'umbral_hot_pot' },
+            { name: 'umbral_sweet_and_spicy_sauce' },
+        ],
+    },
+];
+
+// The season the page starts on: the one running now.
+export const DEFAULT_SEASON = 'magical_wonder_night';
+
+// The season with `id`, or the default one for an unknown id (e.g. from an old saved config).
+export function seasonById(id) {
+    return SEASONS.find(s => s.id === id) || SEASONS.find(s => s.id === DEFAULT_SEASON);
+}
 
 // What reaching each RV level costs: coins, plus raw Wood Blocks and Mineral Sand up to RV 6 and
 // one Woodworking Bench item and one Chimney Kiln item from RV 7.

@@ -171,16 +171,26 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
-/// Get embedded production data.
-/// This embeds the CSV data directly into the WASM binary.
-/// The Harvest Moon Festival's recipes, watered like everything else.
-fn embedded_season_items() -> Vec<ProductionItem> {
-    let mut season = crate::data::parse_season(include_str!("../data/harvest_moon_festival.csv"))
-        .expect("embedded harvest_moon_festival.csv is valid");
+/// The embedded CSV for a season id (see [`crate::data::SEASON_FILES`]), or `None` for an unknown
+/// one. Every entry there needs a line here too, since `include_str!` takes only a literal.
+fn embedded_season_csv(id: &str) -> Option<&'static str> {
+    match id {
+        "magical_wonder_night" => Some(include_str!("../data/magical_wonder_night.csv")),
+        "harvest_moon_festival" => Some(include_str!("../data/harvest_moon_festival.csv")),
+        _ => None,
+    }
+}
+
+/// A season's recipes, watered like everything else; none for an unknown id.
+fn embedded_season_items(id: &str) -> Vec<ProductionItem> {
+    let Some(csv) = embedded_season_csv(id) else { return Vec::new() };
+    let mut season = crate::data::parse_season(csv).unwrap_or_else(|e| panic!("embedded season {id} is invalid: {e}"));
     crate::models::apply_watering(&mut season);
     season
 }
 
+/// Get embedded production data.
+/// This embeds the CSV data directly into the WASM binary.
 fn get_embedded_items() -> Vec<ProductionItem> {
     use csv::ReaderBuilder;
 
@@ -747,12 +757,13 @@ pub struct JsPlanInput {
     /// before it allow.
     #[serde(default)]
     pub priorities: Vec<String>,
-    /// Whether plans may use the Harvest Moon Festival's recipes. Its points are the priority
+    /// The season whose recipes plans may use, by id (e.g. `"magical_wonder_night"`; see
+    /// [`crate::data::SEASON_FILES`]), or `None` outside one. Its points are the priority
     /// `"season_points"` (see [`crate::models::SEASON_POINTS`]).
     #[serde(default)]
-    pub season: bool,
-    /// During the season, the most of its currency (Moonray Wheat) a day the player can spend on
-    /// seeds; `None` for no limit.
+    pub season: Option<String>,
+    /// During the season, the most of its currency (e.g. Weird Jelly Beans) a day the player can
+    /// spend on seeds; `None` for no limit.
     #[serde(default)]
     pub season_currency_per_day: Option<f64>,
 }
@@ -1524,7 +1535,7 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
     let mut js = prepared.to_js(plan, Some(proof));
     js.level_up = report;
     js.staffing = exact.staffing.clone();
-    if prepared.input.season {
+    if prepared.input.season.is_some() {
         js.season_points = Some(crate::exact::target_rate(&exact, &prepared.items, crate::models::SEASON_POINTS));
     }
     js.priorities = prepared
@@ -1622,8 +1633,8 @@ impl PreparedInput {
             crafting_module: input.modules.crafting_module,
         };
         let mut items = get_embedded_items();
-        if input.season {
-            let mut season = embedded_season_items();
+        if let Some(id) = input.season.as_deref() {
+            let mut season = embedded_season_items(id);
             for terms in season.iter_mut().filter_map(|item| item.season.as_mut()) {
                 terms.currency_per_day = input.season_currency_per_day.map(|budget| budget.max(0.0));
             }
@@ -1714,7 +1725,7 @@ impl PreparedInput {
             })
             .collect();
         // The exact planner sets its own (see `exact_plan`); this is for the backup planner's.
-        let season_points = self.input.season.then(|| income_streams.iter().map(|s| s.units_per_second * s.points).sum());
+        let season_points = self.input.season.is_some().then(|| income_streams.iter().map(|s| s.units_per_second * s.points).sum());
         JsProductionPlan {
             success: true,
             error: None,
@@ -1931,18 +1942,24 @@ struct RecipeInfo {
     /// The item its byproduct is used as in other recipes, e.g. `mineral_sand` for Mineral Sand
     /// (see [`crate::models::BYPRODUCT_ITEMS`]).
     byproduct_item: Option<String>,
-    /// Whether it's a season recipe (see [`crate::models::SeasonTerms`]).
-    season: bool,
+    /// The season it belongs to, by id (see [`crate::data::SEASON_FILES`]); `None` for a recipe
+    /// that's always available.
+    season: Option<String>,
     /// For a season crop, the season currency its seeds cost a batch.
     season_seed_cost: Option<f64>,
 }
 
-/// Get the full recipe list for every item in the game data, grouped by nothing in particular
-/// (the caller groups by facility); used by the facilities reference page.
+/// Get the full recipe list for every item in the game data, every season's included, grouped by
+/// nothing in particular (the caller groups by facility); used by the facilities reference page.
 #[wasm_bindgen]
 pub fn get_all_items() -> String {
     let mut items = get_embedded_items();
-    items.extend(embedded_season_items());
+    let mut season_of: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+    for (id, _) in crate::data::SEASON_FILES {
+        let season = embedded_season_items(id);
+        season_of.extend(season.iter().map(|item| (item.name.clone(), id)));
+        items.extend(season);
+    }
     let requirements = embedded_aniimo_requirements();
     let unverified = embedded_unverified();
     let grower_steps = embedded_grower_steps();
@@ -1968,7 +1985,7 @@ pub fn get_all_items() -> String {
             jobs: grower_steps.get(&item.name).iter().map(|s| (s.step.clone(), s.ability.clone(), s.min_level)).collect(),
             environment: item.environment.clone(),
             byproduct_item: item.byproduct.as_ref().and_then(|(resource, _)| crate::models::byproduct_item(resource)).map(str::to_string),
-            season: item.season.is_some(),
+            season: season_of.get(&item.name).map(|id| id.to_string()),
             season_seed_cost: item.season.map(|s| s.seed_cost).filter(|&cost| cost > 0.0),
         })
         .collect();
@@ -2021,5 +2038,29 @@ mod tests {
 only in data/: {only_files:#?}
 only embedded: {only_embedded:#?}"
         );
+    }
+
+    // Every season in `SEASON_FILES` is embedded, matches its file, and has the same grower steps
+    // and Aniimo requirements as everything else.
+    #[test]
+    fn test_embedded_seasons_match_the_data_directory() {
+        let steps = embedded_grower_steps();
+        let reqs = embedded_aniimo_requirements();
+        for (id, file) in crate::data::SEASON_FILES {
+            let embedded = super::embedded_season_csv(id).unwrap_or_else(|| panic!("season {id} is not embedded"));
+            if let Ok(text) = std::fs::read_to_string(std::path::Path::new("data").join(file)) {
+                assert_eq!(text.replace("\r\n", "\n"), embedded.replace("\r\n", "\n"), "{file} differs from its embedded copy");
+            }
+            let items = super::embedded_season_items(id);
+            assert!(!items.is_empty(), "season {id} has no recipes");
+            for item in &items {
+                if item.facility == "Farmland" || item.facility == "Woodland" {
+                    assert!(!steps.get(&item.name).is_empty(), "{} has no embedded grower steps", item.name);
+                } else {
+                    assert!(reqs.get(&item.name).is_some(), "{} has no embedded Aniimo requirement", item.name);
+                }
+            }
+        }
+        assert!(super::embedded_season_items("no_such_season").is_empty());
     }
 }
