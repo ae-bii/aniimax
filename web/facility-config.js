@@ -223,13 +223,16 @@ export const SEASONS = [
         ],
     },
     {
-        // Ended with the start of Magical Wonder Night; kept in case it returns.
+        // Ended with the start of Magical Wonder Night: its crops and recipes can't be made any
+        // more, so it's off the selector and plans never use it. The data stays
+        // (`data/harvest_moon_festival.csv`) and the recipe tables still list it, marked as ended,
+        // for anyone looking the old numbers up. Clear `over` when the festival comes back.
         id: 'harvest_moon_festival',
         name: 'Harvest Moon Festival',
         currency: 'Moonray Wheat',
         points: 'Harvest Moon Points',
         minHomeLevel: 10,
-        ended: true,
+        over: true,
         hint: "A seasonal event with its own currency, Moonray Wheat, which buys the season's seeds. Keeping enough wheat on hand is up to you; plans show how much their seeds use. Season items also earn Harvest Moon Points, which you can rank under Priorities.",
         budgetLabel: 'Moonray Wheat you can spend on seeds a day',
         // Recipes unlocked with Recipe Notes; plans only use the ones the player ticks. The
@@ -246,9 +249,23 @@ export const SEASONS = [
 // The season the page starts on: the one running now.
 export const DEFAULT_SEASON = 'magical_wonder_night';
 
-// The season with `id`, or the default one for an unknown id (e.g. from an old saved config).
+// The season with `id`, ended or not, or the default one for an unknown id; for naming a season's
+// recipes in the recipe reference.
 export function seasonById(id) {
     return SEASONS.find(s => s.id === id) || SEASONS.find(s => s.id === DEFAULT_SEASON);
+}
+
+// The seasons still running, the only ones the page offers and plans with.
+export const RUNNING_SEASONS = SEASONS.filter(s => !s.over);
+
+// The running season with `id`, else the default (or newest) running one, or `null` with none
+// running. An ended season's id, e.g. from an old save or a shared link, never comes back, so a
+// stale pick can't put an ended event's crops in a plan.
+export function runningSeason(id) {
+    return RUNNING_SEASONS.find(s => s.id === id)
+        || RUNNING_SEASONS.find(s => s.id === DEFAULT_SEASON)
+        || RUNNING_SEASONS[0]
+        || null;
 }
 
 // What reaching each RV level costs: coins, plus raw Wood Blocks and Mineral Sand up to RV 6 and

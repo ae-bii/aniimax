@@ -2090,6 +2090,17 @@ tr:hover .skip-row,
     margin-left: 0.35rem;
 }
 
+/* An event that has ended: its recipes stay listed for reference, muted. */
+.tag.ended {
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+    margin-left: 0.35rem;
+}
+
+.recipe-table tr.ended {
+    color: var(--text-muted);
+}
+
 /* "Fill from RV level" in advanced mode. */
 .fill-row {
     display: flex;
