@@ -741,6 +741,7 @@
   "season": "季節",
   "Takes a rare currency to unlock": "需要稀有貨幣才能解鎖",
   "{season} only": "僅限{season}",
+  "{season} has ended; these are no longer available": "{season}已結束，這些已無法取得",
   "workload": "工作量",
   "best Lv.": "最佳 Lv.",
   "any level": "任何等級",

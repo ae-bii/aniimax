@@ -1,0 +1,4 @@
+# Shell scripts keep LF endings whatever the checkout: a CRLF shebang can't be
+# executed by Linux, so build-wasm.sh fails there with "cannot execute: required
+# file not found" when checked out on Windows and run in Docker, WSL or CI.
+*.sh text eol=lf

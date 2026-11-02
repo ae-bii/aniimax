@@ -741,6 +741,7 @@
   "season": "сезонный",
   "Takes a rare currency to unlock": "Для открытия нужна редкая валюта",
   "{season} only": "Только во время события «{season}»",
+  "{season} has ended; these are no longer available": "Событие «{season}» завершено; эти рецепты больше недоступны",
   "workload": "нагрузка",
   "best Lv.": "лучший ур. ",
   "any level": "любой уровень",

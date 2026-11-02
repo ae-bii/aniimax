@@ -1940,7 +1940,8 @@ function renderRosterSummary(plan) {
 // --- Season ----------------------------------------------------------------------------
 // The Harvest Moon Festival (see `SEASON`): on the page from RV 10, or always in Advanced mode,
 // where there's no RV level to go by. While it's on, plans may use the season's recipes, bar Recipe
-// Notes the player hasn't unlocked, and say how much Moonray Wheat their seeds use.
+// Notes the player hasn't unlocked, and say how much Moonray Wheat their seeds use. An event that
+// has ended (`SEASON.over`) is off the page altogether, so nothing can turn it on.
 
 // The Moonray Wheat a day the player can spend on seeds, or `null` when blank (no limit).
 function seasonCurrencyPerDay() {
@@ -1949,6 +1950,7 @@ function seasonCurrencyPerDay() {
 }
 
 function seasonAvailable() {
+    if (SEASON.over) return false;
     return !isSimpleMode() || selectedHomeLevel() >= SEASON.minHomeLevel;
 }
 
@@ -4110,9 +4112,12 @@ function renderRecipeTables(recipes) {
         const tables = facilitiesInCategory.map(f => {
             // `data-label` names each cell when rows stack on phones; empty cells are left out there.
             const cell = (label, value) => `<td data-label="${label}"${value === '-' ? ' class="empty"' : ''}>${value}</td>`;
+            // A row's classes: unchecked numbers, and items from an event that has ended.
+            const rowClass = r => [r.verified === false && 'unverified', r.season && SEASON.over && 'ended']
+                .filter(Boolean).join(' ');
             const rows = byFacility.get(f.name).map(r => `
-                <tr${r.verified === false ? ' class="unverified"' : ''}>
-                    <td class="recipe-name">${prettyItem(r.name)}${SPECIAL_NAMES.has(r.name) ? ' <span class="tag special" title="Takes a rare currency to unlock">special</span>' : ''}${r.season ? ` <span class="tag special" title="${SEASON.name} only">season</span>` : ''}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
+                <tr${rowClass(r) ? ` class="${rowClass(r)}"` : ''}>
+                    <td class="recipe-name">${prettyItem(r.name)}${SPECIAL_NAMES.has(r.name) ? ' <span class="tag special" title="Takes a rare currency to unlock">special</span>' : ''}${r.season ? ` <span class="tag ${SEASON.over ? 'ended' : 'special'}" title="${SEASON.over ? `${SEASON.name} has ended; these are no longer available` : `${SEASON.name} only`}">season</span>` : ''}${r.verified === false ? ' <span class="info-icon" data-tooltip="Not yet checked in game.">?</span>' : ''}</td>
                     ${cell('Level', r.facility_level)}
                     ${cell('Inputs', formatRecipeInputs(r))}
                     ${cell('Yield', formatRecipeYield(r))}
