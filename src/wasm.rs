@@ -1384,18 +1384,29 @@ pub fn exact_byproduct_problems(input_json: &str) -> String {
 /// The model for the most of one priority `target` (see [`JsPlanInput::priorities`]) this
 /// homeland can make while keeping every floor in `stage_json` (the priorities before it):
 /// `{"lp", "variables", "tiebreak"}` as in [`exact_problem`]. The caller solves it and adds
-/// `[target, per second]` to the floors for the next priority and the final coin solve.
+/// `[target, per second]` to the floors for the next priority and the final coin solve. With a
+/// level-up pace in the stage (the season's points during a level-up), it keeps that pace too,
+/// coins paying for the level-up (see [`crate::exact::Goal::MostWhileLevelingUp`]).
 #[wasm_bindgen]
 pub fn exact_priority_problem(input_json: &str, stage_json: &str, target: &str) -> String {
     let stage: JsStage = serde_json::from_str(stage_json).unwrap_or_default();
     let lp = match PreparedInput::from_json(input_json) {
-        Ok(prepared) => crate::exact::write_lp(
-            &prepared.items,
-            target,
-            &prepared.facility_counts,
-            &prepared.module_levels,
-            crate::exact::Goal::Earn { floors: &stage.floors },
-        ),
+        Ok(prepared) => match (&prepared.input.level_up, stage.pace) {
+            (Some(level_up), Some(pace)) => crate::exact::write_lp(
+                &prepared.items,
+                &prepared.input.currency,
+                &prepared.facility_counts,
+                &prepared.module_levels,
+                crate::exact::Goal::MostWhileLevelingUp(level_up, pace, target),
+            ),
+            _ => crate::exact::write_lp(
+                &prepared.items,
+                target,
+                &prepared.facility_counts,
+                &prepared.module_levels,
+                crate::exact::Goal::Earn { floors: &stage.floors },
+            ),
+        },
         Err(_) => Default::default(),
     };
     lp_json(&lp)
@@ -1426,7 +1437,8 @@ pub fn exact_level_up_problem(input_json: &str) -> String {
 /// What the earlier solves settled, for [`exact_problem`] and [`exact_plan`].
 #[derive(Debug, Clone, Default, Deserialize)]
 struct JsStage {
-    /// `[[byproduct, per second], ...]` from [`exact_byproduct_problems`].
+    /// `[[byproduct or currency, per second], ...]` from [`exact_byproduct_problems`], the
+    /// priorities, or during a level-up the season's points.
     #[serde(default)]
     floors: Vec<(String, f64)>,
     /// Level-ups per day from [`exact_level_up_problem`].
@@ -1442,8 +1454,8 @@ struct JsStage {
 impl JsStage {
     fn goal<'a>(&'a self, input: &'a JsPlanInput) -> crate::exact::Goal<'a> {
         match (&input.level_up, self.pace, self.coins) {
-            (Some(level_up), Some(pace), Some(coins)) => crate::exact::Goal::StockUp(level_up, pace, coins),
-            (Some(level_up), Some(pace), None) => crate::exact::Goal::EarnWhileLevelingUp(level_up, pace),
+            (Some(level_up), Some(pace), Some(coins)) => crate::exact::Goal::StockUp(level_up, pace, coins, &self.floors),
+            (Some(level_up), Some(pace), None) => crate::exact::Goal::EarnWhileLevelingUp(level_up, pace, &self.floors),
             _ => crate::exact::Goal::Earn { floors: &self.floors },
         }
     }
@@ -1503,7 +1515,7 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
     let currency = prepared.input.currency.clone();
     let goal = stage.goal(&prepared.input);
     let level_up = match goal {
-        crate::exact::Goal::EarnWhileLevelingUp(level_up, _) | crate::exact::Goal::StockUp(level_up, ..) => Some(level_up),
+        crate::exact::Goal::EarnWhileLevelingUp(level_up, ..) | crate::exact::Goal::StockUp(level_up, ..) => Some(level_up),
         _ => None,
     };
     let Some(exact) = crate::exact::plan_from_values(

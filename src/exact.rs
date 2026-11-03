@@ -149,13 +149,28 @@ pub enum Goal<'a> {
     MostOf(&'a str),
     /// The soonest RV level-up: the most level-ups per day (see [`PACE_UNIT`]).
     LevelUp(&'a LevelUp),
-    /// The most currency per second while keeping up at least `pace` level-ups per day: the
-    /// fastest level-up, earning as much as it leaves room for.
-    EarnWhileLevelingUp(&'a LevelUp, f64),
-    /// With the pace and coins per second both kept, the most extra of what the level-up costs
-    /// (each as a share of its cost): spare Bench and Kiln time processes whatever the level-up
-    /// doesn't need yet, instead of leaving it raw.
-    StockUp(&'a LevelUp, f64, f64),
+    /// The most of `target` per second, a currency other than coins (season points), while
+    /// keeping up at least `pace` level-ups per day, which coins still pay for: during a season,
+    /// the fastest level-up with as much of the season as it leaves room for.
+    MostWhileLevelingUp(&'a LevelUp, f64, &'a str),
+    /// The most currency per second while keeping up at least `pace` level-ups per day and each
+    /// `(currency, per second)` floor (the season points the solve above found): the fastest
+    /// level-up, earning as much as it leaves room for.
+    EarnWhileLevelingUp(&'a LevelUp, f64, &'a [(String, f64)]),
+    /// With the pace, coins per second and floors all kept, the most extra of what the level-up
+    /// costs (each as a share of its cost): spare Bench and Kiln time processes whatever the
+    /// level-up doesn't need yet, instead of leaving it raw.
+    StockUp(&'a LevelUp, f64, f64, &'a [(String, f64)]),
+}
+
+impl Goal<'_> {
+    /// The `(byproduct or currency, per second)` floors a plan for this goal has to keep.
+    fn floors(&self) -> &[(String, f64)] {
+        match self {
+            Goal::Earn { floors } | Goal::EarnWhileLevelingUp(.., floors) | Goal::StockUp(.., floors) => floors,
+            Goal::MostOf(_) | Goal::LevelUp(_) | Goal::MostWhileLevelingUp(..) => &[],
+        }
+    }
 }
 
 /// What an RV level-up costs and what's already in stock, as `(item, amount)` with `"coins"` for
@@ -383,11 +398,12 @@ fn build_model<'a>(
         }
     }
     // A floor naming a currency ("aniimo_exp", "aniipods") keeps a plan making that much of it
-    // while it earns `currency`; those items need sell variables too, worth nothing here.
-    let floor_currencies: Vec<&str> = match goal {
-        Goal::Earn { floors } => floors.iter().map(|(name, _)| name.as_str()).collect(),
-        _ => Vec::new(),
-    };
+    // while it earns `currency`; those items need sell variables too, worth nothing here. So does
+    // the season's points a level-up plan makes the most of while coins pay for the level-up.
+    let mut floor_currencies: Vec<&str> = goal.floors().iter().map(|(name, _)| name.as_str()).collect();
+    if let Goal::MostWhileLevelingUp(_, _, target) = goal {
+        floor_currencies.push(target);
+    }
     let mut sold_of: Vec<(usize, &ProductionItem)> = Vec::new();
     for (&item_name, terms) in &mut balance {
         if let Some(&item) = all.get(item_name) {
@@ -405,7 +421,9 @@ fn build_model<'a>(
         Goal::LevelUp(level_up) => Some((level_up, 0.0)),
         // Slack of 0.01% (about 9 seconds a day): `pace` is another solve's maximum, and the pace
         // terms are small enough that a tighter floor sits inside the solver's tolerances.
-        Goal::EarnWhileLevelingUp(level_up, pace) | Goal::StockUp(level_up, pace, _) => Some((level_up, pace * (1.0 - 1e-4))),
+        Goal::MostWhileLevelingUp(level_up, pace, _)
+        | Goal::EarnWhileLevelingUp(level_up, pace, _)
+        | Goal::StockUp(level_up, pace, ..) => Some((level_up, pace * (1.0 - 1e-4))),
         _ => None,
     };
     if let Some((level_up, min_pace)) = level_up {
@@ -416,7 +434,7 @@ fn build_model<'a>(
         let mut earned = coin_terms.clone();
         earned.push((pace, per_pace(currency)));
         model.constrain(earned, ComparisonOp::Ge, 0.0);
-        if let Goal::StockUp(_, _, coins) = goal {
+        if let Goal::StockUp(_, _, coins, _) = goal {
             // Slack of 0.1%: `coins` is another solve's maximum, and a tighter floor can leave no
             // whole-unit plan the independent re-check accepts (seen at RV 9 and 14).
             model.constrain(coin_terms, ComparisonOp::Ge, coins - 1e-3 * coins.abs());
@@ -436,6 +454,13 @@ fn build_model<'a>(
             Goal::LevelUp(_) => {
                 model.objective.iter_mut().for_each(|c| *c = 0.0);
                 model.objective[pace] = 1.0;
+            }
+            Goal::MostWhileLevelingUp(_, _, target) => {
+                // Coins still have to cover the level-up (above); what's left goes to `target`.
+                model.objective.iter_mut().for_each(|c| *c = 0.0);
+                for &(sold, item) in &sold_of {
+                    model.objective[sold] = item.earns(target);
+                }
             }
             Goal::StockUp(..) => {
                 // Coins only break ties, so anything spare (clay a Mine makes beyond what's used,
@@ -599,29 +624,29 @@ fn build_model<'a>(
             })
             .collect()
     };
+    for (resource, floor) in goal.floors() {
+        if *floor <= 0.0 {
+            continue;
+        }
+        let byproduct = byproduct_terms(resource);
+        if !byproduct.is_empty() {
+            // A hair of slack: the floor is another solve's exact maximum.
+            model.constrain(byproduct, ComparisonOp::Ge, floor * (1.0 - 1e-6));
+            continue;
+        }
+        // Otherwise it's a currency: everything sold for it, at its value, less seed costs
+        // for coins (seeds are paid in coins).
+        let mut sold: Vec<(usize, f64)> =
+            sold_of.iter().filter(|(_, item)| item.earns(resource) > 0.0).map(|&(v, item)| (v, item.earns(resource))).collect();
+        if resource == "coins" {
+            sold.extend(rate_of.iter().filter(|(r, _)| r.cost.unwrap_or(0.0) > 0.0).map(|&(r, v)| (v, -r.cost.unwrap_or(0.0))));
+        }
+        if !sold.is_empty() {
+            model.constrain(sold, ComparisonOp::Ge, floor * (1.0 - 1e-4));
+        }
+    }
     match goal {
-        Goal::Earn { floors } => {
-            for (resource, floor) in floors {
-                if *floor <= 0.0 {
-                    continue;
-                }
-                let byproduct = byproduct_terms(resource);
-                if !byproduct.is_empty() {
-                    // A hair of slack: the floor is another solve's exact maximum.
-                    model.constrain(byproduct, ComparisonOp::Ge, floor * (1.0 - 1e-6));
-                    continue;
-                }
-                // Otherwise it's a currency: everything sold for it, at its value, less seed costs
-                // for coins (seeds are paid in coins).
-                let mut sold: Vec<(usize, f64)> =
-                    sold_of.iter().filter(|(_, item)| item.earns(resource) > 0.0).map(|&(v, item)| (v, item.earns(resource))).collect();
-                if resource == "coins" {
-                    sold.extend(rate_of.iter().filter(|(r, _)| r.cost.unwrap_or(0.0) > 0.0).map(|&(r, v)| (v, -r.cost.unwrap_or(0.0))));
-                }
-                if !sold.is_empty() {
-                    model.constrain(sold, ComparisonOp::Ge, floor * (1.0 - 1e-4));
-                }
-            }
+        Goal::Earn { .. } => {
             // Maximizing a byproduct (Wood Blocks, Mineral Sand) rather than a currency.
             let byproduct = byproduct_terms(currency);
             if !byproduct.is_empty() {
@@ -637,7 +662,7 @@ fn build_model<'a>(
                 model.objective[v] += amount;
             }
         }
-        Goal::LevelUp(_) | Goal::EarnWhileLevelingUp(..) | Goal::StockUp(..) => {}
+        Goal::LevelUp(_) | Goal::MostWhileLevelingUp(..) | Goal::EarnWhileLevelingUp(..) | Goal::StockUp(..) => {}
     }
     // With the player's own Aniimo (see `Crew`), each member's day covers everything it works:
     // a recipe's time per batch at its rate, or at a facility it lives in, the whole day per unit.

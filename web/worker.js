@@ -36,6 +36,9 @@ async function newHighs() {
 // Seconds HiGHS may search before settling for the best plan found so far.
 const EXACT_TIME_LIMIT = 30;
 
+// The season's points as a priority target (`SEASON_POINTS` in src/models.rs).
+const SEASON_POINTS = 'season_points';
+
 // HiGHS options for every solve.
 const SOLVE_OPTIONS = { mip_rel_gap: 0, time_limit: EXACT_TIME_LIMIT };
 
@@ -81,10 +84,12 @@ function tiebreakOf(problem, values) {
 // each as the ones before it allow, then earns coins with what's left.
 // For the level-up strategy, it first finds the soonest level-up and requires the plan to keep
 // that pace; if the facilities can't make the level-up at all, the plan is for coins and says so.
+// During a season it then makes the most season points that pace allows, which the coin solve
+// keeps.
 // Returns the plan's JSON, or throws with the reason it couldn't, so the caller can fall back to
 // `find_plan` and say why. `step(key, state, proven)` reports each solve as it starts and ends,
 // and whether it proved its answer, for the page's progress card: `priority:<target>`,
-// `level_up`, `final`, `stock_up` and `check`. `first(top)` gets the plan's first solve with
+// `level_up`, `season`, `final`, `stock_up` and `check`. `first(top)` gets the plan's first solve with
 // nothing before it, `{ measure, objective, proven }`: the most of its first priority, its
 // level-up pace, or its Home Coins. The page's Opportunities solve that same model for the plan
 // as it stands, so they take it from here.
@@ -127,6 +132,22 @@ async function exactPlanJson(pkg, payload, step = () => {}, first = () => {}) {
         } else {
             levelUpNote = 'unreachable';
         }
+    }
+    // During a season, a level-up plan makes as much of the season as that pace leaves room for
+    // (or, with the level-up out of reach, already in stock or past RV 20, as the homeland can),
+    // and the coin solve after it keeps those points. `level_up_strategy` says the player picked
+    // the level-up strategy even when there's no level-up left to plan (`level_up` is null at RV
+    // 20); the Priorities strategy ranks the points itself instead. Without this, season items only made it into a level-up
+    // plan when they happened to pay the most coins: the Harvest Moon Festival's did, Magical
+    // Wonder Night's (behind a Sunlamp, worth less) never do.
+    const input = JSON.parse(payload);
+    if (input.level_up_strategy && input.season) {
+        step('season', 'start');
+        const most = await solveModel(JSON.parse(exact_priority_problem(payload, JSON.stringify(stage), SEASON_POINTS)));
+        step('season', 'done', most?.proven);
+        if (!most) throw new Error('no plan found for the most season points');
+        allProven &&= most.proven;
+        if (most.objective > 1e-12) stage.floors.push([SEASON_POINTS, most.objective]);
     }
     let stageJson = JSON.stringify(stage);
     let problem = JSON.parse(exact_problem(payload, stageJson));

@@ -1753,12 +1753,18 @@ let progress = null;
 function startProgress(input, runId) {
     const levelUp = !!input.level_up && planContext.levelUp && !planContext.ready && !planContext.unavailable;
     const priorities = input.priorities || [];
+    const seasonFirst = !!(input.level_up_strategy && input.season);
     // A level-up's solves (the soonest level-up, the most Home Coins at that pace, spare Bench
     // and Kiln time) are one step, and every plan's last is its final solve and the re-check
     // of it against every limit: the worker's steps map onto these (see `setStep`).
+    // During a season a level-up plan also makes the most of its points (see worker.js): after the
+    // pace when there's a level-up to plan, otherwise before the coins.
+    const season = seasonFirst ? [{ key: 'season', label: `Most ${seasonById(input.season).points}` }] : [];
     const steps = [
         ...priorities.map(target => ({ key: `priority:${target}`, label: `Most ${priorityLabel(target, planContext.aniipod)}` })),
-        { key: 'plan', label: levelUp ? 'Fastest Level-Up' : priorities.length ? "Home Coins with What's Left" : 'Most Home Coins' },
+        ...(levelUp ? [] : season),
+        { key: 'plan', label: levelUp ? 'Fastest Level-Up' : priorities.length || seasonFirst ? "Home Coins with What's Left" : 'Most Home Coins' },
+        ...(levelUp ? season : []),
         { key: 'layout', label: 'Homeland Layout' },
         { key: 'improve', label: 'Opportunities' },
         { key: 'minimum', label: 'Minimum Team Plan' },
@@ -2566,7 +2572,11 @@ function renderStrategy() {
     const stockDetails = document.getElementById('level-up-stock');
     const unavailable = levelUpUnavailable();
     if (unavailable) {
-        costEl.innerHTML = `<p class="level-up-note">${unavailable} Plans will go for the most Home Coins.</p>`;
+        // During a season the plan still makes the most of its points first (see worker.js).
+        const fallback = seasonActive()
+            ? 'During the seasonal event, plans make the most of its points first, then the most Home Coins.'
+            : 'Plans will go for the most Home Coins.';
+        costEl.innerHTML = `<p class="level-up-note">${unavailable} ${fallback}</p>`;
         stockDetails.style.display = 'none';
         return;
     }
@@ -2801,6 +2811,7 @@ function getPlanInputValues() {
             priorities: activePriorities(),
             prioritize_byproducts: false,
             level_up: levelUpInput(),
+            level_up_strategy: isLevelUpStrategy(),
             exclude: excludedRecipes(),
             season: activeSeasonId(),
             season_currency_per_day: seasonCurrencyPerDay(),
@@ -2829,6 +2840,7 @@ function getPlanInputValues() {
         priorities: activePriorities(),
         prioritize_byproducts: false,
         level_up: levelUpInput(),
+        level_up_strategy: isLevelUpStrategy(),
         exclude: excludedRecipes(),
         season: activeSeasonId(),
         season_currency_per_day: seasonCurrencyPerDay(),
