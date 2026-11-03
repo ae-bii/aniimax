@@ -143,12 +143,16 @@
                     <label class="priority-switch season-switch">
                         <input type="checkbox" role="switch" id="season-on">
                         <span class="switch-track" aria-hidden="true"></span>
-                        <span class="season-title">Harvest Moon Festival</span>
+                        <span class="season-title" id="season-title">Seasonal event</span>
                     </label>
                     <div id="season-config" hidden>
-                        <p class="hint">A seasonal event with its own currency, Moonray Wheat, which buys the season's seeds. Keeping enough wheat on hand is up to you; plans show how much their seeds use. Season items also earn Harvest Moon Points, which you can rank under Priorities.</p>
+                        <div class="input-field" id="season-event-row">
+                            <label for="season-event">Event</label>
+                            <select id="season-event"></select>
+                        </div>
+                        <p class="hint" id="season-hint"></p>
                         <div class="input-field">
-                            <label for="season-currency-per-day">Moonray Wheat you can spend on seeds a day</label>
+                            <label for="season-currency-per-day" id="season-currency-label"></label>
                             <input type="number" id="season-currency-per-day" min="0" placeholder="No limit">
                         </div>
                         <p class="assume-title">Recipe Notes</p>
@@ -284,9 +288,11 @@
                             <span class="layout-toggles">
                                 <label class="layout-whole"><input type="checkbox" id="layout-whole"> Show the whole homeland</label>
                                 <label class="layout-whole"><input type="checkbox" id="layout-sim-on" checked> Simulate</label>
+                                <label class="layout-whole"><input type="checkbox" id="layout-recipes"> Show recipe</label>
                             </span>
                             <span class="layout-sim" id="layout-sim" hidden><span id="layout-clock">0h 00m</span><button type="button" class="toggle-button small" id="layout-replay">Replay</button></span>
                         </div>
+                        <p class="hint layout-zoom-hint">Hold Ctrl and scroll over the layout to zoom. Drag to move around while zoomed; double-click to zoom back out.</p>
                         <div class="layout-diagram" id="layout-diagram"></div>
                     </div>
 
@@ -335,7 +341,7 @@
                                             <th>Amount</th>
                                             <th id="product-breakdown-rate-header">Profit</th>
                                             <th>Worth <span class="th-unit">Home Coins</span></th>
-                                            <th id="product-breakdown-points-header" hidden>Harvest Moon Points</th>
+                                            <th id="product-breakdown-points-header" hidden>Season Points</th>
                                         </tr>
                                     </thead>
                                     <tbody id="product-breakdown-tbody"></tbody>
@@ -398,7 +404,7 @@
                 <h3>The Model</h3>
                 <p>Every plan is one mixed-integer program covering every recipe and facility at once, solved with <a href="https://highs.dev" target="_blank" rel="noopener">HiGHS</a>. Each recipe your facility levels and modules unlock, \(r\), gets a rate \(b_r\) (batches per second) and a whole number of units \(u_r\) set to it: plots for a crop, machines for a processed item.</p>
                 <div class="math-block">\[ \max \ \sum_i p_i \, s_i \;-\; \sum_r c_r \, b_r \]</div>
-                <p>where \(s_i\) is how much of item \(i\) is sold per second at price \(p_i\), and \(c_r\) is a crop's seed cost. During the Harvest Moon Festival, season crops' seeds cost Moonray Wheat instead, which plans take as unlimited. Subject to:</p>
+                <p>where \(s_i\) is how much of item \(i\) is sold per second at price \(p_i\), and \(c_r\) is a crop's seed cost. During a seasonal event, season crops' seeds cost the event's currency instead (Weird Jelly Beans during Magical Wonder Night), which plans take as unlimited. Subject to:</p>
                 <ul>
                     <li><strong>Whole units.</strong> \(b_r \, t_r \le u_r\), with \(u_r\) a whole number and \(t_r\) the time per batch. A unit runs one recipe and is left running.</li>
                     <li><strong>Item balance.</strong> Everything made covers what other recipes use plus what's sold. A quick variant makes the same item as the regular one.</li>
@@ -426,7 +432,7 @@
                 <p>Each tier takes 8 of the tier below (4 for the last), so the Bench and Kiln switch between tiers rather than running one recipe like other processors.</p>
 
                 <h3>Priorities</h3>
-                <p>The plan solves once per ticked priority, in your order. Each solve makes as much of its priority as it can while keeping at least what the earlier ones reached; a last solve then earns as many Home Coins as all of those leave room for. Aniimo EXP, Aniipods and, during the Harvest Moon Festival, Harvest Moon Points count as their own currencies, so the same model handles them like Home Coins.</p>
+                <p>The plan solves once per ticked priority, in your order. Each solve makes as much of its priority as it can while keeping at least what the earlier ones reached; a last solve then earns as many Home Coins as all of those leave room for. Aniimo EXP, Aniipods and, during a seasonal event, its points count as their own currencies, so the same model handles them like Home Coins.</p>
 
                 <h3>Time to Reach a Goal</h3>
                 <p>Each product starts adding up once its first batch clears its ingredient chain (its lead time), then keeps its steady rate:</p>
@@ -536,6 +542,6 @@
             }
         });
     </script>
-    <script type="module" src="app.js?v=rv14-rv20-facility-counts"></script>
+    <script type="module" src="app.js?v=magical-wonder-night"></script>
 </body>
 </html>

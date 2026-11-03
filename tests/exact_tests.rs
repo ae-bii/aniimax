@@ -160,13 +160,13 @@ fn solve_level_up(items: &[ProductionItem], counts: &FacilityCounts, level_up: &
     let fastest = solve_exact(items, "coins", counts, &modules, Goal::LevelUp(level_up), None, None).expect("level-up plan");
     assert!(fastest.proven_optimal && fastest.objective > 0.0);
     let pace = fastest.objective;
-    let plan = solve_exact(items, "coins", counts, &modules, Goal::EarnWhileLevelingUp(level_up, pace), None, None)
+    let plan = solve_exact(items, "coins", counts, &modules, Goal::EarnWhileLevelingUp(level_up, pace, &[]), None, None)
         .expect("earning plan");
     assert!(plan.proven_optimal);
     assert!(plan.pace.unwrap() >= pace * (1.0 - 2e-4), "pace {:?} below {pace}", plan.pace);
     check_plan(&plan, items, "coins", counts, &modules, Some(level_up)).expect("plan passes its re-check");
     // Then spare Bench and Kiln time, without giving up pace or coins.
-    let stocked = solve_exact(items, "coins", counts, &modules, Goal::StockUp(level_up, pace, plan.rate_per_second), None, None)
+    let stocked = solve_exact(items, "coins", counts, &modules, Goal::StockUp(level_up, pace, plan.rate_per_second, &[]), None, None)
         .expect("stocked plan");
     assert!(stocked.proven_optimal);
     assert!(stocked.rate_per_second >= plan.rate_per_second * (1.0 - 2e-3));
@@ -340,6 +340,86 @@ fn exact_season_points_are_a_priority() {
     let kept = aniimax::exact::target_rate(&plan, &items, points);
     // Floors leave 0.01% of slack for the solver's tolerances.
     assert!(kept >= most.rate_per_second * (1.0 - 1.01e-4), "kept {kept} of {} points a second", most.rate_per_second);
+}
+
+/// Every item plus Magical Wonder Night's.
+fn load_items_with_wonder_night() -> Option<Vec<ProductionItem>> {
+    let mut items = load_items()?;
+    let text = std::fs::read_to_string("data/magical_wonder_night.csv").expect("season data");
+    let mut season = aniimax::data::parse_season(&text).expect("season parses");
+    aniimax::models::apply_watering(&mut season);
+    items.extend(season);
+    Some(items)
+}
+
+// Magic Pumpkin and Memory Lanternfruit are Adequate, so they grow only under a Sunlamp: without
+// one the plan can't touch them, and with one it grows them (8 a batch at 61 coins, seeds paid in
+// Weird Jelly Beans, beating lavender, the other Adequate crop at that level).
+#[test]
+fn test_exact_wonder_night_crops_need_a_sunlamp() {
+    let Some(items) = load_items_with_wonder_night() else { return };
+    let modules = ModuleLevels::default();
+    let season_crop = |plan: &ExactPlan| plan.recipe_rates.keys().any(|n| n.starts_with("magic_pumpkin") || n.starts_with("memory_lanternfruit"));
+    let without = solve_and_check(&items, &FacilityCounts::only(&[("Farmland", 4, 5)]), &modules);
+    assert!(!season_crop(&without), "grew a season crop with no Sunlamp: {:?}", without.recipe_rates);
+    let with = solve_and_check(&items, &FacilityCounts::only(&[("Farmland", 4, 5), ("Sunlamp", 1, 1)]), &modules);
+    assert!(season_crop(&with), "no season crop under the Sunlamp: {:?}", with.recipe_rates);
+    assert!(with.rate_per_second > without.rate_per_second);
+}
+
+// During a season, a level-up plan keeps the soonest level-up's pace and puts what that leaves
+// over into the season's points before the coin solve, which keeps them: the plan still levels up
+// as soon, and makes the season's items even where they pay too little for a coin plan to bother.
+// That's Magical Wonder Night at RV 15, where going for coins at the level-up's pace grew none;
+// here every season item sells for 1 coin, so a coin plan never makes one.
+#[test]
+fn test_exact_level_up_makes_season_points_at_its_pace() {
+    let Some(mut items) = load_items_with_wonder_night() else { return };
+    items.iter_mut().filter(|i| i.season.is_some()).for_each(|i| i.sell_value = 1.0);
+    let counts = FacilityCounts::only(&[
+        ("Farmland", 8, 5),
+        ("Sunlamp", 1, 1),
+        ("Woodland", 3, 2),
+        ("Mine", 2, 2),
+        ("Woodworking Bench", 1, 1),
+        ("Chimney Kiln", 1, 1),
+        ("Crafting Table", 1, 4),
+        ("Simmering Pot", 1, 3),
+        ("Well", 2, 2),
+    ]);
+    let modules = ModuleLevels::default();
+    let points = aniimax::models::SEASON_POINTS;
+    let cost = level_up(&[("coins", 69000.0), ("rough_lumber", 290.0), ("coarse_sifted_ore", 360.0)], &[]);
+    let fastest = solve_exact(&items, "coins", &counts, &modules, Goal::LevelUp(&cost), None, None).unwrap();
+    assert!(fastest.proven_optimal && fastest.objective > 0.0);
+    let pace = fastest.objective;
+
+    // Coins alone at that pace, as before: no season items.
+    let coins_only = solve_exact(&items, "coins", &counts, &modules, Goal::EarnWhileLevelingUp(&cost, pace, &[]), None, None).unwrap();
+    assert!(aniimax::exact::target_rate(&coins_only, &items, points) < 1e-12, "{:?}", coins_only.recipe_rates);
+
+    let most = solve_exact(&items, "coins", &counts, &modules, Goal::MostWhileLevelingUp(&cost, pace, points), None, None).unwrap();
+    assert!(most.proven_optimal);
+    assert!(most.pace.unwrap() >= pace * (1.0 - 2e-4), "pace {:?} below {pace}", most.pace);
+    check_plan(&most, &items, "coins", &counts, &modules, Some(&cost)).expect("points plan passes its re-check");
+    let most_points = aniimax::exact::target_rate(&most, &items, points);
+    assert!((most.objective - most_points).abs() < 1e-9, "objective {} is not its points {most_points}", most.objective);
+    assert!(most_points > 0.0, "no season points at the level-up's pace: {:?}", most.recipe_rates);
+
+    let floors = vec![(points.to_string(), most_points)];
+    let plan = solve_exact(&items, "coins", &counts, &modules, Goal::EarnWhileLevelingUp(&cost, pace, &floors), None, None).unwrap();
+    assert!(plan.proven_optimal);
+    assert!(plan.pace.unwrap() >= pace * (1.0 - 2e-4), "pace {:?} below {pace}", plan.pace);
+    check_plan(&plan, &items, "coins", &counts, &modules, Some(&cost)).expect("plan passes its re-check");
+    let kept = aniimax::exact::target_rate(&plan, &items, points);
+    assert!(kept >= most_points * (1.0 - 1.01e-4), "kept {kept} of {most_points} points a second");
+    assert!(plan.recipe_rates.keys().any(|n| n.starts_with("magic_pumpkin") || n.starts_with("memory_lanternfruit")), "{:?}", plan.recipe_rates);
+
+    // Spare Bench and Kiln time still goes to the level-up, keeping the points too.
+    let stocked =
+        solve_exact(&items, "coins", &counts, &modules, Goal::StockUp(&cost, pace, plan.rate_per_second, &floors), None, None).unwrap();
+    check_plan(&stocked, &items, "coins", &counts, &modules, Some(&cost)).expect("stocked plan passes its re-check");
+    assert!(aniimax::exact::target_rate(&stocked, &items, points) >= most_points * (1.0 - 1.01e-4));
 }
 
 // A goal counts each item from its first batch, so what makes a priority is split by item with

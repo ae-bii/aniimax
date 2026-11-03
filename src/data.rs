@@ -112,11 +112,22 @@ struct SeasonRow {
     #[serde(rename = "yield")]
     yield_amount: u32,
     facility_level: u32,
+    /// The growing environment a season crop needs, if any (e.g. Magical Wonder Night's crops need
+    /// a Sunlamp). Older season files leave the column out.
+    #[serde(default)]
+    environment: Option<String>,
 }
 
+/// Every limited-time season the data covers, as `(id, CSV file in data/)`, newest first. The id
+/// is what the web app sends as `JsPlanInput::season`; only one season runs at a time.
+pub const SEASON_FILES: [(&str, &str); 2] = [
+    ("magical_wonder_night", "magical_wonder_night.csv"),
+    ("harvest_moon_festival", "harvest_moon_festival.csv"),
+];
+
 /// Parses a season's recipes (columns `name, facility, raw_materials, required_amount, seed_cost,
-/// sell_value, points, production_time, workload, yield, facility_level`; see
-/// [`crate::models::SeasonTerms`]). Crops are watered like any other; call
+/// sell_value, points, production_time, workload, yield, facility_level`, and optionally
+/// `environment`; see [`crate::models::SeasonTerms`]). Crops are watered like any other; call
 /// [`crate::models::apply_watering`] on them.
 pub fn parse_season(csv_text: &str) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
     let mut rdr = ReaderBuilder::new().trim(csv::Trim::All).from_reader(csv_text.as_bytes());
@@ -144,7 +155,7 @@ pub fn parse_season(csv_text: &str) -> Result<Vec<ProductionItem>, Box<dyn Error
             module_requirement: None,
             workload: row.workload,
             byproduct: None,
-            environment: None,
+            environment: row.environment.filter(|e| !e.is_empty()),
             season: Some(crate::models::SeasonTerms {
                 points: row.points,
                 seed_cost: row.seed_cost.unwrap_or(0.0),

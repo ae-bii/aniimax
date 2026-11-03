@@ -107,15 +107,29 @@ fn test_currency_types() {
 /// something not yet in the data, add it here deliberately.
 const KNOWN_MISSING_INGREDIENTS: &[&str] = &[];
 
-/// Every item, with the season's (see `harvest_moon_festival.csv`), which the checks cover too.
+/// Every item, with every season's (see `aniimax::data::SEASON_FILES`), which the checks cover too.
 fn load_items() -> Option<Vec<aniimax::models::ProductionItem>> {
     let data_dir = Path::new("data");
     data_dir.exists().then(|| {
         let mut items = load_all_data(data_dir).expect("Failed to load data");
-        let season = std::fs::read_to_string(data_dir.join("harvest_moon_festival.csv")).expect("season data");
-        items.extend(aniimax::data::parse_season(&season).expect("season parses"));
+        for (_, file) in aniimax::data::SEASON_FILES {
+            let season = std::fs::read_to_string(data_dir.join(file)).expect("season data");
+            items.extend(aniimax::data::parse_season(&season).expect("season parses"));
+        }
         items
     })
+}
+
+// Magical Wonder Night's crops need a Sunlamp (Adequate), read from the season file's optional
+// environment column; the Harvest Moon Festival's file has no such column and its crops need none.
+#[test]
+fn test_season_environment_column_is_optional() {
+    let Some(items) = load_items() else { return };
+    let environment = |name: &str| items.iter().find(|i| i.name == name).unwrap().environment.clone();
+    assert_eq!(environment("magic_pumpkin").as_deref(), Some("Adequate"));
+    assert_eq!(environment("memory_lanternfruit").as_deref(), Some("Adequate"));
+    assert_eq!(environment("golden_lantern_pumpkin_soup"), None);
+    assert_eq!(environment("moondew_radish"), None);
 }
 
 #[test]
