@@ -94,6 +94,27 @@ pub fn load_unverified(data_dir: &Path) -> Result<Vec<(String, String)>, Box<dyn
     parse_unverified(&std::fs::read_to_string(data_dir.join("unverified.csv"))?)
 }
 
+/// Every season the game has run, by the id that names its CSV in the data directory, oldest
+/// first. The last one is the current event. Adding a season is a CSV here, a line in this list,
+/// and a line in `SEASONS` in wasm.rs, which embeds the same files for the web build; a test
+/// keeps the two lists in step.
+pub const SEASONS: &[&str] = &["harvest_moon_festival"];
+
+/// The season running now: the last of [`SEASONS`].
+pub fn current_season() -> &'static str {
+    SEASONS.last().expect("there is always at least one season")
+}
+
+/// Whether `id` names a season this build knows.
+pub fn is_season(id: &str) -> bool {
+    SEASONS.contains(&id)
+}
+
+/// Loads one season's recipes from the data directory; see [`parse_season`].
+pub fn load_season(data_dir: &Path, id: &str) -> Result<Vec<ProductionItem>, Box<dyn Error>> {
+    parse_season(&std::fs::read_to_string(data_dir.join(format!("{id}.csv")))?)
+}
+
 /// One row of a season's CSV (e.g. `harvest_moon_festival.csv`).
 #[derive(Debug, serde::Deserialize)]
 struct SeasonRow {

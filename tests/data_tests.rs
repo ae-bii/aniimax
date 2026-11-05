@@ -107,15 +107,32 @@ fn test_currency_types() {
 /// something not yet in the data, add it here deliberately.
 const KNOWN_MISSING_INGREDIENTS: &[&str] = &[];
 
-/// Every item, with the season's (see `harvest_moon_festival.csv`), which the checks cover too.
+/// Every item, with every season's (see `aniimax::data::SEASONS`), which the checks cover too.
 fn load_items() -> Option<Vec<aniimax::models::ProductionItem>> {
     let data_dir = Path::new("data");
     data_dir.exists().then(|| {
         let mut items = load_all_data(data_dir).expect("Failed to load data");
-        let season = std::fs::read_to_string(data_dir.join("harvest_moon_festival.csv")).expect("season data");
-        items.extend(aniimax::data::parse_season(&season).expect("season parses"));
+        for id in aniimax::data::SEASONS {
+            items.extend(aniimax::data::load_season(data_dir, id).unwrap_or_else(|e| panic!("{id} parses: {e}")));
+        }
         items
     })
+}
+
+/// Every season in the list has its CSV, and the current event is one of them.
+#[test]
+fn test_every_season_has_its_data_file() {
+    let data_dir = Path::new("data");
+    if !data_dir.exists() {
+        return;
+    }
+    assert!(!aniimax::data::SEASONS.is_empty());
+    for id in aniimax::data::SEASONS {
+        let items = aniimax::data::load_season(data_dir, id).unwrap_or_else(|e| panic!("{id} parses: {e}"));
+        assert!(!items.is_empty(), "{id} has no items");
+        assert!(items.iter().all(|item| item.season.is_some()), "{id} has an item without season terms");
+    }
+    assert!(aniimax::data::is_season(aniimax::data::current_season()));
 }
 
 #[test]

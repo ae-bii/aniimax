@@ -273,14 +273,17 @@ fn exact_level_up_processes_spare_byproducts() {
     assert!(net["coarse_sifted_ore"] * seconds > 150.0, "ore {}", net["coarse_sifted_ore"] * seconds);
 }
 
-/// Every item plus the Harvest Moon Festival's.
-fn load_items_with_season() -> Option<Vec<ProductionItem>> {
+/// Every item plus one season's, the Harvest Moon Festival's unless `id` says otherwise.
+fn load_items_with_season_id(id: &str) -> Option<Vec<ProductionItem>> {
     let mut items = load_items()?;
-    let text = std::fs::read_to_string("data/harvest_moon_festival.csv").expect("season data");
-    let mut season = aniimax::data::parse_season(&text).expect("season parses");
+    let mut season = aniimax::data::load_season(std::path::Path::new("data"), id).expect("season parses");
     aniimax::models::apply_watering(&mut season);
     items.extend(season);
     Some(items)
+}
+
+fn load_items_with_season() -> Option<Vec<ProductionItem>> {
+    load_items_with_season_id("harvest_moon_festival")
 }
 
 // Moonray Wheat is treated as unlimited, so season seeds cost nothing a plan counts and all six
