@@ -755,6 +755,54 @@ pub struct JsPlanInput {
     /// seeds; `None` for no limit.
     #[serde(default)]
     pub season_currency_per_day: Option<f64>,
+    /// What the player makes whatever the plan would rather do, e.g. `[{"item": "strawberry",
+    /// "units": 2}]` for two Farmland plots of strawberries (see [`crate::models::Commitment`]).
+    #[serde(default)]
+    pub commitments: Vec<JsCommitment>,
+}
+
+/// One of [`JsPlanInput::commitments`]: `{"item", "units"}` for plots or machines kept busy on
+/// it, or `{"item", "per_day"}` for an amount a day set aside (see
+/// [`crate::models::CommitmentKind`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsCommitment {
+    pub item: String,
+    #[serde(default)]
+    pub units: Option<u32>,
+    #[serde(default)]
+    pub per_day: Option<f64>,
+}
+
+impl JsCommitment {
+    fn commitment(&self) -> Option<crate::models::Commitment> {
+        use crate::models::CommitmentKind;
+        let (amount, kind) = match (self.units, self.per_day) {
+            (Some(units), _) => (units as f64, CommitmentKind::Units),
+            (None, Some(per_day)) => (per_day, CommitmentKind::PerDay),
+            (None, None) => return None,
+        };
+        (amount.is_finite() && amount > 0.0).then(|| crate::models::Commitment { item: self.item.clone(), amount, kind })
+    }
+}
+
+/// How a plan keeps one of the player's commitments (see [`JsPlanInput::commitments`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsCommitmentReport {
+    pub item: String,
+    /// `"units"` or `"per_day"`.
+    pub kind: String,
+    /// What the player asked for: units, or how many a day.
+    pub amount: f64,
+    /// The facility that makes it.
+    pub facility: Option<String>,
+    /// `false` when nothing the player has can make it, so the plan leaves it out.
+    pub possible: bool,
+    /// Units the plan keeps busy making it: at least `held` for `"units"`, when possible.
+    pub busy: f64,
+    /// Units the plan has to keep busy: `amount`, or less when season crops kept busy all day
+    /// would take more seeds than the day's season budget (see
+    /// [`crate::exact::CommitmentStatus::held`]).
+    pub held: f64,
 }
 
 /// The player's Aniimo, and what the page knows of the facilities they work (see
@@ -1219,6 +1267,9 @@ pub struct JsProductionPlan {
     /// building kind a member staffs.
     #[serde(default)]
     pub staffing: Vec<(String, usize, f64)>,
+    /// How the plan keeps each of the player's commitments, in the order given.
+    #[serde(default)]
+    pub commitments: Vec<JsCommitmentReport>,
 }
 
 /// What a plan makes of one priority.
@@ -1281,6 +1332,7 @@ fn empty_production_plan(success: bool, error: Option<String>) -> JsProductionPl
         priorities: vec![],
         season_points: None,
         staffing: Vec::new(),
+        commitments: Vec::new(),
     }
 }
 
@@ -1524,6 +1576,22 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
     let mut js = prepared.to_js(plan, Some(proof));
     js.level_up = report;
     js.staffing = exact.staffing.clone();
+    js.commitments = crate::exact::commitment_status(&prepared.items, &prepared.facility_counts, &prepared.module_levels)
+        .into_iter()
+        .map(|status| JsCommitmentReport {
+            busy: crate::exact::busy_making(&exact, &prepared.items, &status.commitment.item),
+            kind: match status.commitment.kind {
+                crate::models::CommitmentKind::Units => "units",
+                crate::models::CommitmentKind::PerDay => "per_day",
+            }
+            .to_string(),
+            amount: status.commitment.amount,
+            held: status.held,
+            item: status.commitment.item,
+            facility: status.facility,
+            possible: status.possible,
+        })
+        .collect();
     if prepared.input.season {
         js.season_points = Some(crate::exact::target_rate(&exact, &prepared.items, crate::models::SEASON_POINTS));
     }
@@ -1637,6 +1705,9 @@ impl PreparedInput {
         let requirements = embedded_aniimo_requirements();
         let grower_steps = embedded_grower_steps();
         let mut facility_counts = facility_counts;
+        facility_counts.set_commitments(
+            input.commitments.iter().filter_map(JsCommitment::commitment).collect(),
+        );
         let crew = match (input.aniimo.as_deref(), &input.roster) {
             (Some(name), Some(roster)) if name.starts_with("roster") => Some(roster.crew()),
             _ => None,
@@ -1733,6 +1804,7 @@ impl PreparedInput {
             priorities: vec![],
             season_points,
             staffing: Vec::new(),
+            commitments: Vec::new(),
         }
     }
 }

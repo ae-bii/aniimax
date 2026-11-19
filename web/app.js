@@ -309,6 +309,7 @@ function attachFacilityTierHandlers() {
         } else if (e.target.classList.contains('tier-level')) {
             tier.level = numberOrDefault(e.target.value, 1);
         }
+        renderCommitmentWarnings();
         saveInputsToStorage();
     });
 
@@ -320,6 +321,7 @@ function attachFacilityTierHandlers() {
             const nextLevel = Math.min(10, Math.max(...tiers.map(t => t.level)) + 1);
             tiers.push({ count: 1, level: nextLevel });
             renderTierRows(name);
+            renderCommitmentWarnings();
             saveInputsToStorage();
             return;
         }
@@ -331,6 +333,7 @@ function attachFacilityTierHandlers() {
             const idx = parseInt(row.dataset.tierIndex, 10);
             facilityTiers[name].splice(idx, 1);
             renderTierRows(name);
+            renderCommitmentWarnings();
             saveInputsToStorage();
         }
     });
@@ -421,7 +424,7 @@ function initFacilityTiers(data) {
 }
 
 function currentConfig() {
-    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial], priorities: priorityOrder, aniimoLevels, roster };
+    const data = { facilityTiers, levelUpStock, skippedRecipes: [...skippedRecipes], unlockedSpecial: [...unlockedSpecial], priorities: priorityOrder, aniimoLevels, roster, commitments };
     getPersistedFieldIds().forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -475,6 +478,7 @@ function loadInputsFromStorage(data) {
     if (data.levelUpStock && typeof data.levelUpStock === 'object') levelUpStock = { ...data.levelUpStock };
     if (Array.isArray(data.skippedRecipes)) skippedRecipes = new Set(data.skippedRecipes.filter(n => typeof n === 'string'));
     if (Array.isArray(data.unlockedSpecial)) unlockedSpecial = new Set(data.unlockedSpecial.filter(n => typeof n === 'string'));
+    loadCommitments(data.commitments);
     if (Array.isArray(data.priorities)) {
         const saved = data.priorities.filter(p => PRIORITY_TARGETS.some(t => t.id === p?.target));
         const missing = PRIORITY_TARGETS.filter(t => !saved.some(p => p.target === t.id)).map(t => ({ target: t.id, on: false }));
@@ -620,6 +624,8 @@ function applyConfigMode() {
     if (!simple && !levelUpTargetChosen) followLevelUpTarget(selectedHomeLevel());
     document.getElementById('simple-config').style.display = simple ? 'block' : 'none';
     document.getElementById('advanced-config').style.display = simple ? 'none' : 'block';
+    document.getElementById('commitments-section').hidden = simple;
+    renderCommitmentWarnings();
     if (simple) renderSimpleSummary();
     renderStrategy();
 }
@@ -2020,10 +2026,11 @@ document.addEventListener('aniimax-language-change', () => {
 async function loadRecipeIndex() {
     try {
         recipeIndex = JSON.parse(await callWorker('get_all_items'))
-            .map(r => ({ name: r.name, facility: r.facility, cost: r.cost || 0, seasonSeedCost: r.season_seed_cost || 0, environment: r.environment || null, jobs: r.jobs || [], ingredients: r.raw_materials || [], amounts: r.required_amount || [], yieldAmount: r.yield_amount || 1, byproduct: r.byproduct_item || null, byproductAmount: r.byproduct?.[1] || 0, turns: r.sell_currency === 'none' }))
+            .map(r => ({ name: r.name, facility: r.facility, cost: r.cost || 0, seasonSeedCost: r.season_seed_cost || 0, environment: r.environment || null, jobs: r.jobs || [], ingredients: r.raw_materials || [], amounts: r.required_amount || [], yieldAmount: r.yield_amount || 1, byproduct: r.byproduct_item || null, byproductAmount: r.byproduct?.[1] || 0, turns: r.sell_currency === 'none', season: !!r.season, level: r.facility_level || 1 }))
             .sort((a, b) => a.facility.localeCompare(b.facility) || a.name.localeCompare(b.name));
         renderRecipeOptions();
         renderSkippedRecipes();
+        renderCommitments();
     } catch (error) {
         console.warn('Could not load the recipe list:', error);
     }
@@ -2096,6 +2103,221 @@ function attachSkipHandlers() {
         setSkipped(name, true);
         runFindPlan();
     });
+}
+
+// --- Planting and Crafting -------------------------------------------------------------
+// What the player wants made whether or not it's the best use of their homeland (see
+// `JsPlanInput::commitments` in wasm.rs), in Advanced mode: plots kept on a crop (Plant, sent as
+// `units`), or an amount a day set aside for them (Craft, sent as `per_day`). The plan keeps to
+// both and makes the best of everything else. Saved with the other inputs.
+
+// `{ item, kind: 'plant' | 'craft', amount }`, in the order added.
+let commitments = [];
+
+// What a newly added row starts at: one plot, or ten a day.
+const NEW_COMMITMENT_AMOUNT = { plant: 1, craft: 10 };
+
+// Facilities whose units are plots.
+const PLOT_FACILITIES = new Set(['Farmland', 'Woodland']);
+
+const recipeFor = name => recipeIndex.find(r => r.name === name);
+
+// The item a recipe makes: a quick version makes the regular one (as `made_item` in exact.rs).
+function madeItem(name) {
+    const base = name?.startsWith('quick_') ? name.slice('quick_'.length) : null;
+    return base && recipeFor(base) ? base : name;
+}
+
+// What each list offers, one entry per item (a quick version makes the same thing): crops and
+// other gathering under Plant, anything with ingredients under Craft. A season's items only while
+// it's on.
+function commitmentOptions(kind) {
+    const names = new Set(recipeIndex.map(r => r.name));
+    return recipeIndex.filter(r => (kind === 'plant') === (r.ingredients.length === 0)
+        && !(r.name.startsWith('quick_') && names.has(r.name.slice('quick_'.length)))
+        && (!r.season || seasonActive()));
+}
+
+function renderCommitmentOptions() {
+    ['plant', 'craft'].forEach(kind => {
+        document.getElementById(`${kind}-options`).innerHTML = commitmentOptions(kind)
+            .map(r => `<option value="${escapeText(recipeLabel(r))}"></option>`).join('');
+    });
+}
+
+// The search lists name items in the page's language.
+document.addEventListener('aniimax-language-change', renderCommitmentOptions);
+
+// "plots", "plot", "units" or "a day", after a row's amount.
+function commitmentUnit(c) {
+    if (c.kind === 'craft') return 'a day';
+    const plots = PLOT_FACILITIES.has(recipeFor(c.item)?.facility);
+    return c.amount === 1 ? (plots ? 'plot' : 'unit') : (plots ? 'plots' : 'units');
+}
+
+// What the solve would trip over, said before it runs: a facility not owned or not upgraded far
+// enough, or more plots picked than owned. The plan still runs; the solver has the last word.
+function commitmentWarnings() {
+    if (isSimpleMode()) return [];
+    const warnings = [];
+    const picked = new Map();
+    commitments.forEach(c => {
+        const recipe = recipeFor(c.item);
+        if (!recipe) return;
+        const tiers = facilityTiers[recipe.facility];
+        if (!tiers) return;
+        const item = prettyItem(c.item);
+        if (tierCount(tiers) === 0) {
+            warnings.push(`You have no ${recipe.facility} for ${item}.`);
+        } else if (tierCount(tiers.filter(t => t.level >= recipe.level)) === 0) {
+            warnings.push(`${item} needs ${recipe.facility} level ${recipe.level} or higher.`);
+        } else if (c.kind === 'plant') {
+            picked.set(recipe.facility, (picked.get(recipe.facility) || 0) + c.amount);
+        }
+    });
+    picked.forEach((n, facility) => {
+        const total = tierCount(facilityTiers[facility]);
+        if (n > total) warnings.push(`${facility}: ${n} picked, but you have ${total}.`);
+    });
+    return warnings;
+}
+
+function renderCommitmentWarnings() {
+    const list = document.getElementById('commit-warnings');
+    const warnings = commitmentWarnings();
+    list.hidden = warnings.length === 0;
+    list.innerHTML = warnings.map(w => `<li>${escapeText(w)}</li>`).join('');
+}
+
+function renderCommitments() {
+    ['plant', 'craft'].forEach(kind => {
+        document.getElementById(`${kind}-list`).innerHTML = commitments
+            .map((c, i) => ({ c, i }))
+            .filter(({ c }) => c.kind === kind)
+            .map(({ c, i }) => {
+                const recipe = recipeFor(c.item);
+                const name = escapeText(prettyItem(c.item));
+                const step = kind === 'plant' ? '1' : 'any';
+                return `<div class="commit-row">
+                    <span class="commit-name">${name}${recipe ? ` <span class="skip-chip-facility">${escapeText(recipe.facility)}</span>` : ''}</span>
+                    <input type="number" min="${kind === 'plant' ? 1 : 0}" step="${step}" value="${c.amount}" data-commit="${i}" aria-label="${escapeText(`How many for ${prettyItem(c.item)}`)}">
+                    <span class="commit-unit" data-commit-unit="${i}">${commitmentUnit(c)}</span>
+                    <button type="button" data-uncommit="${i}" aria-label="${escapeText(`Remove ${prettyItem(c.item)}`)}" title="Remove">✕</button>
+                </div>`;
+            }).join('');
+    });
+    renderCommitmentOptions();
+    renderCommitmentWarnings();
+}
+
+// Adds what's typed in a list's search box: a full "Item (Facility)" pick, or a unique partial
+// match. An item already in the list just gets its amount box focused.
+function addCommitmentFromInput(kind) {
+    const input = document.getElementById(`${kind}-input`);
+    const text = input.value.trim().toLowerCase();
+    if (!text) return;
+    const options = commitmentOptions(kind);
+    // A full "Item (Facility)" pick, then the item's own name ("Tofu", not "Soy Sauce Tofu").
+    let match = options.find(r => recipeLabel(r).toLowerCase() === text)
+        || options.find(r => translate(prettyItem(r.name)).toLowerCase() === text);
+    if (!match) {
+        const partial = options.filter(r => recipeLabel(r).toLowerCase().includes(text));
+        if (partial.length === 1) match = partial[0];
+    }
+    if (!match) {
+        input.setCustomValidity(translate('Pick an item from the list.'));
+        input.reportValidity();
+        return;
+    }
+    input.setCustomValidity('');
+    input.value = '';
+    let index = commitments.findIndex(c => c.item === match.name && c.kind === kind);
+    if (index < 0) {
+        commitments.push({ item: match.name, kind, amount: NEW_COMMITMENT_AMOUNT[kind] });
+        index = commitments.length - 1;
+        renderCommitments();
+        saveInputsToStorage();
+    }
+    const amount = document.querySelector(`[data-commit="${index}"]`);
+    amount?.focus();
+    amount?.select();
+}
+
+function attachCommitmentHandlers() {
+    ['plant', 'craft'].forEach(kind => {
+        document.getElementById(`${kind}-add-btn`).addEventListener('click', () => addCommitmentFromInput(kind));
+        const input = document.getElementById(`${kind}-input`);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCommitmentFromInput(kind);
+            }
+        });
+        input.addEventListener('input', () => input.setCustomValidity(''));
+    });
+    const section = document.getElementById('commitments-section');
+    section.addEventListener('input', (e) => {
+        const index = e.target.dataset?.commit;
+        if (index === undefined || !commitments[index]) return;
+        const c = commitments[index];
+        const value = Number(e.target.value);
+        if (e.target.value === '' || !Number.isFinite(value) || value < 0) return;
+        c.amount = c.kind === 'plant' ? Math.round(value) : value;
+        const unit = section.querySelector(`[data-commit-unit="${index}"]`);
+        if (unit) unit.textContent = commitmentUnit(c);
+        renderCommitmentWarnings();
+        saveInputsToStorage();
+    });
+    section.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.dataset?.commit !== undefined) runFindPlan();
+    });
+    section.addEventListener('click', (e) => {
+        const index = e.target.closest('[data-uncommit]')?.dataset.uncommit;
+        if (index === undefined) return;
+        commitments.splice(Number(index), 1);
+        renderCommitments();
+        saveInputsToStorage();
+    });
+}
+
+// The plan input's `commitments`: Advanced mode only, since Simple mode has no setup of its own.
+function commitmentsInput() {
+    if (isSimpleMode()) return [];
+    return commitments
+        .filter(c => c.amount > 0)
+        .map(c => c.kind === 'plant' ? { item: c.item, units: Math.round(c.amount) } : { item: c.item, per_day: c.amount });
+}
+
+// Saved commitments, kept only where they still make sense.
+function loadCommitments(saved) {
+    if (!Array.isArray(saved)) return;
+    commitments = saved
+        .filter(c => c && typeof c.item === 'string' && (c.kind === 'plant' || c.kind === 'craft'))
+        .map(c => ({ item: c.item, kind: c.kind, amount: Math.max(0, Number(c.amount) || 0) }))
+        .map(c => ({ ...c, amount: c.kind === 'plant' ? Math.round(c.amount) : c.amount }));
+}
+
+// The plan's report on each pick (see `JsCommitmentReport` in wasm.rs), under the rate.
+function renderPlanCommitments(plan) {
+    const reports = plan.commitments || [];
+    document.getElementById('plan-committed').style.display = reports.length ? 'block' : 'none';
+    document.getElementById('plan-committed-list').innerHTML = reports.map(r => {
+        const name = escapeText(prettyItem(r.item));
+        let what;
+        if (!r.possible) {
+            what = "can't be made with what you have, so the plan leaves it out";
+        } else if (r.kind === 'units') {
+            what = `${formatNumber(r.amount)} ${commitmentUnit({ item: r.item, kind: 'plant', amount: r.amount })}`;
+            // Season crops the day's seed budget can't keep growing around the clock (see
+            // `CommitmentStatus::held` in exact.rs).
+            if (r.held != null && r.held < r.amount * (1 - 1e-3)) {
+                what = `${what} for about ${Math.round(100 * r.held / r.amount)}% of the day (your season seeds a day don't cover more)`;
+            }
+        } else {
+            what = `${formatNumber(r.amount)} a day, set aside`;
+        }
+        return `<li class="${r.possible ? '' : 'unmet'}"><span>${name}</span> · <span>${escapeText(what)}</span></li>`;
+    }).join('');
 }
 
 // --- Strategy ----------------------------------------------------------------------------
@@ -2375,6 +2597,10 @@ function populateLevelUpTargets() {
 
 function renderStrategy() {
     renderSeason();
+    // The season's items come and go from Planting and Crafting with it, and Fill changes what's
+    // owned.
+    renderCommitmentOptions();
+    renderCommitmentWarnings();
     const levelUp = isLevelUpStrategy();
     document.getElementById('level-up-config').style.display = levelUp ? 'block' : 'none';
     document.getElementById('priorities-config').style.display = levelUp ? 'none' : 'block';
@@ -2628,6 +2854,7 @@ function getPlanInputValues() {
             exclude: excludedRecipes(),
             season: seasonActive(),
             season_currency_per_day: seasonCurrencyPerDay(),
+            commitments: commitmentsInput(),
             facilities,
             modules
         };
@@ -2656,6 +2883,7 @@ function getPlanInputValues() {
         exclude: excludedRecipes(),
         season: seasonActive(),
         season_currency_per_day: seasonCurrencyPerDay(),
+        commitments: commitmentsInput(),
         facilities,
         modules
     };
@@ -2931,12 +3159,15 @@ function facilityPlanTableOf(groups) {
     `;
 }
 
+// Whether a row makes something the player picked under Planting and Crafting.
+const pickedRow = step => step.status === 'producing' && !!planContext?.committed?.has(madeItem(step.item_name));
+
 function planRows(rows) {
     return rows.map(step => `
                     <tr class="status-${step.status}">
                         <td data-label="Facility">${step.facility}</td>
                         <td data-label="Count">${step.facility_count}</td>
-                        <td data-label="Producing">${step.item_name ? prettyItem(step.item_name) : '-'}${unverifiedRowKeys.has(`${step.facility}|${step.item_name}`) ? '<span class="tag unverified" title="Not yet checked in game">unverified</span>' : ''}${step.item_name && step.status === 'producing' ? `<button type="button" class="skip-row" data-skip="${step.item_name}" title="Can't make this? Skip it and plan again" aria-label="Skip ${prettyItem(step.item_name)} and plan again">✕</button>` : ''}</td>
+                        <td data-label="Producing">${step.item_name ? prettyItem(step.item_name) : '-'}${unverifiedRowKeys.has(`${step.facility}|${step.item_name}`) ? '<span class="tag unverified" title="Not yet checked in game">unverified</span>' : ''}${pickedRow(step) ? '<span class="tag picked" title="You asked for this under Planting and Crafting">your pick</span>' : ''}${step.item_name && step.status === 'producing' && !pickedRow(step) ? `<button type="button" class="skip-row" data-skip="${step.item_name}" title="Can't make this? Skip it and plan again" aria-label="Skip ${prettyItem(step.item_name)} and plan again">✕</button>` : ''}</td>
                         <td data-label="Aniimo">${aniimoLabel(step)}</td>
                         <td data-label="Why">${prettyReason(step.reason)}</td>
                     </tr>
@@ -3775,6 +4006,7 @@ function displayPlan(plan) {
     const skipped = planContext?.skipped || [];
     skippedEl.style.display = skipped.length ? 'block' : 'none';
     skippedEl.textContent = skipped.length ? `Skipping ${skipped.map(prettyItem).join(', ')}.` : '';
+    renderPlanCommitments(plan);
 
     renderSeedTable(plan);
     renderLevelUp(plan);
@@ -3849,6 +4081,8 @@ async function runFindPlan() {
             // Only what the player skipped; locked special recipes are the default, not news.
             skipped: [...skippedRecipes].sort((a, b) => prettyItem(a).localeCompare(prettyItem(b))),
             simple: isSimpleMode(),
+            // Items the player picked under Planting and Crafting, tagged in the plan's tables.
+            committed: new Set(input.commitments.map(c => c.item)),
         };
         startProgress(input, runId);
 
@@ -4211,6 +4445,8 @@ async function initApp() {
     attachStrategyHandlers();
     attachSkipHandlers();
     renderSkippedRecipes();
+    attachCommitmentHandlers();
+    renderCommitments();
     attachSpecialHandlers();
     renderSpecialRecipes();
     attachSeasonHandlers();
@@ -4272,7 +4508,7 @@ async function initApp() {
     // once at startup wouldn't reach a tier added later).
     document.querySelectorAll('input').forEach(input => {
         if (input.id === 'target-amount' || input.id === 'current-amount') return;
-        if (input.closest('#facilities-grid') || input.closest('#level-up-stock-grid') || input.id === 'skip-input') return;
+        if (input.closest('#facilities-grid') || input.closest('#level-up-stock-grid') || input.closest('#commitments-section') || input.id === 'skip-input') return;
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 runFindPlan();

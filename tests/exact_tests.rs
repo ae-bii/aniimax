@@ -3,8 +3,10 @@
 //! where worked out by hand, earns exactly what the arithmetic in the comments says.
 
 use aniimax::data::{load_all_data, load_aniimo_requirements};
-use aniimax::exact::{check_plan, net_rates, solve_exact, to_production_plan, ExactPlan, Goal, LevelUp, PACE_UNIT};
-use aniimax::models::{AniimoSetup, FacilityCounts, ModuleLevels, ProductionItem};
+use aniimax::exact::{
+    busy_making, check_plan, commitment_status, net_rates, solve_exact, to_production_plan, ExactPlan, Goal, LevelUp, PACE_UNIT,
+};
+use aniimax::models::{AniimoSetup, Commitment, CommitmentKind, FacilityCounts, ModuleLevels, ProductionItem};
 use aniimax::optimizer::find_production_plan;
 use std::path::Path;
 use std::time::Duration;
@@ -513,4 +515,160 @@ fn crew_residents_take_a_whole_aniimo() {
     assert_eq!(sandcastles(&one, &items), 1);
     let (two, items) = solve_with_crew(&counts, crew_of(&[(2, &[("Leisure", 2)])]));
     assert_eq!(sandcastles(&two, &items), 2);
+}
+
+fn with_commitments(counts: FacilityCounts, commitments: &[(&str, f64, CommitmentKind)]) -> FacilityCounts {
+    let mut counts = counts;
+    counts.set_commitments(
+        commitments.iter().map(|&(item, amount, kind)| Commitment { item: item.to_string(), amount, kind }).collect(),
+    );
+    counts
+}
+
+/// Solves with commitments, proven and re-checked like [`solve_and_check`], without comparing to
+/// the heuristic planner (which doesn't know about commitments, so can beat a plan held to them).
+fn solve_committed(items: &[ProductionItem], counts: &FacilityCounts) -> ExactPlan {
+    let modules = ModuleLevels::default();
+    let plan = solve_exact(items, "coins", counts, &modules, Goal::Earn { floors: &[] }, Some(Duration::from_secs(60)), None)
+        .expect("exact plan");
+    assert!(plan.proven_optimal, "not proven optimal: {plan:?}");
+    let recomputed = check_plan(&plan, items, "coins", counts, &modules, None).expect("plan passes its re-check");
+    assert!((recomputed - plan.rate_per_second).abs() < 1e-6);
+    plan
+}
+
+// Six watered level-2 Farmland plots grow potato at 15/480 a plot (see
+// `exact_picks_the_best_crop_on_its_own`). Keeping two on wheat, which earns 5/180 a plot, leaves
+// the other four on potato.
+#[test]
+fn test_commitment_keeps_plots_on_a_crop() {
+    let Some(items) = load_items() else { return };
+    let counts = with_commitments(FacilityCounts::only(&[("Farmland", 6, 2)]), &[("wheat", 2.0, CommitmentKind::Units)]);
+    let plan = solve_committed(&items, &counts);
+    let expected = 2.0 * 5.0 / 180.0 + 4.0 * 15.0 / 480.0;
+    assert!((plan.rate_per_second - expected).abs() < 1e-9, "got {}, expected {expected}", plan.rate_per_second);
+    assert_eq!(plan.units.get("wheat"), Some(&2));
+    assert_eq!(plan.units.get("potato"), Some(&4));
+    assert!((busy_making(&plan, &items, "wheat") - 2.0).abs() < 1e-9);
+}
+
+// At level 3, rice (18 at 10 each less 12 seed, every 1800s watered) earns far more than milled
+// wheat, so a level-1 Carousel Mill sits idle. Keep two plots on wheat and milling it is the best
+// use of it: 50 wheat (worth 50) make a wheatmeal worth 70.
+#[test]
+fn test_commitment_makes_the_most_of_what_it_grows() {
+    let Some(items) = load_items() else { return };
+    let base = FacilityCounts::only(&[("Farmland", 6, 3), ("Carousel Mill", 1, 1)]);
+    let free = solve_committed(&items, &base);
+    assert_eq!(free.units.get("wheat"), None);
+    assert_eq!(free.units.get("wheatmeal"), None);
+
+    let counts = with_commitments(base, &[("wheat", 2.0, CommitmentKind::Units)]);
+    let plan = solve_committed(&items, &counts);
+    let expected = 4.0 * 168.0 / 1800.0 + 2.0 * 5.0 / 180.0 / 50.0 * 70.0;
+    assert!((plan.rate_per_second - expected).abs() < 1e-9, "got {}, expected {expected}", plan.rate_per_second);
+    assert_eq!(plan.units.get("wheatmeal"), Some(&1));
+    assert!(plan.sold.get("wheat").is_none_or(|&s| s < 1e-9), "wheat sold raw: {:?}", plan.sold);
+}
+
+// Ten wheatmeal a day set aside takes 500 wheat a day, so one of three plots goes to wheat. What
+// that plot grows beyond the 500 is milled and sold; the ten kept earn nothing.
+#[test]
+fn test_commitment_sets_an_amount_aside() {
+    let Some(items) = load_items() else { return };
+    let base = FacilityCounts::only(&[("Farmland", 3, 3), ("Carousel Mill", 1, 1)]);
+    let counts = with_commitments(base, &[("wheatmeal", 10.0, CommitmentKind::PerDay)]);
+    let plan = solve_committed(&items, &counts);
+    let spare_wheat = 5.0 / 180.0 - 500.0 / PACE_UNIT;
+    let expected = 2.0 * 168.0 / 1800.0 + spare_wheat / 50.0 * 70.0;
+    assert!((plan.rate_per_second - expected).abs() < 1e-9, "got {}, expected {expected}", plan.rate_per_second);
+    assert_eq!(plan.units.get("wheat"), Some(&1));
+    let made: f64 = plan.recipe_rates.get("wheatmeal").copied().unwrap_or(0.0);
+    let sold = plan.sold.get("wheatmeal").copied().unwrap_or(0.0);
+    assert!((made - sold - 10.0 / PACE_UNIT).abs() < 1e-9, "made {made}/s, sold {sold}/s");
+    let shown = to_production_plan(&plan, &items, "coins", &counts);
+    let row = shown.coin_items.iter().find(|s| s.item_name.as_deref() == Some("wheatmeal")).expect("wheatmeal row");
+    assert_eq!(row.reason, "10 a day set aside for you; the rest sells directly");
+}
+
+// A commitment nothing owned can make (Strawberry Jam needs a Simmering Pot) is left out: the plan
+// is the one without it, and its status says why.
+#[test]
+fn test_commitment_out_of_reach_is_left_out() {
+    let Some(items) = load_items() else { return };
+    let counts = with_commitments(
+        FacilityCounts::only(&[("Farmland", 6, 2)]),
+        &[("strawberry_jam", 5.0, CommitmentKind::PerDay), ("strawberry", 2.0, CommitmentKind::Units)],
+    );
+    let plan = solve_committed(&items, &counts);
+    assert!((plan.rate_per_second - 6.0 * 15.0 / 480.0).abs() < 1e-9, "got {}", plan.rate_per_second);
+    let status = commitment_status(&items, &counts, &ModuleLevels::default());
+    assert_eq!(status.len(), 2);
+    assert!(status.iter().all(|s| !s.possible), "{status:?}");
+    assert_eq!(status[0].facility.as_deref(), Some("Simmering Pot"));
+    assert_eq!(status[1].facility.as_deref(), Some("Farmland"));
+}
+
+// Commitments hold for a level-up too: wheat plots kept busy stay busy while the plan races for
+// the level-up's coins.
+#[test]
+fn test_commitment_holds_while_leveling_up() {
+    let Some(items) = load_items() else { return };
+    let counts = with_commitments(FacilityCounts::only(&[("Farmland", 6, 2)]), &[("wheat", 3.0, CommitmentKind::Units)]);
+    let level_up = level_up(&[("coins", 1000.0)], &[]);
+    let modules = ModuleLevels::default();
+    let plan = solve_exact(&items, "coins", &counts, &modules, Goal::LevelUp(&level_up), Some(Duration::from_secs(60)), None)
+        .expect("level-up plan");
+    assert!(busy_making(&plan, &items, "wheat") >= 3.0 - 1e-9);
+    // Three plots each of wheat and potato: 3 x 5/180 + 3 x 15/480 coins a second.
+    let rate = 3.0 * 5.0 / 180.0 + 3.0 * 15.0 / 480.0;
+    let pace = plan.pace.expect("pace");
+    assert!((pace - rate * PACE_UNIT / 1000.0).abs() < 1e-6 * pace, "pace {pace}");
+}
+
+// Lavender is Adequate, so it grows only under a Sunlamp: a pick of it with no Sunlamp is left
+// out, instead of making every plan infeasible.
+#[test]
+fn test_commitment_needs_its_environment_building() {
+    let Some(items) = load_items() else { return };
+    let modules = ModuleLevels::default();
+    let picks = [("lavender", 2.0, CommitmentKind::Units)];
+    let status = |sunlamps: u32| {
+        let counts = with_commitments(FacilityCounts::only(&[("Farmland", 6, 5), ("Sunlamp", sunlamps, 1)]), &picks);
+        commitment_status(&items, &counts, &modules)[0].possible
+    };
+    assert!(!status(0), "no Sunlamp");
+    assert!(status(1));
+}
+
+// Season crops kept busy take their seeds out of the day's season budget: six plots each of
+// Moondew Radish and Waxing Moon Pepper all day take more than 1600 a day, so both picks are scaled
+// down alike to what the budget pays for, instead of no plan fitting.
+#[test]
+fn test_commitment_season_crops_keep_to_the_seed_budget() {
+    let Some(mut items) = load_items_with_season() else { return };
+    let modules = ModuleLevels::default();
+    let picks = [("moondew_radish", 6.0, CommitmentKind::Units), ("waxing_moon_pepper", 6.0, CommitmentKind::Units)];
+    let counts = with_commitments(FacilityCounts::only(&[("Farmland", 12, 5)]), &picks);
+    assert!(commitment_status(&items, &counts, &modules).iter().all(|s| s.possible && s.held == 6.0), "no budget set");
+
+    for item in items.iter_mut() {
+        if let Some(season) = item.season.as_mut() {
+            season.currency_per_day = Some(1600.0);
+        }
+    }
+    let held = commitment_status(&items, &counts, &modules);
+    let radish = items.iter().find(|i| i.name == "moondew_radish").unwrap();
+    let all_day = 12.0 * 4.0 * PACE_UNIT / radish.production_time;
+    assert!(all_day > 1600.0);
+    for s in &held {
+        assert!(s.possible);
+        assert!((s.held - 6.0 * 1600.0 / all_day).abs() < 1e-3, "held {}", s.held);
+    }
+    let plan = solve_exact(&items, "coins", &counts, &modules, Goal::Earn { floors: &[] }, Some(Duration::from_secs(60)), None)
+        .expect("a plan within the seed budget");
+    check_plan(&plan, &items, "coins", &counts, &modules, None).expect("plan passes its re-check");
+    for s in &held {
+        assert!(busy_making(&plan, &items, &s.commitment.item) >= s.held - 1e-6);
+    }
 }

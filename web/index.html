@@ -139,6 +139,28 @@
                     </div>
                 </div>
 
+                <div class="commitments" id="commitments-section">
+                    <h3>Planting and Crafting <span class="skip-count" id="commit-count"></span></h3>
+                    <p class="hint">What you want made whether or not it's the best use of your homeland. The plan keeps to it and makes the best of everything else, including what to do with what you plant.</p>
+                    <p class="assume-title">Plant</p>
+                    <p class="hint small">Plots kept on a crop, or units of another gathering facility. What they grow is sold or made into something else, whichever earns more.</p>
+                    <div class="commit-list" id="plant-list"></div>
+                    <div class="skip-add">
+                        <input type="text" id="plant-input" list="plant-options" placeholder="Search crops and gathering" autocomplete="off" aria-label="Crop to plant">
+                        <button type="button" id="plant-add-btn" class="skip-add-btn">Add</button>
+                    </div>
+                    <datalist id="plant-options"></datalist>
+                    <p class="assume-title">Craft</p>
+                    <p class="hint small">Made every day and set aside for you, so it isn't sold. The plan grows and makes whatever goes into it.</p>
+                    <div class="commit-list" id="craft-list"></div>
+                    <div class="skip-add">
+                        <input type="text" id="craft-input" list="craft-options" placeholder="Search recipes" autocomplete="off" aria-label="Item to craft">
+                        <button type="button" id="craft-add-btn" class="skip-add-btn">Add</button>
+                    </div>
+                    <datalist id="craft-options"></datalist>
+                    <ul class="commit-warnings" id="commit-warnings" hidden></ul>
+                </div>
+
                 <div class="season" id="season-section" hidden>
                     <label class="priority-switch season-switch">
                         <input type="checkbox" role="switch" id="season-on">
@@ -240,6 +262,10 @@
                         <p class="plan-proof" id="plan-explored-hint"></p>
                         <p class="plan-unverified" id="plan-unverified" style="display: none;"></p>
                         <p class="plan-skipped" id="plan-skipped" style="display: none;"></p>
+                        <div class="plan-committed" id="plan-committed" style="display: none;">
+                            <p class="plan-committed-title">Your Planting and Crafting picks</p>
+                            <ul id="plan-committed-list"></ul>
+                        </div>
                     </div>
 
                     <div class="card production-steps" id="improve-card" style="display: none;">
@@ -428,6 +454,9 @@
                 <h3>Priorities</h3>
                 <p>The plan solves once per ticked priority, in your order. Each solve makes as much of its priority as it can while keeping at least what the earlier ones reached; a last solve then earns as many Home Coins as all of those leave room for. Aniimo EXP, Aniipods and, during the Harvest Moon Festival, Harvest Moon Points count as their own currencies, so the same model handles them like Home Coins.</p>
 
+                <h3>Planting and Crafting</h3>
+                <p>Plots you keep on a crop hold whatever the strategy: across every recipe \(r\) that makes the crop (its quick version and an uncovered plot count too), \(\sum_r b_r t_r \ge n\) for \(n\) plots, so they're always growing it and the plan has to do something with the harvest, selling it or making it into whatever earns most. A craft set aside for you comes out of its item's balance like a sale that earns nothing, \(\text{made} \ge \text{used} + \text{sold} + k/86400\) for \(k\) a day, so the plan grows and makes what goes into it. Every other solve, from the level-up pace to each priority, keeps both.</p>
+
                 <h3>Time to Reach a Goal</h3>
                 <p>Each product starts adding up once its first batch clears its ingredient chain (its lead time), then keeps its steady rate:</p>
                 <div class="math-block">\[ \text{amount}(t) = \sum_i \text{rate}_i \cdot \max(0,\ t - \text{lead}_i) \]</div>
@@ -461,6 +490,8 @@
                 <p><strong>Level up</strong> gets everything your next RV level costs as soon as possible: its Home Coins plus Wood Blocks and Mineral Sand, or from RV 7 a Woodworking Bench item and a Chimney Kiln item. Under "What you already have", enter what you've got; Wood Blocks, Mineral Sand and lower tiers count too, since the Bench and Kiln process them up. The plan still earns as many Home Coins as it can on the way. In Advanced you can pick which RV level to plan for.</p>
                 <p><strong>Priorities</strong> ranks what you want: Home Coins, Aniimo EXP (Growth items from the Dance Pad Polisher), Aniipods (the best tier your Aniipod Maker can reach, since a better one catches better), Wood Blocks and Mineral Sand. Switch on the ones you want and drag them into order; the plan makes as much of the first as it can, then as much of the next as that allows, and whatever's left goes to Home Coins. The rate card shows each one.</p>
 
+                <p><strong>Planting and Crafting</strong> (Advanced only) is for when you'd rather not run the best farm. Under Plant, add crops and how many plots to keep on each, such as a few plots of every crop or a season's seeds; the plan keeps them and works out the rest, including whether to sell what they grow or make it into something. Under Craft, add things you want made and how many a day; they're set aside for you instead of sold, and the plan grows what goes into them.</p>
+
                 <h3>3. Find the Best Plan</h3>
                 <p>Click "Find the best plan" to see how long the level-up takes (or your best rate) and what each facility should make. Set it up once and leave it running. Everything you enter is saved in your browser; "Clear saved values" resets it.</p>
 
@@ -474,7 +505,7 @@
                     <li><strong>Your Rates</strong>: with Priorities, what the plan makes of each priority in your order, then Home Coins from what's left, per second, minute, hour or day.</li>
                     <li><strong>Seeds to Plant</strong>: the seeds your Farmland and Woodland go through and what they cost, in total until the level-up with Level up, or at the chosen rate with Priorities.</li>
                     <li><strong>Profit by Product</strong>: with Level up, what each product earns per hour and in total until the level-up is ready.</li>
-                    <li><strong>What Each Facility Should Do</strong>: what to set each facility to, all running at once. Recipes tagged "unverified" haven't been checked in game yet.</li>
+                    <li><strong>What Each Facility Should Do</strong>: what to set each facility to, all running at once. Recipes tagged "unverified" haven't been checked in game yet, and "your pick" marks what you asked for under Planting and Crafting.</li>
                     <li><strong>Opportunities</strong>: changes within your reach (a recipe to unlock, an Aniimo level, and in Advanced mode a module or facility) ranked by how much they'd improve the plan.</li>
                     <li><strong>Homeland Layout</strong>: where to put each facility so the busiest are nearest the Storage Unit.</li>
                     <li><strong>Set a Goal</strong>: with Priorities, how long it takes to reach a target amount of Home Coins or any priority that's on, and what else you'll have by then.</li>
