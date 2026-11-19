@@ -1178,6 +1178,30 @@ pub struct FacilityCounts {
     default_tier: (u32, u32),
     /// The Aniimo the player has, when planning with them (see [`Crew`]).
     crew: Option<Crew>,
+    /// What the player makes whatever the plan would rather do (see [`Commitment`]).
+    commitments: Vec<Commitment>,
+}
+
+/// Something the player makes whatever the plan would rather do, and the plan works around: e.g.
+/// 5 Farmland plots of a season crop, or 10 Strawberry Jam a day to keep.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Commitment {
+    /// The item made, e.g. `"strawberry"` or `"strawberry_jam"`. Any recipe making it counts:
+    /// quick, grown without its environment, or worked by any Aniimo.
+    pub item: String,
+    pub amount: f64,
+    pub kind: CommitmentKind,
+}
+
+/// What a [`Commitment`]'s amount counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitmentKind {
+    /// Units kept busy making the item: plots for a crop, machines for a processed item. The plan
+    /// decides what becomes of what they make, selling it or making something more from it.
+    Units,
+    /// Made a day and set aside for the player, on top of what the plan uses or sells: it earns
+    /// nothing and no other recipe takes it.
+    PerDay,
 }
 
 impl Default for FacilityCounts {
@@ -1186,6 +1210,7 @@ impl Default for FacilityCounts {
             facilities: std::collections::HashMap::new(),
             default_tier: (1, 1),
             crew: None,
+            commitments: Vec::new(),
         }
     }
 }
@@ -1200,6 +1225,17 @@ impl FacilityCounts {
     /// The Aniimo the player has, if planning with them.
     pub fn crew(&self) -> Option<&Crew> {
         self.crew.as_ref()
+    }
+
+    /// Plans keep these units on these items (see [`Commitment`]).
+    pub fn set_commitments(&mut self, commitments: Vec<Commitment>) -> &mut Self {
+        self.commitments = commitments;
+        self
+    }
+
+    /// What the player makes whatever the plan would rather do.
+    pub fn commitments(&self) -> &[Commitment] {
+        &self.commitments
     }
 
     /// Creates an empty `FacilityCounts` (every facility defaults to count=1, level=1).
@@ -1235,7 +1271,7 @@ impl FacilityCounts {
         let mut fc = Self {
             facilities: std::collections::HashMap::new(),
             default_tier: (0, 1),
-            crew: None,
+            ..Self::default()
         };
         for (name, count, level) in pairs {
             fc.set(name, *count, *level);
@@ -1249,7 +1285,7 @@ impl FacilityCounts {
         Self {
             facilities: std::collections::HashMap::new(),
             default_tier: (1, 99),
-            crew: None,
+            ..Self::default()
         }
     }
 

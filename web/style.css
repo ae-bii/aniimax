@@ -2090,6 +2090,123 @@ tr:hover .skip-row,
     margin-left: 0.35rem;
 }
 
+/* A row the player picked under Planting and Crafting. */
+.tag.picked {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+/* Planting and Crafting: what the player wants made whatever the plan would rather do. */
+.commitments {
+    margin: 0 0 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+}
+
+.commitments h3 {
+    margin-bottom: 0.4rem;
+}
+
+.commitments .assume-title {
+    margin-top: 1.1rem;
+}
+
+.commit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-width: 28rem;
+}
+
+.commit-list:not(:empty) {
+    margin-top: 0.6rem;
+}
+
+.commit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.5rem 3.6rem 1.3rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.3rem 0.3rem 0.75rem;
+    background: var(--surface-2);
+    border-radius: 8px;
+    font-size: 0.88rem;
+}
+
+.commit-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.commit-row input {
+    width: 100%;
+    padding: 0.3rem 0.45rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    text-align: right;
+}
+
+.commit-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.commit-unit {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.commit-row button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.commit-row button:hover {
+    background: var(--border);
+    color: var(--text);
+}
+
+.commit-warnings {
+    margin: 0.75rem 0 0;
+    padding-left: 1.1rem;
+    max-width: 28rem;
+    font-size: 0.82rem;
+    color: var(--warning);
+}
+
+.plan-committed {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.plan-committed-title {
+    margin: 0;
+}
+
+.plan-committed ul {
+    margin: 0.2rem 0 0;
+    padding-left: 1.1rem;
+}
+
+.plan-committed li.unmet {
+    color: var(--warning);
+}
+
 /* An event that has ended: its recipes stay listed for reference, muted. */
 .tag.ended {
     color: var(--text-muted);

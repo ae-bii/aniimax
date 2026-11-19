@@ -19,6 +19,10 @@
 //!   as [`crate::models::SEASON_POINTS`]. Season seeds cost the season currency, which plans treat
 //!   as unlimited (see [`crate::models::SeasonTerms`]) unless the player sets a daily budget:
 //!   `86400 * sum of seed_cost_r * b_r <= currency per day`.
+//! - The player's commitments (see [`crate::models::Commitment`]) hold whatever the goal: plots
+//!   or machines kept on an item are `sum of b_r * t_r >= units` over every recipe making it, so
+//!   the plan has to do something with what they make; an amount a day set aside comes off the
+//!   item's balance, `made >= used + sold + per_day / 86400`.
 //! - The objective is the target currency per second from everything sold; for coins, minus seed
 //!   costs (seeds are paid in coins, so they don't come off an Aniimo EXP total). A floor can
 //!   name another currency, so a plan keeps up the Aniimo EXP or Aniipods an earlier solve found
@@ -43,7 +47,7 @@ use crate::coverage::{
     facility_footprint, mode_temperature, single_building_options, temperature_mode, CoverageOption,
     building_size, pair_options_over_offsets, Offset, PairOption, PairSizes, Zone, ENVIRONMENT_GATED_FACILITIES,
 };
-use crate::models::{byproduct_item, FacilityCounts, ModuleLevels, ProductionItem};
+use crate::models::{byproduct_item, Commitment, CommitmentKind, FacilityCounts, ModuleLevels, ProductionItem};
 
 /// Whether plans may place two environment buildings to overlap, for the zone their temperatures
 /// make together. Confirmed in game: a plot reached by Scorching and Cool reads Warm and grows a
@@ -319,6 +323,67 @@ fn season_budget<T: Copy>(rates: &[(&ProductionItem, T)]) -> Option<(f64, Vec<(T
     budget.map(|b| (b, spent))
 }
 
+/// Whether a plan can run `recipe` with these facilities and modules.
+fn usable(recipe: &ProductionItem, facility_counts: &FacilityCounts, module_levels: &ModuleLevels) -> bool {
+    facility_counts.get_count(&recipe.facility) > 0
+        && facility_counts.can_produce(&recipe.facility, recipe.facility_level)
+        && recipe.module_requirement.as_ref().is_none_or(|(m, l)| module_levels.can_use(m, *l))
+        && recipe.production_time > 0.0
+}
+
+/// How one of the player's commitments (see [`crate::models::Commitment`]) stands with these
+/// facilities and modules.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitmentStatus {
+    pub commitment: Commitment,
+    /// The facility that makes it, if any recipe in `items` does.
+    pub facility: Option<String>,
+    /// Whether any recipe making it can run here; a commitment that can't is left out of plans.
+    pub possible: bool,
+}
+
+/// Each commitment in `facility_counts`, in order, and whether these facilities and modules can
+/// make it.
+pub fn commitment_status(items: &[ProductionItem], facility_counts: &FacilityCounts, module_levels: &ModuleLevels) -> Vec<CommitmentStatus> {
+    let all: HashMap<&str, &ProductionItem> = items.iter().map(|i| (i.name.as_str(), i)).collect();
+    facility_counts
+        .commitments()
+        .iter()
+        .map(|c| {
+            let making: Vec<&ProductionItem> = items.iter().filter(|r| made_item(&r.name, &all) == c.item).collect();
+            CommitmentStatus {
+                commitment: c.clone(),
+                facility: making.first().map(|r| r.facility.clone()),
+                possible: making.iter().any(|r| usable(r, facility_counts, module_levels)),
+            }
+        })
+        .collect()
+}
+
+/// Units of `plan` busy making `item`, in any variant: each recipe's rate times its time per batch.
+pub fn busy_making(plan: &ExactPlan, items: &[ProductionItem], item: &str) -> f64 {
+    let all: HashMap<&str, &ProductionItem> = items.iter().map(|i| (i.name.as_str(), i)).collect();
+    plan.recipe_rates
+        .iter()
+        .filter_map(|(name, &rate)| all.get(name.as_str()).map(|r| (*r, rate)))
+        .filter(|(r, _)| made_item(&r.name, &all) == item)
+        .map(|(r, rate)| rate * r.production_time)
+        .sum()
+}
+
+/// Per second of each item the player sets aside (see [`CommitmentKind::PerDay`]), for every
+/// such commitment these facilities can make.
+fn kept_per_second(items: &[ProductionItem], facility_counts: &FacilityCounts, module_levels: &ModuleLevels) -> BTreeMap<String, f64> {
+    let mut kept: BTreeMap<String, f64> = BTreeMap::new();
+    for status in commitment_status(items, facility_counts, module_levels) {
+        let c = status.commitment;
+        if status.possible && c.kind == CommitmentKind::PerDay && c.amount > 0.0 {
+            *kept.entry(c.item).or_default() += c.amount / PACE_UNIT;
+        }
+    }
+    kept
+}
+
 /// Builds the model for `items` (production times already set for the Aniimo working them).
 fn build_model<'a>(
     items: &'a [ProductionItem],
@@ -328,15 +393,7 @@ fn build_model<'a>(
     goal: Goal,
 ) -> Model<'a> {
     let all: HashMap<&str, &ProductionItem> = items.iter().map(|i| (i.name.as_str(), i)).collect();
-    let recipes: Vec<&ProductionItem> = items
-        .iter()
-        .filter(|item| {
-            facility_counts.get_count(&item.facility) > 0
-                && facility_counts.can_produce(&item.facility, item.facility_level)
-                && item.module_requirement.as_ref().is_none_or(|(m, l)| module_levels.can_use(m, *l))
-                && item.production_time > 0.0
-        })
-        .collect();
+    let recipes: Vec<&ProductionItem> = items.iter().filter(|item| usable(item, facility_counts, module_levels)).collect();
     let mut model = Model {
         objective: Vec::new(),
         earnings: Vec::new(),
@@ -365,6 +422,19 @@ fn build_model<'a>(
     // The season currency the player can spend on seeds a day.
     if let Some((budget, spent)) = season_budget(&rate_of) {
         model.constrain(spent.into_iter().map(|(v, cost)| (v, cost * PACE_UNIT)).collect(), ComparisonOp::Le, budget);
+    }
+    // What the player makes regardless: at least that many units busy on the item, across every
+    // recipe making it. Busy, not just set aside, so the plan has to do something with what they
+    // make. One that nothing here can make is left out (see `commitment_status`).
+    for commitment in facility_counts.commitments().iter().filter(|c| c.kind == CommitmentKind::Units) {
+        let busy: Vec<(usize, f64)> = rate_of
+            .iter()
+            .filter(|(recipe, _)| made_item(&recipe.name, &all) == commitment.item)
+            .map(|&(recipe, rate)| (rate, recipe.production_time))
+            .collect();
+        if commitment.amount > 0.0 && !busy.is_empty() {
+            model.constrain(busy, ComparisonOp::Ge, commitment.amount);
+        }
     }
 
     // Item balances: made >= used + sold.
@@ -454,8 +524,10 @@ fn build_model<'a>(
             _ => {}
         }
     }
-    for terms in balance.into_values() {
-        model.constrain(terms, ComparisonOp::Ge, 0.0);
+    // What the player sets aside comes out of its item's balance like a sale that earns nothing.
+    let kept = kept_per_second(items, facility_counts, module_levels);
+    for (name, terms) in balance {
+        model.constrain(terms, ComparisonOp::Ge, kept.get(name).copied().unwrap_or(0.0));
     }
 
     // Owned units per facility, by level: a recipe needing level L can only use units at L or
@@ -1074,6 +1146,22 @@ pub fn check_plan(
         }
     }
     let rates: Vec<(&ProductionItem, f64)> = plan.recipe_rates.iter().filter_map(|(n, &r)| Some((*all.get(n.as_str())?, r))).collect();
+    for status in commitment_status(items, facility_counts, module_levels) {
+        let c = &status.commitment;
+        if !status.possible || c.kind != CommitmentKind::Units {
+            continue;
+        }
+        let busy = busy_making(plan, items, &c.item);
+        if busy < c.amount - TOLERANCE * c.amount.max(1.0) {
+            return Err(format!("{} should keep {} units busy but keeps {busy}", c.item, c.amount));
+        }
+    }
+    for (name, per_second) in kept_per_second(items, facility_counts, module_levels) {
+        match made.iter_mut().find(|(item, _)| **item == name) {
+            Some((_, left)) => *left -= per_second,
+            None => return Err(format!("{name} should be set aside but isn't made")),
+        }
+    }
     if let Some((budget, spent)) = season_budget(&rates) {
         let per_day: f64 = spent.iter().map(|(rate, cost)| rate * cost).sum::<f64>() * PACE_UNIT;
         if per_day > budget * (1.0 + TOLERANCE) + TOLERANCE {
@@ -1473,6 +1561,19 @@ pub fn to_production_plan(
         // Made, not sold, not all used up and not sellable: kept for the level-up.
         let sellable = all.get(made).is_some_and(|item| item.sell_currency != "none" && item.sell_value > 0.0);
         let kept = exact.pace.is_some() && !sells && !sellable && net_rates(exact, items).get(made).is_some_and(|&n| n > 1e-9);
+        // Some set aside for the player (see `CommitmentKind::PerDay`).
+        let set_aside = facility_counts.commitments().iter().find(|c| c.kind == CommitmentKind::PerDay && c.item == made);
+        if let Some(c) = set_aside {
+            let mut parts = Vec::new();
+            if !uses.is_empty() {
+                parts.push(format!("Used for {}", uses.join(", ")));
+            }
+            parts.push(format!("{} a day set aside for you", c.amount));
+            if sells {
+                parts.push("the rest sells directly".to_string());
+            }
+            return parts.join("; ");
+        }
         match (uses.is_empty(), sells || kept) {
             (true, _) if kept => "For the level-up".to_string(),
             (true, _) => "Sells directly".to_string(),

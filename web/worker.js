@@ -265,10 +265,15 @@ self.onmessage = async (event) => {
                 }
             } catch (error) {
                 fallbackReason = error && error.message ? error.message : String(error);
-                // The backup planner doesn't know the player's roster, so a roster plan stops here.
-                if (JSON.parse(payload).aniimo?.startsWith('roster')) {
+                // The backup planner doesn't know the player's roster or their Planting and
+                // Crafting picks, so a plan with either stops here rather than drop them.
+                const input = JSON.parse(payload);
+                if (input.aniimo?.startsWith('roster')) {
                     console.warn('Exact planner failed on a roster:', error);
                     result = JSON.stringify({ success: false, error: `No plan found with these Aniimo: ${fallbackReason}.` });
+                } else if (input.commitments?.length) {
+                    console.warn('Exact planner failed with Planting and Crafting picks:', error);
+                    result = JSON.stringify({ success: false, error: `No plan fits your Planting and Crafting picks (${fallbackReason}). Try fewer plots or a smaller amount a day, or check you have the facilities and levels they need.` });
                 } else {
                     step('backup', 'start');
                     console.warn('Exact planner failed; using the backup planner instead:', error);
