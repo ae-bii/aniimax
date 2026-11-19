@@ -859,6 +859,7 @@
   "{n} unit": "ед.: {n}",
   "{n} a day, set aside": "{n} в день, отложено",
   "can't be made with what you have, so the plan leaves it out": "нельзя изготовить с тем, что у вас есть, поэтому план это пропускает",
+  "{what} for about {percent}% of the day (your season seeds a day don't cover more)": "{what} примерно {percent}% суток (сезонных семян в день не хватает на большее)",
   "your pick": "ваш выбор",
   "You asked for this under Planting and Crafting": "Вы задали это в разделе «Посадки и изготовление»",
   "{n} a day set aside for you": "{n} в день откладывается для вас",

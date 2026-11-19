@@ -953,6 +953,7 @@
   "{n} unit": "{n} 個",
   "{n} a day, set aside": "每天 {n} 個，已保留",
   "can't be made with what you have, so the plan leaves it out": "以你現有的設施無法製作，因此規劃略過此項",
+  "{what} for about {percent}% of the day (your season seeds a day don't cover more)": "{what}，約一天的 {percent}%（你每天的季節種子不夠更多）",
   "your pick": "你的選擇",
   "You asked for this under Planting and Crafting": "你在種植與製作中要求了這項",
   "{n} a day set aside for you": "每天為你保留 {n} 個",

@@ -2308,6 +2308,11 @@ function renderPlanCommitments(plan) {
             what = "can't be made with what you have, so the plan leaves it out";
         } else if (r.kind === 'units') {
             what = `${formatNumber(r.amount)} ${commitmentUnit({ item: r.item, kind: 'plant', amount: r.amount })}`;
+            // Season crops the day's seed budget can't keep growing around the clock (see
+            // `CommitmentStatus::held` in exact.rs).
+            if (r.held != null && r.held < r.amount * (1 - 1e-3)) {
+                what = `${what} for about ${Math.round(100 * r.held / r.amount)}% of the day (your season seeds a day don't cover more)`;
+            }
         } else {
             what = `${formatNumber(r.amount)} a day, set aside`;
         }

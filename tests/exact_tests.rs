@@ -625,3 +625,50 @@ fn test_commitment_holds_while_leveling_up() {
     let pace = plan.pace.expect("pace");
     assert!((pace - rate * PACE_UNIT / 1000.0).abs() < 1e-6 * pace, "pace {pace}");
 }
+
+// Lavender is Adequate, so it grows only under a Sunlamp: a pick of it with no Sunlamp is left
+// out, instead of making every plan infeasible.
+#[test]
+fn test_commitment_needs_its_environment_building() {
+    let Some(items) = load_items() else { return };
+    let modules = ModuleLevels::default();
+    let picks = [("lavender", 2.0, CommitmentKind::Units)];
+    let status = |sunlamps: u32| {
+        let counts = with_commitments(FacilityCounts::only(&[("Farmland", 6, 5), ("Sunlamp", sunlamps, 1)]), &picks);
+        commitment_status(&items, &counts, &modules)[0].possible
+    };
+    assert!(!status(0), "no Sunlamp");
+    assert!(status(1));
+}
+
+// Season crops kept busy take their seeds out of the day's season budget: six plots each of
+// Moondew Radish and Waxing Moon Pepper all day take more than 1600 a day, so both picks are scaled
+// down alike to what the budget pays for, instead of no plan fitting.
+#[test]
+fn test_commitment_season_crops_keep_to_the_seed_budget() {
+    let Some(mut items) = load_items_with_season() else { return };
+    let modules = ModuleLevels::default();
+    let picks = [("moondew_radish", 6.0, CommitmentKind::Units), ("waxing_moon_pepper", 6.0, CommitmentKind::Units)];
+    let counts = with_commitments(FacilityCounts::only(&[("Farmland", 12, 5)]), &picks);
+    assert!(commitment_status(&items, &counts, &modules).iter().all(|s| s.possible && s.held == 6.0), "no budget set");
+
+    for item in items.iter_mut() {
+        if let Some(season) = item.season.as_mut() {
+            season.currency_per_day = Some(1600.0);
+        }
+    }
+    let held = commitment_status(&items, &counts, &modules);
+    let radish = items.iter().find(|i| i.name == "moondew_radish").unwrap();
+    let all_day = 12.0 * 4.0 * PACE_UNIT / radish.production_time;
+    assert!(all_day > 1600.0);
+    for s in &held {
+        assert!(s.possible);
+        assert!((s.held - 6.0 * 1600.0 / all_day).abs() < 1e-3, "held {}", s.held);
+    }
+    let plan = solve_exact(&items, "coins", &counts, &modules, Goal::Earn { floors: &[] }, Some(Duration::from_secs(60)), None)
+        .expect("a plan within the seed budget");
+    check_plan(&plan, &items, "coins", &counts, &modules, None).expect("plan passes its re-check");
+    for s in &held {
+        assert!(busy_making(&plan, &items, &s.commitment.item) >= s.held - 1e-6);
+    }
+}

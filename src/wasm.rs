@@ -797,8 +797,12 @@ pub struct JsCommitmentReport {
     pub facility: Option<String>,
     /// `false` when nothing the player has can make it, so the plan leaves it out.
     pub possible: bool,
-    /// Units the plan keeps busy making it: at least `amount` for `"units"`, when possible.
+    /// Units the plan keeps busy making it: at least `held` for `"units"`, when possible.
     pub busy: f64,
+    /// Units the plan has to keep busy: `amount`, or less when season crops kept busy all day
+    /// would take more seeds than the day's season budget (see
+    /// [`crate::exact::CommitmentStatus::held`]).
+    pub held: f64,
 }
 
 /// The player's Aniimo, and what the page knows of the facilities they work (see
@@ -1582,6 +1586,7 @@ pub fn exact_plan(input_json: &str, stage_json: &str, solution_json: &str) -> St
             }
             .to_string(),
             amount: status.commitment.amount,
+            held: status.held,
             item: status.commitment.item,
             facility: status.facility,
             possible: status.possible,

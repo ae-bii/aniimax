@@ -340,24 +340,65 @@ pub struct CommitmentStatus {
     pub facility: Option<String>,
     /// Whether any recipe making it can run here; a commitment that can't is left out of plans.
     pub possible: bool,
+    /// For [`CommitmentKind::Units`], the units a plan keeps busy on it: the amount asked for,
+    /// unless season crops kept busy all day would need more seeds than the day's season budget
+    /// (see [`crate::models::SeasonTerms::currency_per_day`]), when every season pick is scaled
+    /// down alike to what the budget pays for. The amount itself for [`CommitmentKind::PerDay`].
+    pub held: f64,
 }
 
 /// Each commitment in `facility_counts`, in order, and whether these facilities and modules can
 /// make it.
 pub fn commitment_status(items: &[ProductionItem], facility_counts: &FacilityCounts, module_levels: &ModuleLevels) -> Vec<CommitmentStatus> {
     let all: HashMap<&str, &ProductionItem> = items.iter().map(|i| (i.name.as_str(), i)).collect();
-    facility_counts
-        .commitments()
-        .iter()
-        .map(|c| {
-            let making: Vec<&ProductionItem> = items.iter().filter(|r| made_item(&r.name, &all) == c.item).collect();
-            CommitmentStatus {
-                commitment: c.clone(),
-                facility: making.first().map(|r| r.facility.clone()),
-                possible: making.iter().any(|r| usable(r, facility_counts, module_levels)),
+    // A crop that wants a growing environment can only be kept if a building here provides it
+    // (a crop with a slower uncovered variant is covered by that).
+    let environment_owned = |recipe: &ProductionItem| {
+        let Some(environment) = recipe.environment.as_deref() else { return true };
+        !ENVIRONMENT_GATED_FACILITIES.iter().any(|(f, _)| *f == recipe.facility)
+            || ENVIRONMENT_BUILDINGS
+                .iter()
+                .any(|(building, modes)| modes.contains(&environment) && facility_counts.get_count(building) > 0)
+    };
+    let mut statuses: Vec<CommitmentStatus> = Vec::new();
+    // Season seeds a day for each pick's units kept busy all day, on its cheapest recipe.
+    let mut seeds_a_day: Vec<f64> = Vec::new();
+    for c in facility_counts.commitments() {
+        let making: Vec<&ProductionItem> = items.iter().filter(|r| made_item(&r.name, &all) == c.item).collect();
+        let runnable: Vec<&ProductionItem> =
+            making.iter().copied().filter(|r| usable(r, facility_counts, module_levels) && environment_owned(r)).collect();
+        let seeds = if c.kind == CommitmentKind::Units && !runnable.is_empty() {
+            runnable
+                .iter()
+                .map(|r| r.season.map_or(0.0, |s| s.seed_cost) * PACE_UNIT / r.production_time * c.amount)
+                .fold(f64::INFINITY, f64::min)
+        } else {
+            0.0
+        };
+        seeds_a_day.push(seeds);
+        statuses.push(CommitmentStatus {
+            commitment: c.clone(),
+            facility: making.first().map(|r| r.facility.clone()),
+            possible: !runnable.is_empty(),
+            held: c.amount,
+        });
+    }
+    // The season seed budget a day is shared by every pick growing season crops. A player keeping
+    // plots on them doesn't replant through the night, so where all day would cost more than the
+    // budget, each pick keeps its plots busy for the share of the day the budget pays for, instead
+    // of no plan fitting at all.
+    let budget = items.iter().find_map(|i| i.season.and_then(|s| s.currency_per_day));
+    let needed: f64 = seeds_a_day.iter().sum();
+    if let Some(budget) = budget.filter(|&b| needed > b) {
+        // A hair under the budget, so the seeds don't sit exactly on its limit.
+        let share = budget / needed * (1.0 - 1e-6);
+        for (status, &seeds) in statuses.iter_mut().zip(&seeds_a_day) {
+            if seeds > 0.0 {
+                status.held = status.commitment.amount * share;
             }
-        })
-        .collect()
+        }
+    }
+    statuses
 }
 
 /// Units of `plan` busy making `item`, in any variant: each recipe's rate times its time per batch.
@@ -425,15 +466,20 @@ fn build_model<'a>(
     }
     // What the player makes regardless: at least that many units busy on the item, across every
     // recipe making it. Busy, not just set aside, so the plan has to do something with what they
-    // make. One that nothing here can make is left out (see `commitment_status`).
-    for commitment in facility_counts.commitments().iter().filter(|c| c.kind == CommitmentKind::Units) {
+    // make. One that nothing here can make is left out, and one the season budget can't keep busy
+    // all day is held to what it can (see `commitment_status`).
+    for status in commitment_status(items, facility_counts, module_levels) {
+        let commitment = &status.commitment;
+        if !status.possible || commitment.kind != CommitmentKind::Units {
+            continue;
+        }
         let busy: Vec<(usize, f64)> = rate_of
             .iter()
             .filter(|(recipe, _)| made_item(&recipe.name, &all) == commitment.item)
             .map(|&(recipe, rate)| (rate, recipe.production_time))
             .collect();
-        if commitment.amount > 0.0 && !busy.is_empty() {
-            model.constrain(busy, ComparisonOp::Ge, commitment.amount);
+        if status.held > 0.0 && !busy.is_empty() {
+            model.constrain(busy, ComparisonOp::Ge, status.held);
         }
     }
 
@@ -1152,8 +1198,8 @@ pub fn check_plan(
             continue;
         }
         let busy = busy_making(plan, items, &c.item);
-        if busy < c.amount - TOLERANCE * c.amount.max(1.0) {
-            return Err(format!("{} should keep {} units busy but keeps {busy}", c.item, c.amount));
+        if busy < status.held - TOLERANCE * status.held.max(1.0) {
+            return Err(format!("{} should keep {} units busy but keeps {busy}", c.item, status.held));
         }
     }
     for (name, per_second) in kept_per_second(items, facility_counts, module_levels) {
